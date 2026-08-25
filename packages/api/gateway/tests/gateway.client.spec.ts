@@ -85,9 +85,9 @@ function remoteEventContracts(remote: ClientRemote): void {
 void remoteEventContracts
 
 const idSchema = z.string().min(1)
-const requestSchema = z.object({ objective: z.string().min(1) })
-const createResultSchema = z.object({ ref: z.string().min(1) })
-const renameResultSchema = z.object({ renamed: z.boolean() })
+const requestSchema = z.strictObject({ objective: z.string().min(1) })
+const createResultSchema = z.strictObject({ ref: z.string().min(1) })
+const renameResultSchema = z.strictObject({ renamed: z.boolean() })
 
 function directDescriptor(): InvocationDescriptor {
   return {
@@ -206,6 +206,14 @@ describe('Client Typert API', () => {
     callerAbort.abort(cancellation)
     expect(combinedSignal?.aborted).toBe(true)
     expect(combinedSignal?.reason).toBe(cancellation)
+    const callsBeforeRejectedRequest = call.mock.calls.length
+    const requestWithUnknownIdentity = {
+      objective: 'ship',
+      projectId: 'project-forged',
+    } as { readonly objective: string }
+    await expect(ctx.remote.probe.create('agent-1', requestWithUnknownIdentity))
+      .rejects.toThrow('rejected "request"')
+    expect(call).toHaveBeenCalledTimes(callsBeforeRejectedRequest)
     await expect(ctx.remote.probe.create('', { objective: 'ship' })).rejects.toThrow('rejected "agentId"')
 
     call.mockResolvedValueOnce({ ok: true, value: { ref: 1 } })

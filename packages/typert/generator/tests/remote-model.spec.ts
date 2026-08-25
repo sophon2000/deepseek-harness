@@ -132,10 +132,22 @@ describe('Remote model generation', { timeout: 60_000 }, () => {
     expect(generated.TYPERT_REMOTE.package).toBe('@fixture/remote')
     const create = generated.TYPERT_REMOTE.descriptors[0]
     expect(create?.cancellation).toEqual({ parameter: 'signal' })
-    expect(create?.parameters[1]?.codec.schema.safeParse({ title: 'ship' }).success).toBe(true)
+    expect(create?.parameters[1]?.codec.schema.safeParse({
+      title: 'ship',
+      options: { priority: 1 },
+    }).success).toBe(true)
     expect(create?.parameters[1]?.codec.schema.safeParse({ title: 1 }).success).toBe(false)
+    expect(create?.parameters[1]?.codec.schema.safeParse({
+      title: 'ship',
+      projectId: 'project-forged',
+    }).success).toBe(false)
+    expect(create?.parameters[1]?.codec.schema.safeParse({
+      title: 'ship',
+      options: { priority: 1, tenantId: 'tenant-forged' },
+    }).success).toBe(false)
     expect(create?.result.schema.safeParse({ ref: 'goal-1' }).success).toBe(true)
     expect(create?.result.schema.safeParse({ ref: 1 }).success).toBe(false)
+    expect(create?.result.schema.safeParse({ ref: 'goal-1', internal: true }).success).toBe(false)
 
     const declarationMap = JSON.parse(artifact?.remote?.dtsMap ?? '') as RemoteDeclarationMap
     expect(declarationMap).toMatchObject({

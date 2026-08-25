@@ -16,6 +16,8 @@ TypeScript 项目分析器和模型驱动的 Typert 生成器。在生成任何�
 
 `FaceModelEmitter` 只消费模型。它会生成可执行 JavaScript，其中包含受支持的 Zod schema 和一个 `TYPERT` contribution；同时生成声明文件，通过包的公开导出将其中的 schema 标注为 `z.ZodType<SourceType>`。遇到不支持的 Zod 投影时，生成会失败，不会展平或弱化源类型。
 
+仅含固定属性的对象声明和对象字面量会生成递归闭合的 `z.strictObject` schema，因此未知属性会让解析失败，而不会被静默丢弃。`Record`、显式 JSON 索引签名，以及 `object`、`unknown`、`any` 关键字会保留源码表达的开放语义（[决策记录](../../../.agents/notes/implemented/bug-fix/2026-08-25-close-generated-typert-object-codecs.zh.md)）。
+
 `WorkspaceTypertGenerator` 会遍历从 Cordis `Context` 或 `Events` 扩充声明及显式 `@typert` 声明可达的包公开导出，以发现贡献方。发布产物时，它要求宿主侧产物位于 `lib/typert.host.{js,d.ts}` 并以 `package/typert` 暴露，客户端侧产物位于 `lib/typert.client.{js,d.ts}` 并以 `package/client/typert` 暴露。生成的声明将 `TYPERT` 暴露为 `unknown`，因此参与贡献的业务包无需依赖运行时注册表。
 
 各包可自行选择是否发布，未提供对应公开入口的业务包无需生成 Typert 产物。仓库的 Host tsdown 会以 `tsconfig.host.json` 为唯一 program 种子运行 workspace Typert 生成；它既生成 Host 反射产物，也把 Host Remote 约定投影为 Client 使用的 `typert.remote-client.*`。后续 Client tsdown 不启动 Typert，也不分析 `tsconfig.client.json`。静态消费方仍可直接调用 `WorkspaceAnalyzer`，显式选择 face 与包子集，并在不发布或加载运行时产物的情况下分批处理包。
