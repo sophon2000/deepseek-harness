@@ -277,7 +277,7 @@ const supportedCases: readonly SchemaCase[] = [
       keyword('number', 'number'),
     ],
     accepted: [{ name: 'value' }, { name: 'value', count: 1 }],
-    rejected: [{ name: 1 }],
+    rejected: [{ name: 1 }, { name: 'value', unexpected: true }],
   },
 ]
 
@@ -355,6 +355,7 @@ describe('SchemaEmitter supported projection matrix', () => {
     ], inherited, [base]))
     expect(inheritedSchema.safeParse({ base: 'value', current: 1 }).success).toBe(true)
     expect(inheritedSchema.safeParse({ current: 1 }).success).toBe(false)
+    expect(inheritedSchema.safeParse({ base: 'value', current: 1, unexpected: true }).success).toBe(false)
   })
 
   it('instantiates generic aliases, nested references, defaults, and recursive declarations', async () => {
@@ -723,7 +724,8 @@ describe('SchemaEmitter unsupported projection matrix', () => {
       ],
     })
     const hiddenSchema = await loadSchema(emit([keyword('string', 'string')], hiddenMembers))
-    expect(hiddenSchema.safeParse({ arbitrary: true }).success).toBe(true)
+    expect(hiddenSchema.safeParse({}).success).toBe(true)
+    expect(hiddenSchema.safeParse({ arbitrary: true }).success).toBe(false)
 
     const first = { ...declaration('first', 'interface'), name: 'Same' }
     const second = { ...declaration('second', 'interface'), name: 'Same' }
@@ -760,6 +762,19 @@ describe('SchemaEmitter unsupported projection matrix', () => {
 
     expect(schema.safeParse({ one: 1, two: 2 }).success).toBe(true)
     expect(schema.safeParse({ one: '1' }).success).toBe(false)
+  })
+
+  it('keeps declared index signatures open beside fixed properties', async () => {
+    const root = declaration('Root', 'interface', {
+      members: [property('fixed', 'value'), indexMember('key', 'value')],
+    })
+    const schema = await loadSchema(emit([
+      keyword('key', 'string'),
+      keyword('value', 'number'),
+    ], root))
+
+    expect(schema.safeParse({ fixed: 1, dynamic: 2 }).success).toBe(true)
+    expect(schema.safeParse({ fixed: 1, dynamic: '2' }).success).toBe(false)
   })
 
   it('rejects more than one JSON index signature', () => {
