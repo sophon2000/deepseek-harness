@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-25-installed-typert-protocol-identity.md
+2026-08-25-installed-typert-protocol-identity.md: 245ed2f5505a6a8593c0a56f938b3c5282c3eb4a
+2026-08-25-installed-typert-protocol-identity.zh.md: 5d94493ea092d2aaf59665a8a2dd473c2d792159

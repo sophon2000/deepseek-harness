@@ -1809,8 +1809,11 @@ class FaceAnalyzer {
     if (resolved.name !== name) return false
     const declaration = preferredDeclaration(resolved)
     if (declaration === undefined) return false
-    const registration = this.registrationForFile(declaration.getSourceFile().fileName)
+    const declarationFile = declaration.getSourceFile().fileName
+    const registration = this.registrationForFile(declarationFile)
     if (registration?.name === '@deepseek-ai/dsh-typert-protocol') return true
+    const external = externalModuleIdentityForFile(declarationFile)
+    if (external?.package === '@deepseek-ai/dsh-typert-protocol') return true
     for (let current: ts.Node | undefined = declaration; current !== undefined; current = optionalParent(current)) {
       if (ts.isModuleDeclaration(current)
         && ts.isStringLiteral(current.name)
