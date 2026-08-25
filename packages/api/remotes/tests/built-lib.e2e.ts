@@ -176,6 +176,35 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       } catch {
         invalidRejected = true
       }
+      let clientUnknownRejected = false
+      try {
+        await client.remote.goals.create(rootAgent.id, {
+          objective: 'forged client goal',
+          projectId: 'project-forged',
+        })
+      } catch {
+        clientUnknownRejected = true
+      }
+      const forgedHostResponse = await fetch(origin + '/api/goals/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId: 'rpc-forged-tenant',
+          method: 'goals/create',
+          payload: {
+            args: {
+              agentId: rootAgent.id,
+              request: { objective: 'forged host goal', tenantId: 'tenant-forged' },
+            },
+          },
+        }),
+      })
+      const forgedHostBody = await forgedHostResponse.json()
+      const hostUnknownRejected = forgedHostResponse.status === 200
+        && forgedHostBody?.result?.ok === false
+      const rejectedGoalAbsent = host.goals.get(rootAgent) === undefined
+      const rejectedEventCount = rootAgent.session.events.length
       // Every generated method resolves to the RemoteResult envelope; the
       // business values below are what the assertions pin.
       const rootResult = await client.remote.goals.create(rootAgent.id, { objective: 'root goal' })
@@ -188,6 +217,10 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const scopedResult = await agentContext.remote.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
       const result = {
         invalidRejected,
+        clientUnknownRejected,
+        hostUnknownRejected,
+        rejectedGoalAbsent,
+        rejectedEventCount,
         rootResult: rootResult.value,
         rootEdit: rootEdit.value,
         scopedResult: scopedResult.value,
@@ -210,6 +243,10 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     expect(result.exitCode, `stderr:\n${result.stderr}`).toBe(0)
     const output = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}') as {
       invalidRejected: boolean
+      clientUnknownRejected: boolean
+      hostUnknownRejected: boolean
+      rejectedGoalAbsent: boolean
+      rejectedEventCount: number
       rootResult: { ref: { id: string; revision: number } }
       rootEdit: { objective: string; revision: number }
       scopedResult: { ref: { id: string; revision: number } }
@@ -220,6 +257,10 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     }
     expect(output).toMatchObject({
       invalidRejected: true,
+      clientUnknownRejected: true,
+      hostUnknownRejected: true,
+      rejectedGoalAbsent: true,
+      rejectedEventCount: 0,
       rootResult: { ref: { revision: 1 } },
       rootEdit: { objective: 'edited root goal', revision: 2 },
       scopedResult: { ref: { revision: 1 } },
