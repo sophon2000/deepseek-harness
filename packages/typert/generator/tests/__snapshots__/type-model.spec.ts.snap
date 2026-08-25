@@ -5,7 +5,7 @@ exports[`FaceModelEmitter > emits runnable Zod JavaScript, precise declarations,
 import { z } from 'zod'
 
 let Payload$schema$value
-const Payload$schema = () => (Payload$schema$value ??= z.object({
+const Payload$schema = () => (Payload$schema$value ??= z.strictObject({
   'name': z.string(),
   'count': z.number().optional(),
 }).describe('Runtime-validating data root.'))

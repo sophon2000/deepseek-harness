@@ -29,6 +29,8 @@ kind: "package-library"
 
 本包供把 Typert 生成接入构建或消费生成产物的包维护者与仓库维护者使用。发布是选择加入的：声明导出入口、运行构建，产物即出现在 `lib/` 中；静态分析则不需要产物。
 
+仅含固定属性的对象声明和对象字面量会生成递归闭合的 `z.strictObject` schema，因此未知属性会让解析失败，而不会被静默丢弃。`Record`、显式 JSON 索引签名，以及 `object`、`unknown`、`any` 关键字会保留源码表达的开放语义（[决策记录](../../../.agents/notes/implemented/bug-fix/2026-08-25-close-generated-typert-object-codecs.zh.md)）。
+
 ### 从包中发布 Typert 产物
 
 参与贡献的包在 `package.json` 中声明宿主侧产物导出；同时贡献两侧的包还要声明 `./client/typert`，含 Remote 方法的包还要声明 `./remote`：

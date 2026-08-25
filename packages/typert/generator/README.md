@@ -29,6 +29,8 @@ Metadata declarations imported from an installed `@deepseek-ai/dsh-typert-protoc
 
 This package is for package and repository maintainers who wire Typert generation into a build or consume generated artifacts. Publication is opt-in: declare the export entries, run the build, and the artifacts appear in `lib/`; static analysis needs no artifact.
 
+Fixed-property object declarations and object literals emit recursively closed `z.strictObject` schemas, so unknown properties fail parsing instead of being discarded. `Record`, explicit JSON index signatures, and the `object`, `unknown`, and `any` keywords retain their authored open semantics ([decision](../../../.agents/notes/implemented/bug-fix/2026-08-25-close-generated-typert-object-codecs.md)).
+
 ### Publishing Typert artifacts from a package
 
 A contributing package declares the host-face artifact export in `package.json`; packages that contribute both faces also declare `./client/typert`, and packages with Remote methods declare `./remote`:
