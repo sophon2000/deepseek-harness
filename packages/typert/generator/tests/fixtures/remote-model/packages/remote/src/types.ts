@@ -1,6 +1,12 @@
 /** Input accepted by Goal creation. */
 export interface CreateGoalRequest {
   readonly title: string
+  readonly options?: CreateGoalOptions
+}
+
+/** Optional controls for Goal creation. */
+export interface CreateGoalOptions {
+  readonly priority: number
 }
 
 /** Wire-safe Goal creation result. */
