@@ -48,6 +48,35 @@ afterEach(() => {
 })
 
 describe('Remote model generation', { timeout: 60_000 }, () => {
+  it('recognizes Remote metadata from the installed protocol package outside the workspace', () => {
+    const root = copyFixture()
+    useInstalledProtocolPackage(root)
+
+    const model = remotePackage(root)
+    expect(model.invocations.map(invocation => invocation.id)).toEqual([
+      '@fixture/remote#goals/create',
+      '@fixture/remote#goals/rename',
+    ])
+
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    expect(artifact?.remote?.dts).toContain("'goals/create':")
+    expect(artifact?.remote?.dts).toContain("'agent:goals/rename':")
+  })
+
+  it('does not recognize same-named Remote metadata from another installed package', () => {
+    const root = copyFixture()
+    useInstalledProtocolPackage(root)
+    installProtocolDeclarations(root, '@fixture/lookalike-protocol')
+    editFile(root, 'packages/remote/src/index.ts', source => source
+      .replace(
+        "from '@deepseek-ai/dsh-typert-protocol'",
+        "from '@fixture/lookalike-protocol'",
+      )
+      .replace("@RemoteScope('agent')", '@Remote'))
+
+    expect(new WorkspaceTypertGenerator(root).generate()).toEqual([])
+  })
+
   it('discovers a Remote-only package and emits strict direct and Context descriptors', async () => {
     const generator = new WorkspaceTypertGenerator(fixtureRoot)
 
@@ -632,6 +661,35 @@ function editFile(root: string, relativePath: string, edit: (source: string) => 
   const result = edit(source)
   if (result === source) throw new Error(`fixture edit made no change to ${relativePath}`)
   writeFileSync(path, result)
+}
+
+function useInstalledProtocolPackage(root: string): void {
+  const configPath = join(root, 'tsconfig.base.json')
+  const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+    compilerOptions: { paths: Record<string, string[]> }
+  }
+  delete config.compilerOptions.paths['@deepseek-ai/dsh-typert-protocol']
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
+  installProtocolDeclarations(root, '@deepseek-ai/dsh-typert-protocol')
+}
+
+function installProtocolDeclarations(root: string, packageName: string): void {
+  const packageRoot = join(root, 'node_modules', packageName)
+  mkdirSync(packageRoot, { recursive: true })
+  writeFileSync(join(packageRoot, 'package.json'), `${JSON.stringify({
+    name: packageName,
+    version: '1.0.0',
+    types: './index.d.ts',
+  }, null, 2)}\n`)
+  const ambientSource = readFileSync(join(fixtureRoot, 'typert-protocol.d.ts'), 'utf8')
+  const modulePrefix = "declare module '@deepseek-ai/dsh-typert-protocol' {\n"
+  if (!ambientSource.startsWith(modulePrefix) || !ambientSource.endsWith('}\n')) {
+    throw new Error('Remote protocol fixture must contain one ambient module declaration')
+  }
+  const declarationSource = ambientSource
+    .slice(modulePrefix.length, -2)
+    .replace(/^  /gm, '')
+  writeFileSync(join(packageRoot, 'index.d.ts'), `${declarationSource}\n`)
 }
 
 function assertRemoteConsumerTypechecks(
