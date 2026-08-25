@@ -20,6 +20,8 @@ kind: "package-library"
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
+从已安装的 `@deepseek-ai/dsh-typert-protocol` 包导入的元数据声明会通过精确的外部包身份来识别。其类型仍作为 workspace 类型图之外的外部类型处理；其他依赖即使导出同名声明，也不会因此成为 Typert 标记。
+
 -----
 
 <a id="use-this-package"></a>
