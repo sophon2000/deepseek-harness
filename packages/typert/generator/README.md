@@ -20,6 +20,8 @@ English | [中文](README.zh.md)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+Metadata declarations imported from an installed `@deepseek-ai/dsh-typert-protocol` package are recognized by their exact external-package identity. Their types remain external to the workspace graph, and declarations from another dependency do not become Typert markers merely by exporting the same names.
+
 -----
 
 <a id="use-this-package"></a>
