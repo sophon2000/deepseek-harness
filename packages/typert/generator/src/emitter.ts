@@ -767,8 +767,9 @@ class SchemaEmitter {
     if (indices.length > 1) this.fail(subject, 'object type has more than one JSON index signature')
     // A unique-symbol-only object is a compile-time marker and imposes no JSON shape.
     if (properties.length === 0 && indices.length === 0 && symbolMembers > 0) return 'z.unknown()'
-    const object = `z.object({${properties.length === 0 ? '' : `\n${properties.map(property => `  ${property},`).join('\n')}\n`}})`
     const index = indices[0]
+    const objectConstructor = index === undefined ? 'z.strictObject' : 'z.object'
+    const object = `${objectConstructor}({${properties.length === 0 ? '' : `\n${properties.map(property => `  ${property},`).join('\n')}\n`}})`
     if (index === undefined) return object
     if (properties.length === 0) return index
     return `z.intersection(${object}, ${index})`
