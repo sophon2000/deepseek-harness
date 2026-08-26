@@ -755,6 +755,90 @@ describe('header-validated membership projection', () => {
     expect(workspace.sessionIds).not.toContain('cwd-only')
   })
 
+  it('inspects durable accounts without widening validated membership', async () => {
+    const owned = await makeDir('inspection-owned')
+    const elsewhere = await makeDir('inspection-elsewhere')
+    const gone = await makeDir('inspection-gone')
+    const file = join(base, 'inspection-file')
+    await writeFile(file, 'not a directory')
+    await rm(gone, { recursive: true })
+    const id = WorkspaceId('00000000-0000-4000-8000-000000000030')
+    const pool = storedPool(
+      [[id, record(owned, ['valid', 'mismatch', 'missing-header', 'no-cwd', 'gone', 'file'])]],
+      { initialized: true, workspaceIds: [id] },
+    )
+    const result = await harness({
+      pool,
+      sessions: [
+        header('valid', owned),
+        header('mismatch', elsewhere),
+        header('no-cwd'),
+        header('gone', gone),
+        header('file', file),
+        header('cwd-only', owned),
+      ],
+    })
+    const workspace = result.registry.get(id)
+    if (workspace === undefined) throw new Error('stored inspection workspace was not loaded')
+
+    expect(workspace.sessionIds).toEqual(['valid'])
+    expect(result.registry.inspectSessionWorkspace(SessionId('valid')))
+      .toEqual({ workspace, validation: 'valid' })
+    expect(result.registry.inspectSessionWorkspace(SessionId('mismatch')))
+      .toEqual({ workspace, validation: 'cwd-mismatch' })
+    for (const unavailable of ['missing-header', 'no-cwd', 'gone', 'file']) {
+      expect(result.registry.inspectSessionWorkspace(SessionId(unavailable)))
+        .toEqual({ workspace, validation: 'cwd-unavailable' })
+    }
+    expect(result.registry.inspectSessionWorkspace(SessionId('cwd-only'))).toBeUndefined()
+    expect(storedRecord(pool, id).sessionIds)
+      .toEqual(['valid', 'mismatch', 'missing-header', 'no-cwd', 'gone', 'file'])
+    expect(result.changes).toEqual([])
+    expect(result.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains the durable account inspection after its directory disappears before restart', async () => {
+    const dir = await makeDir('inspection-cold-missing')
+    const id = WorkspaceId('00000000-0000-4000-8000-000000000031')
+    const pool = storedPool(
+      [[id, record(dir, ['cold'])]],
+      { initialized: true, workspaceIds: [id] },
+    )
+    await rm(dir, { recursive: true })
+
+    const result = await harness({ pool, sessions: [header('cold', dir)] })
+    const workspace = result.registry.get(id)
+    if (workspace === undefined) throw new Error('stored missing-directory workspace was not loaded')
+
+    expect(workspace.sessionIds).toEqual([])
+    expect(result.registry.inspectSessionWorkspace(SessionId('cold')))
+      .toEqual({ workspace, validation: 'cwd-unavailable' })
+    await expect(workspace.status()).resolves.toBe('missing-dir')
+  })
+
+  it('reports a cold-start cwd symlink retarget as a mismatch', async () => {
+    const original = await makeDir('inspection-link-original')
+    const replacement = await makeDir('inspection-link-replacement')
+    const alias = join(base, 'inspection-link')
+    await symlink(original, alias)
+    const id = WorkspaceId('00000000-0000-4000-8000-000000000032')
+    const pool = storedPool(
+      [[id, record(original, ['linked'])]],
+      { initialized: true, workspaceIds: [id] },
+    )
+    await rm(alias)
+    await symlink(replacement, alias)
+
+    const result = await harness({ pool, sessions: [header('linked', alias)] })
+    const workspace = result.registry.get(id)
+    if (workspace === undefined) throw new Error('stored symlink workspace was not loaded')
+
+    expect(workspace.sessionIds).toEqual([])
+    expect(result.registry.inspectSessionWorkspace(SessionId('linked')))
+      .toEqual({ workspace, validation: 'cwd-mismatch' })
+    await expect(workspace.status()).resolves.toBe('ok')
+  })
+
   it('rejects duplicate candidate ownership, duplicate paths, and initialized order drift', async () => {
     const first = await makeDir('corrupt-first')
     const second = await makeDir('corrupt-second')
@@ -798,6 +882,19 @@ describe('header-validated membership projection', () => {
     const internals = result.registry as unknown as { entities: Map<WorkspaceId, unknown> }
     internals.entities.delete(workspace.id)
     expect(() => result.registry.list()).toThrow(/references missing workspace/)
+  })
+
+  it('fails account inspection if the durable table and entity cache are externally diverged', async () => {
+    const dir = await makeDir('inspection-cache-diverged')
+    const result = await harness({ sessions: [header('inspection-diverged', dir)] })
+    const workspace = await result.registry.create(dir)
+    await workspace.attachSession(SessionId('inspection-diverged'))
+    const internals = result.registry as unknown as {
+      table: { delete(id: WorkspaceId): Promise<boolean> }
+    }
+    await internals.table.delete(workspace.id)
+    expect(() => result.registry.inspectSessionWorkspace(SessionId('inspection-diverged')))
+      .toThrow(/entity references missing workspace/)
   })
 
   it('recovers only an explicitly marked interrupted create or delete', async () => {
