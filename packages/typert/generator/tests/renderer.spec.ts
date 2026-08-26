@@ -116,6 +116,28 @@ describe('TypeGraphRenderer defensive and optional shapes', () => {
       .toEqual(['Dependency'])
   })
 
+  it('renders generated names for external symbol references', () => {
+    const renderer = new TypeGraphRenderer({
+      declarations: [],
+      nodes: [{
+        id: 'external',
+        kind: 'reference',
+        name: 'LocalWireId',
+        target: {
+          kind: 'external',
+          symbol: 'external-wire-id',
+          module: '@fixture/session',
+          subpath: '.',
+          name: 'AgentId',
+        },
+        arguments: [],
+      }],
+    })
+
+    expect(renderer.renderType('external')).toBe('LocalWireId')
+    expect(renderer.renderType('external', new Map([['external-wire-id', 'AgentId']]))).toBe('AgentId')
+  })
+
   it('fails loudly for every broken graph edge and impossible discriminant', () => {
     const missingConstraint: TypeNodeModel = {
       id: 'mapped',
