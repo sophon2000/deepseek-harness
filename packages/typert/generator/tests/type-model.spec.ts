@@ -746,6 +746,7 @@ describe('WorkspaceAnalyzer', { timeout: 60_000 }, () => {
       .flatMap(node => node.kind === 'reference' ? [node.target] : [])
     expect(targets).toContainEqual({
       kind: 'external',
+      symbol: '<external>:node_modules/unscoped-global/index.d.ts#UnscopedGlobal',
       module: 'unscoped-global',
       subpath: '.',
       name: 'UnscopedGlobal',
