@@ -12,6 +12,8 @@ Each face contains package exports, Cordis services and events, explicitly tagge
 
 Metadata declarations imported from an installed `@deepseek-ai/dsh-typert-protocol` package are recognized by their exact external-package identity. Their types remain external to the workspace graph, and declarations from another dependency do not become Typert markers merely by exporting the same names.
 
+An installed NPM dependency may supply a named Remote boundary type only when a concrete public non-root `package.json#exports` subpath exposes the resolved symbol. The generated declaration imports that canonical symbol, preserves its identity across authored aliases, and allocates distinct local names for import collisions; root-only and pattern exports fail instead of weakening the [public-type requirement](../../../.agents/notes/implemented/bug-fix/2026-08-26-installed-public-remote-types.md).
+
 `WorkspaceAnalyzer` defaults to `check` mode and fails on TypeScript syntax or semantic diagnostics, missing reachable public annotations, private cross-package references, and reachable declaration merges that the model cannot retain losslessly. `write` mode inserts checker-derived annotations, rebuilds the program, and returns a clean check-mode model.
 
 ## Emission and Opt-in Publication

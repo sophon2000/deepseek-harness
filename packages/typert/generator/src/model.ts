@@ -326,6 +326,7 @@ export type TypeTargetModel =
   }
   | {
     readonly kind: 'external'
+    readonly symbol: SymbolId
     readonly module: string
     readonly subpath: string
     readonly name: string
