@@ -140,15 +140,15 @@ Read these pages when this package's view is not enough: the subsystem reference
 
 #### What the model sees
 
-Nothing. `ctx.workspaceRegistry` serves workspace records to host-side consumers only: the package registers no tools, injects no prompts, and writes no session events, so no request field ever carries this package's data.
+Nothing in shipped configurations. `ctx.workspaceRegistry` serves workspace records to host-side consumers: the package registers no tools, injects no prompts, and writes no session events, so it contributes no request field. The deliberately opt-in [`dsh-tool-cordis`](../../extensions/tool-cordis) can show a model the generated public Service catalog, including this method's signature and result type; catalog inspection alone exposes no Workspace records.
 
 #### Token effect
 
-Zero direct tokens on every request.
+Zero direct tokens from this package on every request. Enabling `dsh-tool-cordis` adds that plugin's own Tool and catalog context.
 
 #### KV Cache effect
 
-Independent of live requests: the package never touches a request prefix, so it cannot invalidate provider cache reuse.
+Independent of live requests in shipped configurations: this package never touches a request prefix. An opt-in `dsh-tool-cordis` composition owns the cache effect of its Tool and generated catalog.
 
 ## Known Limitations and Deferred Work
 
@@ -159,7 +159,7 @@ These limits define when the project list is a poor fit or needs special operati
 
 - **Removal never deletes data** — removing a project leaves its folder, files, and session histories in place; those sessions become ungrouped, and session deletion or folder removal are separate, absent capabilities ([decision](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)).
 - **A session joins only with a recorded directory** — a session belongs to a project only when its record carries a directory that resolves to the project's path; sessions without one stay ungrouped, and a session from another directory cannot be moved in.
-- **External changes are seen late** — if another process deletes or damages a directory, the project reflects it only at the next refresh or restart.
+- **External changes are seen late** — the header index used by `Workspace.sessionIds` and `inspectSessionWorkspace` refreshes at startup and when attach resolves an uncached persisted id; if another process deletes or damages a directory, the project reflects it only at the next refresh or restart.
 - **Archiving is one-way** — a hidden session keeps its history and its place, but no unarchive action exists yet; the archive set is a durable display filter.
 - **Re-adding a directory starts fresh** — after removal, adding the same directory again creates a new project with an empty session list; the old sessions do not come back automatically.
 
