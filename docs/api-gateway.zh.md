@@ -112,7 +112,7 @@ API Gateway 包同时拥有 Host dispatcher 与 Client Remote endpoint 两个对
 
 业务包通过 `./typert` 暴露 Host Loader 入口，通过 `./remote` 暴露 Host-for-Client 入口。生成器同时校验这些包 export 及发布文件清单；只有具备相应入口的显式贡献包才会生成产物。
 
-Remote Client 声明中的参数名来自 wire 字段，参数和返回类型则引用原业务包导出的 Client-safe 类型。声明 map 把 `ctx.remote.goals.create` 最终解析到的生成属性映射到带 `@Remote` 的 Host 源方法，因此支持 declaration-map 的编辑器可以从 Client 调用跳到真实实现，而不是停在生成的 `.d.ts`。
+Remote Client 声明中的参数名来自 wire 字段，参数和返回类型则引用通过具体公共非根类型子路径暴露的 Client-safe 符号。符号所有者可以是参与贡献的业务包或已安装的 NPM 依赖；已安装的声明仍位于 workspace 类型图之外。声明 map 把 `ctx.remote.goals.create` 最终解析到的生成属性映射到带 `@Remote` 的 Host 源方法，因此支持 declaration-map 的编辑器可以从 Client 调用跳到真实实现，而不是停在生成的 `.d.ts`。
 
 严格分析要求 Remote 是公开、非静态、有具体实现的实例方法。方法不能是泛型；参数必须是具名且必填的简单标识符，不能使用解构、默认值、rest 或可选参数。可 JSON 表示的普通类型由 Typert 生成严格 schema；工作区 class 等复杂对象必须具有唯一的 `TypertLookupMap` 声明。lookup 与 Context 包同时负责静态声明合并和运行时提供方注册；缺少任一侧都会导致构建失败，或者首次调用需要该提供方时失败。
 

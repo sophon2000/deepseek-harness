@@ -179,6 +179,8 @@ import type { CreateGoalRequest, CreateGoalResult } from '@deepseek-ai/dsh-goal/
 
 Consequently, `SessionId`, the Agent wire ID, the request, and the result all refer to the same TypeScript declaration in the Host and Browser Client. A future TUI can reuse them without a second set of types. Go to Definition, renames, and Find References for a DTO return to the one source location for the business type instead of stopping at a copy in a generated file.
 
+An installed dependency remains an external type-graph target. The analyzer accepts its Remote boundary symbol only through a concrete public non-root export and retains the external `SymbolId` so generated aliases and same-named imports resolve to the intended declaration ([decision](../bug-fix/2026-08-26-installed-public-remote-types.md)).
+
 Remote methods themselves use declaration-map navigation. Typert anchors `InvocationModel.location` to the decorated Host method-name token and emits a source-map segment on the corresponding property of the namespace interface. For an adapter-backed endpoint, after the TypeScript editor resolves `ctx.remote.models.list` to its generated declaration, `typert.remote-client.d.ts.map` takes it to the Host Service's `remoteExportList` entry point. That entry point explicitly calls the existing, unrenamed `list()` method; the map does not misidentify the decorator, class, or full signature as the method definition.
 
 Typert generates a wire Zod codec for the same symbol key. The Host Gateway uses it to validate input and encode results, while the Client Remote uses it to encode arguments and validate responses. If a complex type cannot produce a strict codec, the LIB build fails instead of degrading to `unknown` or unchecked JSON.
