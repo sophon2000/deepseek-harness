@@ -10,6 +10,7 @@ The entity/storage rationale lives in the [domain Agent Note](../../../.agents/n
 
 - `ctx.workspaceRegistry.create(path, title?)` — canonicalizes `path` via `fs.realpath`, rejects a nonexistent or non-directory path, creates at most one record per canonical path, and prepends a new record to durable workspace order. Repeated calls for that path return the existing workspace without changing its title; different paths may share a display title.
 - `ctx.workspaceRegistry.get(id)` / `list()` / `resolveByPath(path)` — cache-served lookups. `list()` is synchronous and follows durable registry order; `resolveByPath` is async because it applies the same `realpath` canon and rejects a missing path rather than creating it.
+- `ctx.workspaceRegistry.inspectSessionWorkspace(id)` — synchronously locates the Session's durable candidate account without widening `Workspace.sessionIds`. An unaccounted id returns `undefined`; an accounted id returns its Workspace plus `valid`, `cwd-unavailable`, or `cwd-mismatch` from the registry's header index. Inspection performs no persistence read or mutation; call `Workspace.status()` separately for live directory availability.
 - `ctx.workspaceRegistry.insertBefore(id, before?)` — moves a registered Workspace within durable registry order, DOM-insertBefore-like: before the anchor, or appended when the anchor is omitted. A source or anchor absent from the registry rejects without writing; a self-anchor or move to the current position resolves without writing. The returned id list is the complete committed order.
 - `ctx.workspaceRegistry.delete(id)` — removes only the Workspace registration, its durable order entry, and its session account. Unknown ids return `false`; a removed record returns `true`. The directory, user files, live Sessions, and persisted session logs are never touched, so those Sessions become Ungrouped. A table-write failure restores the prior order and published entity.
 - `Workspace.attachSession(id)` — validates a live or persisted session header cwd against the workspace path and prepends a new id. Unknown sessions, absent/unresolvable/non-directory cwd values, and mismatches reject without writing. `detachSession` removes only the candidate index entry.
@@ -28,17 +29,17 @@ Create and delete persist an explicit pending-mutation marker before their recor
 
 #### What the model sees
 
-Nothing. `ctx.workspaceRegistry` serves workspace records to host-side consumers only: the package registers no tools, injects no prompts, and writes no session events, so no request field ever carries this package's data.
+Nothing in shipped configurations. `ctx.workspaceRegistry` serves workspace records to host-side consumers: the package registers no tools, injects no prompts, and writes no session events, so it contributes no request field. The deliberately opt-in [`dsh-tool-cordis`](../../extensions/tool-cordis) can show a model the generated public Service catalog, including this method's signature and result type; catalog inspection alone exposes no Workspace records.
 
 #### Token effect
 
-Zero direct tokens on every request.
+Zero direct tokens from this package on every request. Enabling `dsh-tool-cordis` adds that plugin's own Tool and catalog context.
 
 #### KV Cache effect
 
-Independent of live requests: the package never touches a request prefix, so it cannot invalidate provider cache reuse.
+Independent of live requests in shipped configurations: this package never touches a request prefix. An opt-in `dsh-tool-cordis` composition owns the cache effect of its Tool and generated catalog.
 
 ## Known Limitations and Deferred Work
 
 - Session deletion and destructive folder removal are separate, absent capabilities; Workspace registration deletion never substitutes for either ([decision](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)).
-- The header index refreshes at startup and when attach must resolve an uncached persisted id; deletion or cwd damage performed by another process is observed after the next refresh or restart.
+- The header index used by `Workspace.sessionIds` and `inspectSessionWorkspace` refreshes at startup and when attach must resolve an uncached persisted id; deletion or cwd damage performed by another process is observed after the next refresh or restart.

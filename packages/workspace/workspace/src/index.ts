@@ -19,9 +19,13 @@ export { WorkspaceMoveInvalidError } from './entity.ts'
 import { realpathNormalize } from './paths.ts'
 import { workspaceDomainSpec } from './spec.ts'
 import type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
-import type { Workspace, WorkspaceId as WorkspaceIdBrand } from './types.ts'
+import type {
+  Workspace,
+  WorkspaceId as WorkspaceIdBrand,
+  WorkspaceSessionInspection,
+} from './types.ts'
 
-export type { Workspace } from './types.ts'
+export type { Workspace, WorkspaceSessionInspection } from './types.ts'
 export { workspaceDomainState, workspaceRecord, workspaceDomainSpec } from './spec.ts'
 export type { WorkspaceDomainState, WorkspaceRecord } from './spec.ts'
 export { realpathNormalize } from './paths.ts'
@@ -186,6 +190,34 @@ export class WorkspaceRegistry extends Service {
       }
       return entity
     })
+  }
+
+  /**
+   * Inspect the durable Workspace account for one Session without widening
+   * the validated {@link Workspace.sessionIds} membership projection. The
+   * result is derived synchronously from the registry's startup/live header
+   * index and performs no persistence read or mutation.
+   * @param sessionId - Session whose durable Workspace account to inspect.
+   * @returns the accounted Workspace and canonical-cwd validation, or
+   * `undefined` when no Workspace account contains the Session id.
+   */
+  inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined {
+    const table = this.requireTable()
+    for (const workspace of this.list()) {
+      const record = table.get(workspace.id)
+      if (record === undefined) {
+        throw new Error(`workspace registry entity references missing workspace '${workspace.id}'`)
+      }
+      if (!record.sessionIds.includes(sessionId)) continue
+      const sessionPath = this.sessionPaths.get(sessionId)
+      return {
+        workspace,
+        validation: sessionPath === undefined
+          ? 'cwd-unavailable'
+          : sessionPath === workspace.path ? 'valid' : 'cwd-mismatch',
+      }
+    }
+    return undefined
   }
 
   /**

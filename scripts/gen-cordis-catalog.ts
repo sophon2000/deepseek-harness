@@ -513,6 +513,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   DomainFacility: 'storage.md',
   Workspace: 'workspace.md',
   WorkspaceId: 'workspace.md',
+  WorkspaceSessionInspection: 'workspace.md',
   WebBootGraph: 'client-modules.md',
   SessionTelemetryRecord: 'session-telemetry.md',
   WorkflowRunInfo: 'workflow.md',
