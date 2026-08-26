@@ -519,7 +519,7 @@ describe('SchemaEmitter unsupported projection matrix', () => {
 
   it.each([
     ['cross-face', { kind: 'cross-face', face: 'client', package: '@fixture/client', subpath: '.', name: 'Value' }],
-    ['external', { kind: 'external', module: 'external', subpath: '.', name: 'Value' }],
+    ['external', { kind: 'external', symbol: 'external#Value', module: 'external', subpath: '.', name: 'Value' }],
   ] as const)('rejects %s references explicitly', (kind, target) => {
     expect(() => emit([{
       id: 'root',
