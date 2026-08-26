@@ -10,6 +10,7 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspaceRegistry`）：�
 
 - `ctx.workspaceRegistry.create(path, title?)`：规范化 `path` 时使用 `fs.realpath`，拒绝不存在或非目录的路径，每个规范路径最多创建一条记录，并将新记录前置到持久 workspace 顺序。对同一路径重复调用会返回现有 workspace，且不改变其标题；不同路径可以共用显示标题。
 - `ctx.workspaceRegistry.get(id)`/`list()`/`resolveByPath(path)`：由缓存提供的查找。`list()` 为同步操作，并遵循持久注册表顺序；`resolveByPath` 为异步操作，因为它采用相同的 `realpath` 规范化方式，并会拒绝缺失路径，而不是创建路径。
+- `ctx.workspaceRegistry.inspectSessionWorkspace(id)`：在不放宽 `Workspace.sessionIds` 的前提下，同步定位会话的持久候选记账。未记账的 id 返回 `undefined`；已记账的 id 返回其 Workspace，以及注册表头部索引给出的 `valid`、`cwd-unavailable` 或 `cwd-mismatch`。检查不读取持久化、不执行变更；实时目录可用性另行调用 `Workspace.status()`。
 - `ctx.workspaceRegistry.insertBefore(id, before?)`：在持久注册表顺序内移动一个已注册 Workspace，语义类似 DOM 的 insertBefore：插到锚点之前，省略锚点则追加到末尾。来源或锚点不在注册表中时拒绝且不写入；以自身为锚点或移动到当前位置时直接完成且不写入。返回的 id 列表是完整的已提交顺序。
 - `ctx.workspaceRegistry.delete(id)`：只移除 Workspace 注册记录、对应的持久顺序条目及会话归属记录。未知 id 返回 `false`，成功移除记录则返回 `true`。目录、用户文件、活跃会话和持久化会话日志绝不受影响，因此相关会话会进入 Ungrouped。表写入失败时会恢复原顺序和此前发布的实体。
 - `Workspace.attachSession(id)`：对照 workspace 路径验证实时或已持久化的会话头 cwd，并将新 id 前置。未知会话、缺失／无法解析／非目录的 cwd 值和不匹配情况都会在不写入的前提下被拒绝。`detachSession` 只移除候选索引条目。
@@ -28,17 +29,17 @@ DeepSeek Harness 的 Workspace 实体注册表（`ctx.workspaceRegistry`）：�
 
 #### 模型看到的内容
 
-没有。`ctx.workspaceRegistry` 只向宿主侧消费方提供 workspace 记录：此包不注册工具、不注入提示词、不写入会话事件，因此没有请求字段会携带此包数据。
+随产品发布的组合中什么也看不到。`ctx.workspaceRegistry` 向宿主侧消费方提供 workspace 记录：此包不注册工具、不注入提示词，也不写入会话事件，因此不会贡献请求字段。需要显式选择启用的 [`dsh-tool-cordis`](../../extensions/tool-cordis) 可以向模型展示生成的公共 Service 目录，其中包括本方法的签名与结果类型；只检查目录不会暴露 Workspace 记录。
 
 #### Token 影响
 
-每个请求的直接 token 为零。
+每个请求中由此包直接产生的 token 开销均为零。启用 `dsh-tool-cordis` 会加入该插件自己的 Tool 与目录上下文。
 
 #### KV Cache 影响
 
-与实时请求无关：此包绝不触及请求前缀，因此不会使提供方缓存复用失效。
+在随产品发布的组合中与实时请求无关：此包绝不触及请求前缀。显式启用 `dsh-tool-cordis` 的组合由该插件负责其 Tool 与生成目录带来的缓存影响。
 
 ## 已知限制与暂缓事项
 
 - 会话删除与破坏性的文件夹移除是彼此独立且尚未提供的功能；删除 Workspace 注册记录绝不能替代二者（参见[决策记录](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.zh.md)）。
-- 头部索引会在启动时刷新，也会在 attach 必须解析未缓存持久 id 时刷新；另一进程执行的删除或造成的 cwd 损坏会在下次刷新或重启后被发现。
+- `Workspace.sessionIds` 与 `inspectSessionWorkspace` 使用的头部索引会在启动时刷新，也会在 attach 必须解析未缓存持久 id 时刷新；另一进程执行的删除或造成的 cwd 损坏会在下次刷新或重启后被发现。
