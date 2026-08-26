@@ -748,6 +748,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   WorkspacePinSessionRequest: 'workspace.md',
   WorkspacePinValue: 'workspace.md',
   WorkspaceRenameRequest: 'workspace.md',
+  WorkspaceSessionInspection: 'workspace.md',
   WorkspaceUnarchiveSessionRequest: 'workspace.md',
   WorkspaceUnpinSessionRequest: 'workspace.md',
   WorkspaceValue: 'workspace.md',
