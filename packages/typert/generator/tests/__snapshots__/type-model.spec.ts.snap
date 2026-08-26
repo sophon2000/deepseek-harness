@@ -3211,6 +3211,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "@deepseek-ai/cordis",
               "name": "Service",
               "subpath": ".",
+              "symbol": "<external>:cordis.d.ts#Service",
             },
           },
           {
@@ -3228,6 +3229,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "@deepseek-ai/cordis",
               "name": "Service",
               "subpath": ".",
+              "symbol": "<external>:cordis.d.ts#Service",
             },
           },
           {
@@ -3245,6 +3247,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "@deepseek-ai/cordis",
               "name": "Service",
               "subpath": ".",
+              "symbol": "<external>:cordis.d.ts#Service",
             },
           },
           {
@@ -3346,6 +3349,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "zod",
               "name": "ZodType",
               "subpath": ".",
+              "symbol": "<external>:../../../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.d.cts#ZodType",
             },
           },
           {
@@ -4328,6 +4332,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "zod",
               "name": "ZodType",
               "subpath": ".",
+              "symbol": "<external>:../../../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.d.cts#ZodType",
             },
             "typeof": false,
           },
@@ -4350,6 +4355,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "zod",
               "name": "ZodType",
               "subpath": ".",
+              "symbol": "<external>:../../../../../../node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.d.cts#ZodType",
             },
             "typeof": false,
           },
@@ -4375,6 +4381,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "@types/node",
               "name": "Process",
               "subpath": ".",
+              "symbol": "<external>:../../../../../../node_modules/.pnpm/@types+node@22.20.0/node_modules/@types/node/process.d.ts#Process",
             },
           },
           {
@@ -6338,6 +6345,7 @@ exports[`WorkspaceAnalyzer > builds independent face models with an explicit cro
               "module": "@deepseek-ai/cordis",
               "name": "Service",
               "subpath": ".",
+              "symbol": "<external>:cordis.d.ts#Service",
             },
           },
           {
