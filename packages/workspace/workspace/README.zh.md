@@ -140,15 +140,15 @@ ctx.workspaceRegistry.list() // shows the project, newest first
 
 #### 模型看到什么
 
-没有。`ctx.workspaceRegistry` 只向宿主侧消费方提供 workspace 记录：此包不注册工具、不注入提示词、不写入会话事件，因此没有请求字段会携带此包数据。
+随产品发布的组合中什么也看不到。`ctx.workspaceRegistry` 向宿主侧消费方提供 workspace 记录：此包不注册工具、不注入提示词，也不写入会话事件，因此不会贡献请求字段。需要显式选择启用的 [`dsh-tool-cordis`](../../extensions/tool-cordis) 可以向模型展示生成的公共 Service 目录，其中包括本方法的签名与结果类型；只检查目录不会暴露 Workspace 记录。
 
 #### Token 影响
 
-每个请求的直接 token 为零。
+每个请求中由此包直接产生的 token 开销均为零。启用 `dsh-tool-cordis` 会加入该插件自己的 Tool 与目录上下文。
 
 #### KV Cache 影响
 
-与实时请求无关：此包绝不触及请求前缀，因此不会使提供方缓存复用失效。
+在随产品发布的组合中与实时请求无关：此包绝不触及请求前缀。显式启用 `dsh-tool-cordis` 的组合由该插件负责其 Tool 与生成目录带来的缓存影响。
 
 ## 已知限制与延期工作
 
@@ -159,7 +159,7 @@ ctx.workspaceRegistry.list() // shows the project, newest first
 
 - **移除绝不删除数据**——移除项目会保留其文件夹、文件与会话历史；这些会话变成 Ungrouped，而会话删除与文件夹移除是彼此独立且尚未提供的功能（参见[决策记录](../../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.zh.md)）。
 - **只有带记录目录的会话才能加入**——只有记录中带有可解析为项目路径的目录的会话才属于项目；没有目录的会话保持 Ungrouped，来自其他目录的会话无法移入。
-- **外部变更延迟可见**——如果另一进程删除或损坏目录，项目只能在下次刷新或重启后反映出来。
+- **外部变更延迟可见**——`Workspace.sessionIds` 与 `inspectSessionWorkspace` 使用的头部索引会在启动时刷新，也会在 attach 解析未缓存的持久 id 时刷新；如果另一进程删除或损坏目录，项目只能在下次刷新或重启后反映出来。
 - **归档是单向的**——被隐藏的会话保留其历史与位置，但目前没有取消归档操作；归档集合是持久的显示过滤器。
 - **重新添加目录从空开始**——移除后再次添加同一目录会创建空会话列表的新项目；旧会话不会自动回来。
 

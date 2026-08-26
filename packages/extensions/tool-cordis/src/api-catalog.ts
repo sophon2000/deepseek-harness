@@ -2829,6 +2829,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a fresh ordered array of workspace entities.',
       },
       {
+        signature: 'inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined',
+        description: 'Inspect the durable Workspace account for one Session without widening the validated Workspace.sessionIds membership projection. The result is derived synchronously from the registry\'s startup/live header index and performs no persistence read or mutation.',
+        parameters: [{ name: 'sessionId', description: 'Session whose durable Workspace account to inspect.' }],
+        returns: 'the accounted Workspace and canonical-cwd validation, or `undefined` when no Workspace account contains the Session id.',
+      },
+      {
         signature: 'delete(id: WorkspaceId): Promise<boolean>',
         description: 'Delete one workspace registration while retaining its directory and every session log. The durable order is updated before the table deletion; a failed table write restores the prior order and keeps the entity published. Unknown ids are an idempotent no-op for domain callers.',
         parameters: [{ name: 'id', description: 'Workspace registration to remove.' }],
@@ -6101,6 +6107,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceRenameRequest',
     declaration: 'export interface WorkspaceRenameRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly title: string;\n}',
+  },
+  {
+    name: 'WorkspaceSessionInspection',
+    declaration: 'export interface WorkspaceSessionInspection {\n    readonly workspace: Workspace;\n    readonly validation: \'valid\' | \'cwd-unavailable\' | \'cwd-mismatch\';\n}',
   },
   {
     name: 'WorkspaceValue',
