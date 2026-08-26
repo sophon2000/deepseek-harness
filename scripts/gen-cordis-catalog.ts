@@ -606,6 +606,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   WorkspaceInsertSessionBeforeRequest: 'workspace.md',
   WorkspaceOrderValue: 'workspace.md',
   WorkspaceRenameRequest: 'workspace.md',
+  WorkspaceSessionInspection: 'workspace.md',
   WorkspaceValue: 'workspace.md',
   ClientArtifactBaseline: 'client-modules.md',
   WebBootGraph: 'client-modules.md',
