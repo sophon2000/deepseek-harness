@@ -291,11 +291,13 @@ void binaryTree
     expect(model.invocations.map(invocation => invocation.id)).toEqual([
       '@fixture/remote#goals/create',
       '@fixture/remote#goals/rename',
+      '@fixture/remote#goals/watch',
     ])
 
     const [artifact] = new WorkspaceTypertGenerator(root).generate()
     expect(artifact?.remote?.dts).toContain("'goals/create':")
     expect(artifact?.remote?.dts).toContain("'agent:goals/rename':")
+    expect(artifact?.remote?.dts).toContain("'goals/watch':")
   })
 
   it('does not recognize same-named Remote metadata from another installed package', () => {
