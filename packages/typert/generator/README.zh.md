@@ -12,6 +12,8 @@ TypeScript 项目分析器和模型驱动的 Typert 生成器。在生成任何�
 
 `WorkspaceAnalyzer` 默认采用 `check` 模式，遇到 TypeScript 语法或语义诊断、可达公开声明缺少类型标注、跨包私有引用，以及模型无法无损保留的可达声明合并时，分析会失败。`write` 模式会插入类型检查器推导出的类型标注，重建该程序，并返回无诊断的检查模式模型。
 
+Remote 元数据可以来自已安装的 `@deepseek-ai/dsh-typert-protocol` 包。已安装包拥有的具名 Remote 传输类型必须通过编译程序可达的具体公开非根类型子路径导出；生成的声明导入该导出，而不是包根入口或私有文件。其他名称的包不能提供协议元数据（[决策记录](../../../.agents/notes/implemented/bug-fix/2026-08-31-installed-typert-remote-types.zh.md)）。
+
 ## 产物生成与选择性发布
 
 `FaceModelEmitter` 只消费模型。它会生成可执行 JavaScript，其中包含受支持的 Zod schema 和一个 `TYPERT` contribution；同时生成声明文件，通过包的公开导出将其中的 schema 标注为 `z.ZodType<SourceType>`。遇到不支持的 Zod 投影时，生成会失败，不会展平或弱化源类型。

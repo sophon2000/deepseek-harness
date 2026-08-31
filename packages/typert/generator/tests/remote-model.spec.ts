@@ -47,6 +47,56 @@ afterEach(() => {
 })
 
 describe('Remote model generation', { timeout: 60_000 }, () => {
+  it('uses an installed lookup wire type only through its canonical public type subpath', () => {
+    const root = copyFixture()
+    useInstalledAgentLookupPackages(root)
+
+    const model = remotePackage(root)
+    expect(model.invocations[0]?.scope).toEqual({ context: 'agent', wire: 'agentId' })
+    expect(model.invocations[0]?.parameters[0]).toMatchObject({
+      name: 'agent',
+      wire: 'agentId',
+      source: 'lookup',
+      lookup: 'agent',
+      boundary: { typeSymbol: '@fixture/session/types#AgentId' },
+    })
+    expect(model.invocations[1]).toMatchObject({
+      invocation: {
+        kind: 'context',
+        context: 'agent',
+        wire: 'agentId',
+        boundary: { typeSymbol: '@fixture/session/types#AgentId' },
+      },
+    })
+
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    expect(artifact?.remote?.dts).toContain(
+      "import type { AgentId } from '@fixture/session/types'",
+    )
+  })
+
+  it('rejects an installed lookup wire type that has no public non-root type export', () => {
+    const root = copyFixture()
+    useInstalledAgentLookupPackages(root, { publicTypeSubpath: false })
+
+    expect(() => remotePackage(root)).toThrow(
+      /Remote boundary type AgentId must be exported from a public non-root type subpath/,
+    )
+  })
+
+  it('does not trust Remote metadata exported by a differently named installed package', () => {
+    const root = copyFixture()
+    useInstalledProtocolPackage(root, '@fixture/lookalike-protocol')
+    editFile(root, 'packages/remote/src/index.ts', source => source
+      .replace(
+        "from '@deepseek-ai/dsh-typert-protocol'",
+        "from '@fixture/lookalike-protocol'",
+      )
+      .replace("@RemoteScope('agent')", '@Remote'))
+
+    expect(new WorkspaceTypertGenerator(root).generate()).toEqual([])
+  })
+
   it('discovers a Remote-only package and emits strict direct and Context descriptors', async () => {
     const generator = new WorkspaceTypertGenerator(fixtureRoot)
 
@@ -628,6 +678,90 @@ function editFile(root: string, relativePath: string, edit: (source: string) => 
   const result = edit(source)
   if (result === source) throw new Error(`fixture edit made no change to ${relativePath}`)
   writeFileSync(path, result)
+}
+
+function useInstalledAgentLookupPackages(
+  root: string,
+  options: { readonly publicTypeSubpath?: boolean } = {},
+): void {
+  useInstalledProtocolPackage(root)
+  editFile(root, 'packages/domain/src/index.ts', () => 'export {}\n')
+  editFile(root, 'packages/remote/src/index.ts', source => source.replace(
+    "import type { Agent } from '@fixture/domain'",
+    "import type { Agent } from '@fixture/agent'",
+  ))
+
+  const sessionRoot = join(root, 'node_modules/@fixture/session')
+  mkdirSync(join(sessionRoot, 'lib/types'), { recursive: true })
+  writeFileSync(join(sessionRoot, 'package.json'), `${JSON.stringify({
+    name: '@fixture/session',
+    version: '1.0.0',
+    type: 'module',
+    exports: {
+      '.': { types: './lib/types/index.d.ts' },
+      ...(options.publicTypeSubpath === false
+        ? {}
+        : { './types': { types: './lib/types/types.d.ts' } }),
+    },
+  }, null, 2)}\n`)
+  writeFileSync(join(sessionRoot, 'lib/types/index.d.ts'), "export type { AgentId } from './types.js'\n")
+  writeFileSync(join(sessionRoot, 'lib/types/types.d.ts'), 'export type AgentId = string\n')
+
+  const agentRoot = join(root, 'node_modules/@fixture/agent')
+  mkdirSync(agentRoot, { recursive: true })
+  writeFileSync(join(agentRoot, 'package.json'), `${JSON.stringify({
+    name: '@fixture/agent',
+    version: '1.0.0',
+    type: 'module',
+    exports: { '.': { types: './index.d.ts' } },
+  }, null, 2)}\n`)
+  writeFileSync(join(agentRoot, 'index.d.ts'), `
+import type { TypertContext, TypertLookup } from '@deepseek-ai/dsh-typert-protocol'
+import type { AgentId } from '@fixture/session'
+
+export interface Agent { readonly id: AgentId }
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface TypertLookupMap {
+    agent: TypertLookup<Agent, AgentId>
+  }
+  interface TypertContextMap {
+    agent: TypertContext<AgentId>
+  }
+}
+`)
+}
+
+function useInstalledProtocolPackage(
+  root: string,
+  packageName = '@deepseek-ai/dsh-typert-protocol',
+): void {
+  const configPath = join(root, 'tsconfig.base.json')
+  const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+    compilerOptions: { paths: Record<string, string[]> }
+  }
+  delete config.compilerOptions.paths['@deepseek-ai/dsh-typert-protocol']
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
+  installProtocolDeclarations(root, packageName)
+}
+
+function installProtocolDeclarations(root: string, packageName: string): void {
+  const packageRoot = join(root, 'node_modules', packageName)
+  mkdirSync(packageRoot, { recursive: true })
+  writeFileSync(join(packageRoot, 'package.json'), `${JSON.stringify({
+    name: packageName,
+    version: '1.0.0',
+    types: './index.d.ts',
+  }, null, 2)}\n`)
+  const ambientSource = readFileSync(join(fixtureRoot, 'typert-protocol.d.ts'), 'utf8')
+  const modulePrefix = "declare module '@deepseek-ai/dsh-typert-protocol' {\n"
+  if (!ambientSource.startsWith(modulePrefix) || !ambientSource.endsWith('}\n')) {
+    throw new Error('Remote protocol fixture must contain one ambient module declaration')
+  }
+  const declarationSource = ambientSource
+    .slice(modulePrefix.length, -2)
+    .replace(/^  /gm, '')
+  writeFileSync(join(packageRoot, 'index.d.ts'), `${declarationSource}\n`)
 }
 
 function assertRemoteConsumerTypechecks(

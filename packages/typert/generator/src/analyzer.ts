@@ -126,6 +126,12 @@ interface ModuleIdentity {
   readonly subpath: string
 }
 
+interface ExternalPackageRegistration {
+  readonly name: string
+  readonly root: string
+  readonly manifest: Record<string, unknown>
+}
+
 interface StaticLookupDeclaration {
   readonly key: string
   readonly hostSymbol: SymbolId
@@ -1375,7 +1381,7 @@ class FaceAnalyzer {
       : declaredType
     const codecType = this.resolvedRemoteCodecType(authoredType, resolvedType, topLevelAbsence)
     const acceptsUndefined = topLevelAbsence !== 'reject' && this.includesRemoteAbsence(resolvedType)
-    const rootSymbol = this.namedWorkspaceType(authoredType)
+    const rootSymbol = this.namedPublicRemoteType(authoredType)
     const imports = new Map<SymbolId, RemoteTypeImportModel>()
     const visit = (node: ts.Node): void => {
       if ((ts.isTypeReferenceNode(node) || ts.isImportTypeNode(node))) {
@@ -1387,7 +1393,8 @@ class FaceAnalyzer {
           const declaration = preferredDeclaration(resolved)
           if (declaration !== undefined
             && !isStandardLibraryFile(declaration.getSourceFile().fileName)
-            && this.registrationForFile(declaration.getSourceFile().fileName) !== undefined) {
+            && (this.registrationForFile(declaration.getSourceFile().fileName) !== undefined
+              || this.externalPublicRemoteType(resolved) !== undefined)) {
             const imported = this.publicRemoteType(resolved, node)
             imports.set(imported.symbol, imported)
           }
@@ -1751,7 +1758,7 @@ class FaceAnalyzer {
     })
   }
 
-  private namedWorkspaceType(node: ts.TypeNode): ts.Symbol | undefined {
+  private namedPublicRemoteType(node: ts.TypeNode): ts.Symbol | undefined {
     if (!ts.isTypeReferenceNode(node) && !ts.isImportTypeNode(node)) return undefined
     const symbol = ts.isTypeReferenceNode(node)
       ? this.checker.getSymbolAtLocation(node.typeName)
@@ -1760,8 +1767,14 @@ class FaceAnalyzer {
     const resolved = this.resolveSymbol(symbol)
     const declaration = preferredDeclaration(resolved)
     if (declaration === undefined
-      || isStandardLibraryFile(declaration.getSourceFile().fileName)
-      || this.registrationForFile(declaration.getSourceFile().fileName) === undefined) return undefined
+      || isStandardLibraryFile(declaration.getSourceFile().fileName)) return undefined
+    if (this.registrationForFile(declaration.getSourceFile().fileName) === undefined) {
+      const external = externalPackageRegistrationForFile(declaration.getSourceFile().fileName)
+      if (external === undefined) return undefined
+      if (this.externalPublicRemoteType(resolved) === undefined) {
+        this.fail(node, `Remote boundary type ${resolved.name} must be exported from a public non-root type subpath`)
+      }
+    }
     return resolved
   }
 
@@ -1769,7 +1782,13 @@ class FaceAnalyzer {
     const declaration = preferredDeclaration(symbol)
     if (declaration === undefined) this.fail(site, `type ${symbol.name} has no declaration`)
     const registration = this.registrationForFile(declaration.getSourceFile().fileName)
-    if (registration === undefined) this.fail(site, `type ${symbol.name} is not owned by a workspace package`)
+    if (registration === undefined) {
+      const external = this.externalPublicRemoteType(symbol)
+      if (external === undefined) {
+        this.fail(site, `Remote boundary type ${symbol.name} must be exported from a public non-root type subpath`)
+      }
+      return external
+    }
     const candidates: RemoteTypeImportModel[] = []
     for (const [subpath, target] of packageExportTargets(registration.manifest)) {
       if (subpath === '.' || subpath === './package.json' || subpath === './typert'
@@ -1795,6 +1814,34 @@ class FaceAnalyzer {
     return selected
   }
 
+  private externalPublicRemoteType(symbol: ts.Symbol): RemoteTypeImportModel | undefined {
+    const declaration = preferredDeclaration(symbol)
+    if (declaration === undefined) return undefined
+    const registration = externalPackageRegistrationForFile(declaration.getSourceFile().fileName)
+    if (registration === undefined) return undefined
+    const candidates: RemoteTypeImportModel[] = []
+    for (const [subpath, target] of packageExportTargets(registration.manifest)) {
+      if (subpath === '.' || subpath === './package.json' || subpath === './typert'
+        || subpath === './client/typert' || subpath === './remote' || target.includes('*')) continue
+      const targetPath = realPath(resolve(registration.root, target))
+      if (!isWithin(targetPath, registration.root)) continue
+      const sourceFile = this.sourceFiles.get(targetPath)
+      if (sourceFile === undefined) continue
+      const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
+      if (moduleSymbol === undefined) continue
+      for (const exported of this.checker.getExportsOfModule(moduleSymbol)) {
+        if (this.resolveSymbol(exported) !== symbol) continue
+        candidates.push({
+          symbol: this.symbolId(symbol),
+          specifier: packageExportSpecifier(registration.name, subpath),
+          name: exported.name,
+        })
+      }
+    }
+    return candidates.sort((left, right) =>
+      left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name))[0]
+  }
+
   private isWorkspaceClass(symbol: ts.Symbol): boolean {
     const declaration = preferredDeclaration(symbol)
     return declaration !== undefined
@@ -1809,8 +1856,11 @@ class FaceAnalyzer {
     if (resolved.name !== name) return false
     const declaration = preferredDeclaration(resolved)
     if (declaration === undefined) return false
-    const registration = this.registrationForFile(declaration.getSourceFile().fileName)
+    const declarationFile = declaration.getSourceFile().fileName
+    const registration = this.registrationForFile(declarationFile)
     if (registration?.name === '@deepseek-ai/dsh-typert-protocol') return true
+    const external = externalModuleIdentityForFile(declarationFile)
+    if (external?.package === '@deepseek-ai/dsh-typert-protocol') return true
     for (let current: ts.Node | undefined = declaration; current !== undefined; current = optionalParent(current)) {
       if (ts.isModuleDeclaration(current)
         && ts.isStringLiteral(current.name)
@@ -3046,14 +3096,29 @@ function moduleIdentity(specifier: string): ModuleIdentity | undefined {
 }
 
 function externalModuleIdentityForFile(file: string): ModuleIdentity | undefined {
-  const normalized = slash(file)
+  const registration = externalPackageRegistrationForFile(file)
+  return registration === undefined ? undefined : { package: registration.name, subpath: '.' }
+}
+
+function externalPackageRegistrationForFile(file: string): ExternalPackageRegistration | undefined {
+  const normalized = slash(realPath(file))
   const marker = '/node_modules/'
   const index = normalized.lastIndexOf(marker)
   if (index < 0) return undefined
   const parts = normalized.slice(index + marker.length).split('/')
   const packageLength = (parts[0] as string).startsWith('@') ? 2 : 1
-  const packageName = parts.slice(0, packageLength).join('/')
-  return { package: packageName, subpath: '.' }
+  const pathName = parts.slice(0, packageLength).join('/')
+  const root = normalized.slice(0, index + marker.length) + parts.slice(0, packageLength).join('/')
+  const manifestPath = join(root, 'package.json')
+  if (!existsSync(manifestPath)) return undefined
+  let manifest: Record<string, unknown>
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+  if (manifest.name !== pathName) return undefined
+  return { name: pathName, root, manifest }
 }
 
 function isStandardLibraryFile(file: string): boolean {

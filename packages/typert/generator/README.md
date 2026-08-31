@@ -12,6 +12,8 @@ Each face contains package exports, Cordis services and events, explicitly tagge
 
 `WorkspaceAnalyzer` defaults to `check` mode and fails on TypeScript syntax or semantic diagnostics, missing reachable public annotations, private cross-package references, and reachable declaration merges that the model cannot retain losslessly. `write` mode inserts checker-derived annotations, rebuilds the program, and returns a clean check-mode model.
 
+Remote metadata can come from the installed `@deepseek-ai/dsh-typert-protocol` package. Named Remote wire types owned by installed packages require a concrete public non-root type export reachable in the compiler program; generated declarations import that export rather than a package root or private file. A differently named package cannot supply protocol metadata ([decision](../../../.agents/notes/implemented/bug-fix/2026-08-31-installed-typert-remote-types.md)).
+
 ## Emission and Opt-in Publication
 
 `FaceModelEmitter` consumes only the model. It emits executable JavaScript containing supported Zod schemas and a `TYPERT` contribution, plus a declaration file whose schemas are typed as `z.ZodType<SourceType>` through the package's public export. Unsupported Zod projections fail instead of flattening or weakening the source type.
