@@ -1,0 +1,3 @@
+- insert:
+    - id: test-detail-views
+      name: '@dsh-test/detail-views'

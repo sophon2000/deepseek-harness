@@ -11,10 +11,11 @@
  * zero self-made hooks.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import type {
-  PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
+  InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
 } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import type { DetailViewTab } from './detail-views.ts'
 import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
 import { DocumentTitle } from './DocumentTitle.tsx'
 import type { createLayoutStore } from './stores.ts'
@@ -23,19 +24,10 @@ import css from './AppFrame.module.css'
 /** Full composed props: runtime share + child-slot render share + store share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
-  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay'>
+  & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.details.view' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
   & PropsLocale<'common'>
-
-/** Center column grid item (session-body building block). */
-function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}>{props.children}</div>
-}
-
-/** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
-function DetailsColumn(props: { children?: ReactNode }) {
-  return <div className={css.detailsCol}>{props.children}</div>
-}
+  & InjectFace<{ hooks: { detailTabs: ObservableSnapshot<readonly DetailViewTab[]> } }>
 
 /**
  * One drag handle: pointer capture, rAF-throttled dx reports against the drag-start origin.
@@ -91,12 +83,15 @@ function DragHandle(props: { side: 'sidebar' | 'details'; left: number; onStart:
 export function AppFrame({
   useStore,
   useSessions,
+  useSessionPendingInteraction,
+  useDetailTabs,
   actions,
   renderSlot,
   SessionProvider,
   t,
 }: AppFrameProps) {
   const panels = useStore(s => s)
+  const tabs = useDetailTabs(s => s)
   const detailsSession = useSessions((s) => {
     const current = s.current
     return current !== undefined && s.byId[current]?.blank === false ? current : undefined
@@ -106,12 +101,13 @@ export function AppFrame({
     return current === undefined ? undefined : s.byId[current]?.title
   })
   const frameRef = useRef<HTMLDivElement | null>(null)
+  const centerRef = useRef<HTMLDivElement | null>(null)
+  const detailsRef = useRef<HTMLDivElement | null>(null)
   const [viewport, setViewport] = useState(() => window.innerWidth)
 
   const lastSession = useRef(detailsSession)
   useLayoutEffect(() => {
-    if (detailsSession === undefined) return
-    if (lastSession.current !== undefined && lastSession.current !== detailsSession) {
+    if (lastSession.current !== detailsSession) {
       actions.closeDetails()
     }
     lastSession.current = detailsSession
@@ -150,6 +146,33 @@ export function AppFrame({
     ? 0
     : panels.sidebar === 0 ? SIDEBAR_DEFAULT : panels.sidebar
   const cols = computeColumns(viewport, sidebarPreference, detailsSession === undefined ? 0 : panels.details)
+  const pendingInteraction = useSessionPendingInteraction(s => detailsSession === undefined ? undefined : s.get(detailsSession))
+  const requested = detailsSession !== undefined && panels.details > 0
+  const compact = requested && cols.details === 0 && pendingInteraction === undefined
+  const shown = requested && (cols.details > 0 || compact)
+  const selected = panels.view !== null && panels.view.sessionId === detailsSession && tabs.some(tab => tab.id === panels.view?.id)
+    ? panels.view.id : null
+
+  // An approval owns the narrow conversation, even when it arrives after a view opened.
+  useLayoutEffect(() => {
+    if (requested && cols.details === 0 && pendingInteraction !== undefined) actions.closeDetails()
+  }, [actions, requested, cols.details, pendingInteraction])
+
+  const returnFocus = useRef<HTMLElement | null>(null)
+  const wasShown = useRef(false)
+  useLayoutEffect(() => {
+    if (shown) {
+      if (!wasShown.current && document.activeElement instanceof HTMLElement) returnFocus.current = document.activeElement
+      detailsRef.current?.focus({ preventScroll: true })
+    } else if (wasShown.current) {
+      const target = returnFocus.current
+      const destination = target?.isConnected && !target.closest('[hidden]') ? target : centerRef.current
+      destination?.focus({ preventScroll: true })
+      if (document.activeElement !== destination) centerRef.current?.focus({ preventScroll: true })
+      returnFocus.current = null
+    }
+    wasShown.current = shown
+  }, [shown, panels.focusRevision, detailsSession, compact])
   const colsRef = useRef(cols)
   colsRef.current = cols
 
@@ -176,16 +199,17 @@ export function AppFrame({
     <div
       ref={frameRef}
       className={css.frame}
-      style={{ gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
+      style={{ gridTemplateColumns: compact ? `0px minmax(0, 1fr) ${viewport}px` : `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` }}
       data-sidebar-collapsed={sidebarCollapsed || undefined}
-      data-details-collapsed={cols.details === 0 || undefined}
+      data-details-collapsed={!shown || undefined}
+      data-details-compact={compact || undefined}
       data-dragging={dragging || undefined}
     >
       <DocumentTitle
         productTitle={productTitle}
         {...documentTitle === undefined ? {} : { title: documentTitle }}
       />
-      <div className={css.sidebarCol}>
+      <div className={css.sidebarCol} hidden={compact}>
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the mounted slot at the compact-rail width, and the
             component sees its rendered state as owner params decided here
@@ -202,17 +226,46 @@ export function AppFrame({
             the shell's own pending rendering. The conversation
             is session-maybe; SessionProvider withholds the strict details
             entry while no session is current. */}
-        <CenterColumn>{renderSlot('conversation', {})}</CenterColumn>
-        <DetailsColumn>
-          <SessionProvider>{renderSlot('details', {})}</SessionProvider>
-        </DetailsColumn>
+        <div ref={centerRef} tabIndex={-1} className={css.centerCol} hidden={compact}>
+          {renderSlot('conversation', {})}
+        </div>
+        <div
+          ref={detailsRef} tabIndex={-1} className={css.detailsCol}
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape' || event.defaultPrevented) return
+            event.stopPropagation()
+            actions.closeDetails()
+          }}
+        >
+          {shown && (tabs.length > 0 || compact) && (
+            <div className={css.viewBar} role="toolbar" aria-label={t('details.views')}>
+              {tabs.length > 0 && (
+                <button type="button" aria-pressed={selected === null} onClick={() => { actions.openDetails() }}>
+                  {t('details.native')}
+                </button>
+              )}
+              {tabs.map(tab => (
+                <button
+                  key={tab.id} type="button" aria-pressed={selected === tab.id}
+                  onClick={() => { actions.openView(detailsSession, tab.id) }}
+                >{tab.label}</button>
+              ))}
+              <button type="button" onClick={() => { actions.closeDetails() }}>{t('details.back')}</button>
+            </div>
+          )}
+          <SessionProvider>
+            {selected === null
+              ? renderSlot('details', {})
+              : shown && renderSlot('shell.details.view', {}, { only: selected })}
+          </SessionProvider>
+        </div>
       </>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>
       {/* The collapsed rail is fixed-width: no resize handle while closed. */}
-      {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
-      {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
+      {!compact && !sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
+      {!compact && cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>
   )
 }

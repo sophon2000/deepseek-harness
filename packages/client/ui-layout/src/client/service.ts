@@ -23,7 +23,7 @@ export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>
 export interface ILayout {
   /** Toggle the sidebar panel (closed ⟷ contract default width). */
   toggleSidebar(): void
-  /** Open the details panel (no-op when already open). */
+  /** Select and focus native Tool details, preserving an open panel's width. */
   openDetails(): void
   /** Close the details panel. */
   closeDetails(): void
@@ -49,7 +49,7 @@ export class LayoutController implements ILayout {
     this.#require().toggleSidebar()
   }
 
-  /** Open the details panel (no-op when already open). */
+  /** Select and focus native Tool details, preserving an open panel's width. */
   openDetails(): void {
     this.#require().openDetails()
   }

@@ -8,6 +8,7 @@
  * receives the bound actions through the registration's inject hook.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   clampWidth, DETAILS_DEFAULT, DETAILS_MAX, DETAILS_MIN,
   SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN,
@@ -20,7 +21,14 @@ import {
  * `narrowExpanded` is the manual override that re-expands the auto-collapsed
  * sidebar over the squeezed center without rewriting the width preference.
  */
-type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
+type LayoutState = {
+  sidebar: number
+  details: number
+  narrow: boolean
+  narrowExpanded: boolean
+  view: { sessionId: SessionId; id: string } | null
+  focusRevision: number
+}
 
 /**
  * Annotation twin of the actions literal below (the export needs a declared
@@ -33,6 +41,8 @@ type LayoutActions = {
   setNarrow: (draft: LayoutState, narrow: boolean) => void
   openDetails: (draft: LayoutState) => void
   closeDetails: (draft: LayoutState) => void
+  openView: (draft: LayoutState, sessionId: SessionId, id: string) => void
+  reconcileViews: (draft: LayoutState, ids: readonly string[]) => void
 }
 
 /**
@@ -47,7 +57,7 @@ type LayoutActions = {
  */
 export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
   const handle = defineStore({
-    init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false }),
+    init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false, view: null, focusRevision: 0 }),
     actions: {
       setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
       setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
@@ -64,8 +74,22 @@ export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutAction
         d.narrow = narrow
         d.narrowExpanded = false
       },
-      openDetails: (d) => { if (d.details === 0) d.details = DETAILS_DEFAULT },
-      closeDetails: (d) => { d.details = 0 },
+      openDetails: (d) => {
+        if (d.details === 0) d.details = DETAILS_DEFAULT
+        d.view = null
+        d.focusRevision++
+      },
+      closeDetails: (d) => { d.details = 0; d.view = null },
+      openView: (d, sessionId: SessionId, id: string) => {
+        if (d.details === 0) d.details = DETAILS_DEFAULT
+        d.view = { sessionId, id }
+        d.focusRevision++
+      },
+      reconcileViews: (d, ids: readonly string[]) => {
+        if (d.view === null || ids.includes(d.view.id)) return
+        d.view = null
+        d.focusRevision++
+      },
     },
   })
   return handle

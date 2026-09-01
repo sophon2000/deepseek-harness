@@ -93,7 +93,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'openDetails(): void',
-        description: 'Open the details panel (no-op when already open).',
+        description: 'Select and focus native Tool details, preserving an open panel\'s width.',
         parameters: [],
       },
       {

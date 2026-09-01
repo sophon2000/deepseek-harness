@@ -11,7 +11,7 @@
  * resizes are driven through the ResizeObserver stub.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
@@ -27,7 +27,7 @@ const selectedSessionBlank = { current: false }
 const selectedSessionTitle = { current: undefined as string | undefined }
 const workspacesReady = { current: true }
 type AttentionSnapshot = Parameters<Parameters<AppFrameProps['useSessionPendingInteraction']>[0]>[0]
-const noAttention: AttentionSnapshot = new Map()
+const noAttention = new Map<SessionId, AttentionSnapshot extends ReadonlyMap<SessionId, infer V> ? V : never>()
 const useSessionPendingInteraction: AppFrameProps['useSessionPendingInteraction'] = selector => selector(noAttention)
 
 // Provider contract stub fed through the standard seat prop (the renderer
@@ -54,14 +54,15 @@ function hookOf<T>(inst: { subscribe: (fn: () => void) => () => void; getSnapsho
   return function useSelector<S>(sel: (s: T) => S): S { return sel(useSyncExternalStore(inst.subscribe, inst.getSnapshot)) }
 }
 
-function mountFrame() {
+function mountFrame(tabs: readonly { id: string; label: string }[] = []) {
   window.innerWidth = frameWidth // first-render viewport source before the observer fires
   const instance = createLayoutStore().create()
   const slotCalls: { key: string; props: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
     slotCalls.push({ key, props: owner })
     if (key === 'sidebar') return <div data-testid="sidebar-content" />
-    if (key === 'conversation') return <div data-testid="center-content" />
+    if (key === 'conversation') return <div data-testid="center-content"><textarea aria-label="draft" defaultValue="preserved draft" /></div>
+    if (key === 'shell.details.view') return <div data-testid="plugin-view"><button>Object action</button></div>
     if (key === 'details') return <div data-testid="details-content" />
     if (key === 'conversation.empty') return <div data-testid="empty-content" />
     return <div data-testid="other-content" />
@@ -94,6 +95,7 @@ function mountFrame() {
   const element = () => (
     <AppFrame
       useStore={hookOf(instance)}
+      useDetailTabs={selector => selector(tabs)}
       actions={instance.actions}
       renderSlot={renderSlot}
       useSessions={useSessions}
@@ -124,6 +126,7 @@ function drag(handle: Element, fromX: number, toX: number): void {
 }
 
 beforeEach(() => {
+  noAttention.clear()
   frameWidth = 1920
   selectedSession.current = 's-test' as SessionId
   selectedSessionBlank.current = false
@@ -153,6 +156,80 @@ afterEach(() => {
 })
 
 describe('AppFrame', () => {
+  it('keeps two plugin views and native tools reachable without replacing the conversation', () => {
+    const { instance, getByRole, getByTestId, queryByTestId, frame } = mountFrame([
+      { id: 'plugin-a', label: 'Plugin A' }, { id: 'plugin-b', label: 'Plugin B' },
+    ])
+    const input = getByRole('textbox', { name: 'draft' })
+    input.focus()
+    act(() => { instance.actions.openView('s-test' as SessionId, 'plugin-a') })
+    expect(tracks(frame)).toEqual([280, 360])
+    expect(getByRole('button', { name: 'Plugin A' }).getAttribute('aria-pressed')).toBe('true')
+    expect(getByTestId('plugin-view')).toBeTruthy()
+    expect(getByRole('textbox', { name: 'draft' })).toBe(input)
+    fireEvent.click(getByRole('button', { name: 'Plugin B' }))
+    expect(instance.getSnapshot().view?.id).toBe('plugin-b')
+    fireEvent.click(getByRole('button', { name: 'details.native' }))
+    expect(getByTestId('details-content')).toBeTruthy()
+    expect(queryByTestId('plugin-view')).toBeNull()
+    fireEvent.click(getByRole('button', { name: 'details.back' }))
+    expect(document.activeElement).toBe(input)
+    expect((input as HTMLTextAreaElement).value).toBe('preserved draft')
+  })
+
+  it('offers a narrow view and Escape returns focus to the unchanged draft', () => {
+    frameWidth = 480
+    const { instance, getByRole, getByTestId, frame } = mountFrame([{ id: 'plugin-a', label: 'Plugin A' }])
+    const input = getByRole('textbox', { name: 'draft' })
+    input.focus()
+    act(() => { instance.actions.openView('s-test' as SessionId, 'plugin-a') })
+    expect(frame.hasAttribute('data-details-compact')).toBe(true)
+    expect(tracks(frame)).toEqual([0, 480])
+    expect(getByTestId('center-content').closest('[hidden]')).not.toBeNull()
+    expect(getByTestId('plugin-view').closest('[hidden]')).toBeNull()
+    fireEvent.keyDown(getByRole('button', { name: 'Object action' }), { key: 'Escape' })
+    expect(frame.hasAttribute('data-details-compact')).toBe(false)
+    expect(document.activeElement).toBe(input)
+    expect((input as HTMLTextAreaElement).value).toBe('preserved draft')
+  })
+
+  it('unmounts the plugin view on close and forgets it across Session changes', () => {
+    const { instance, queryByTestId, rerenderFrame } = mountFrame([{ id: 'plugin-a', label: 'Plugin A' }])
+    act(() => { instance.actions.openView('s-test' as SessionId, 'plugin-a') })
+    act(() => { instance.actions.closeDetails() })
+    expect(queryByTestId('plugin-view')).toBeNull()
+    act(() => { instance.actions.openView('s-test' as SessionId, 'plugin-a') })
+    selectedSession.current = 's-next' as SessionId
+    act(() => { rerenderFrame() })
+    expect(instance.getSnapshot()).toMatchObject({ view: null, details: 0 })
+    expect(queryByTestId('plugin-view')).toBeNull()
+  })
+
+  it.each([480, 1920])('returns focus to conversation when the opener becomes disabled at width %i', (width) => {
+    frameWidth = width
+    const { instance, getByRole, getByTestId } = mountFrame([{ id: 'plugin-a', label: 'Plugin A' }])
+    const input = getByRole('textbox', { name: 'draft' }) as HTMLTextAreaElement
+    input.focus()
+    act(() => { instance.actions.openView('s-test' as SessionId, 'plugin-a') })
+    input.disabled = true
+    fireEvent.keyDown(getByRole('button', { name: 'Object action' }), { key: 'Escape' })
+    expect(document.activeElement).toBe(getByTestId('center-content').parentElement)
+    expect(input.value).toBe('preserved draft')
+  })
+
+  it.each([480, 1920])('leaves native pending interactions reachable at width %i', (width) => {
+    frameWidth = width
+    const { instance, getByTestId, rerenderFrame, frame } = mountFrame([{ id: 'plugin-a', label: 'Plugin A' }])
+    act(() => { instance.actions.openView('s-test' as SessionId, 'plugin-a') })
+    noAttention.set('s-test' as SessionId, { key: 'pending-1', kind: 'approval', sessionId: 's-test' } as never)
+    act(() => { rerenderFrame() })
+    expect(getByTestId('center-content').closest('[hidden]')).toBeNull()
+    expect(frame.hasAttribute('data-details-compact')).toBe(false)
+    expect(instance.getSnapshot().details).toBe(width === 480 ? 0 : 360)
+    // Layout only yields space; it neither answers nor removes the interaction.
+    expect(noAttention.size).toBe(1)
+  })
+
   it('localizes the product title when the build does not supply one', () => {
     mountFrame()
     expect(document.title).toBe('DSH Local Build')
@@ -210,7 +287,7 @@ describe('AppFrame', () => {
     expect(slotCalls.map(c => c.key)).toContain('details')
   })
 
-  it('ignores unselected states and closes only when the Session id changes', () => {
+  it('closes details on Session changes, including transitions through blank or unselected', () => {
     const { frame, instance, rerenderFrame } = mountFrame()
     expect(tracks(frame)).toEqual([280, 0])
 
@@ -226,12 +303,12 @@ describe('AppFrame', () => {
     selectedSessionBlank.current = true
     act(() => { rerenderFrame() })
     expect(tracks(frame)).toEqual([280, 0])
-    expect(instance.getSnapshot().details).toBe(360)
+    expect(instance.getSnapshot().details).toBe(0)
 
     selectedSession.current = 's-next' as SessionId
     selectedSessionBlank.current = false
     act(() => { rerenderFrame() })
-    expect(tracks(frame)).toEqual([280, 360])
+    expect(tracks(frame)).toEqual([280, 0])
 
     selectedSession.current = undefined
     act(() => { rerenderFrame() })
