@@ -8,6 +8,8 @@
     "src"
   ],
   "references": [
+    { "path": "../../api/session-controller/tsconfig.client.json" },
+    { "path": "../../core/session" },
     {
       "path": "../../../vendor/cordis"
     },

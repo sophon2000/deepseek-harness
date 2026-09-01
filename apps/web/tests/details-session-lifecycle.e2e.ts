@@ -1,6 +1,6 @@
 // Keyless browser regression for the details column's default visibility and Session ownership.
-// The shipped composition starts closed after selection and reload, retains an explicitly opened width through
-// unselected states, and closes it only when a different Session takes ownership.
+// The shipped composition starts closed after selection and reload and clears
+// the selected details view when Session ownership changes, including unselection.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
