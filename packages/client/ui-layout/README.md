@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package provides the shell layout of the Web GUI: a three-column AppFrame with resizable sidebar and details panels, a concession chain that shrinks the details column and then auto-closes it when space runs out, and the `ctx.layout` panel-geometry service other plugins call to open or close the details column. It also seats the theme presenter, which projects the resolved color scheme, alias tokens, content font size, and `theme-color` metadata onto the document. Choose it for the standard window chrome; panel geometry is transient and resets on reload.
+This package provides a three-column Web frame with resizable sidebar and details panels. Plugins can add Session-scoped work views beside the native Tool details without replacing conversation. Wide windows reserve a details column; narrow windows switch between conversation and details, yielding to pending interactions. The package also presents the theme. Geometry and view selection are transient and reset on reload.
 
 ## Table of Contents
 
@@ -25,7 +25,13 @@ This package provides the shell layout of the Web GUI: a three-column AppFrame w
 <a id="use-this-package"></a>
 ## Use this package
 
-Mount this plugin at the root slot; it then renders the app frame around whatever occupies the sidebar, conversation, and details columns. Users resize the sidebar by dragging its invisible hit strip and the details panel by dragging its floating pill; when the window narrows, only details shrinks, then auto-closes. A closed sidebar retains a 56px control rail; details closes to zero width.
+Mount this plugin at the root slot; it renders the frame around the sidebar, conversation, and details occupants. Users resize the sidebar by its hit strip and details by its floating pill. A closed sidebar retains a 56px control rail. When details cannot fit beside conversation, the frame shows a full-width details view with a return control; Escape returns without remounting conversation or replacing its draft.
+
+### Add a work view
+
+Contribute a fresh id and localized label to `shell.details.view` through `ctx.slots.inject` and `ctx.slots.register`. Inject `detailViews` and project its actions into component props: `open(sessionId, id)` selects and focuses a registered view; `close(sessionId)` returns to conversation. Both reject a non-current Session with `false`, and open rejects a removed id. Invoke them after the root mounts; premature calls throw. Repeated open focuses again, and retained handles return `false` after layout teardown. The native `ctx.layout.openDetails()` selects native Tool details, never a plugin view.
+
+The frame owns navigation, not business objects, authorization, requests, or editing state. A view receives standard Session props and keeps its own data access. Closing or switching unmounts the plugin view. Removing the selected registration returns to native details; reinstalling it does not steal another view's selection. In compact layout a pending interaction returns to native conversation without answering or dismissing it.
 
 ### Theme presentation
 
@@ -39,7 +45,7 @@ The presenter consumes resolved theme snapshots and projects them onto the docum
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-One `register()` call contributes `AppFrame` into the runtime's built-in `'root'` slot and, in the same breath, declares the four child slots (`sidebar`, `conversation`, `details`, `shell.overlay`), seats the layout store (panel geometry), and wires the `ctx.layout` panel-action service. The transient layout store starts the sidebar at its default width and details closed, and never reads or writes `localStorage`. AppFrame always mounts the conversation and details columns; a connected Session renders through `SessionProvider`. It projects the selected Session title over the build-configured product title or the localized `common.brand.localBuild` fallback, so locale revisions update document metadata with the root entry. The theme presenter is a second effect: pure DOM writes from resolved snapshots — initial state through the getter once, then event-driven only, with no React path. It applies palette, font-size, and token variables before measuring the rendered background as the single color authority.
+One `register()` call contributes `AppFrame` into `'root'`, declares five children (`sidebar`, `conversation`, `details`, `shell.details.view`, `shell.overlay`), and seats the layout store. `ctx.layout` and `ctx.detailViews` mutate that store; the Slot registry remains the registration authority. A stable observable projects live view labels, including locale changes. Conversation retains its tree position while strict views render through `SessionProvider`. The selected Session title composes with the product title or localized fallback. A separate theme effect applies palette, font-size, and tokens before measuring the rendered background. No layout state reads or writes `localStorage`.
 
 </details>
 
@@ -51,7 +57,8 @@ One `register()` call contributes `AppFrame` into the runtime's built-in `'root'
 Read these pages when the layout surface is not enough. They move from the frame to the columns it renders and the theme it presents.
 
 - [ui-sidebar](../ui-sidebar/README.md) — occupies the `sidebar` column and its seats.
-- [ui-conversation](../ui-conversation/README.md) — occupies the `conversation` and `details` columns.
+- [ui-conversation](../ui-conversation/README.md) — occupies the `conversation` column and owns native input.
+- [ui-chat](../ui-chat/README.md) — owns native `details` and the Tool-details child.
 - [ui-theme](../ui-theme/README.md) — the theme seam whose resolved snapshots the presenter consumes.
 - [Web client architecture](../../../.agents/notes/implemented/architecture/2026-07-19-gui-web-client-architecture.md) — how browser plugin rows load and register slots.
 
@@ -73,8 +80,10 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define the current layout behavior. They are current package constraints, not a general window-manager comparison or a task backlog.
 
-- **Panel geometry is transient** — reload restores the sidebar default and details closed; switching between distinct Session ids also closes details and forgets its dragged width, while unselected surfaces render details at zero width without modifying geometry.
-- **Concession-chain auto-close derives a zero width without touching the preferred width** — the panel restores itself when the window widens; consumers must not read the stored details width as the rendered truth.
+- **Selection is transient** — reload and Session changes, including blank or unselected states, close details and forget the selected view and dragged width.
+- **One auxiliary view at a time** — no docking manager, object tabs, canvas, timeline, or persisted open-object list. Plugins own any domain-specific navigation inside their view.
+- **Native closed-details structure** — native details stays mounted at zero width, including its accessibility projection. Plugin views and their switch controls unmount on close; this extension does not include a full native accessibility audit.
+- **Stored width is not rendered width** — the concession solver may narrow it; compact mode fills the frame. A pending interaction closes compact details rather than automatically reopening it later.
 - **No scroll anchoring during squeeze reflow** — layout changes may move the reader's viewport.
 
 <a id="dev-note"></a>

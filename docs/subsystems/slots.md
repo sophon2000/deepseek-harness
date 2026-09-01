@@ -159,12 +159,15 @@ root
 │  └─ conversation.hero.agentPreset
 ├─ details
 │  └─ conversation.details.tool
+├─ shell.details.view
 └─ shell.overlay
 ```
 
 The generated Client inspect catalog is the exhaustive contract for each key: cardinality, scope, owner props, standard props, current occupants, declaration owner, and replacement risk. A running dynamic package can query the live tree and an exact key with `cordis_inspect what:"client"`; the source catalog is generated from `SlotMap` declarations and `slots.register()` call sites by `pnpm run gen-client-catalog`.
 
 ## Extension rules
+
+`shell.details.view` is the layout-owned additive list for Session-scoped work views. Register a fresh id and localized label, then call `ctx.detailViews.open(sessionId, id)` from an injected action. A stale Session or removed view returns `false`; a repeated open focuses the selected view. `close(sessionId)` returns to conversation. Selection resets on Session changes and reload; removing a selected entry falls back to native details. The native `details` owner and its Tool child remain separate. See [ui-layout](../../packages/client/ui-layout/README.md) for compact layout and lifecycle limits.
 
 - Import another feature package only for declarations with `import type`; never import or re-export its runtime values.
 - Declare a new child slot only in the component that owns and renders that location. Other packages wait with `ctx.slots.inject()` and contribute through `ctx.slots.register()`.

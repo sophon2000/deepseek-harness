@@ -23,6 +23,7 @@
 }
 
 .sidebarCol {
+  grid-column: 1;
   min-width: 0;
   overflow: hidden;
   background: var(--dsw-specific-sidebar-fill);
@@ -30,6 +31,7 @@
 }
 
 .centerCol {
+  grid-column: 2;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -37,10 +39,38 @@
 }
 
 .detailsCol {
+  grid-column: 3;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid var(--dsw-alias-border-l2);
 }
+
+.frame > [hidden] { display: none; }
+
+.detailsCol > :last-child { min-height: 0; flex: 1; }
+
+.viewBar {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  padding: 8px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.viewBar button {
+  flex: none;
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.viewBar button[aria-pressed='true'] { border-color: currentColor; }
 
 /* The details subtree stays mounted at zero width, so its border must not paint
    a 1px seam. The collapsed sidebar instead retains a bordered compact rail. */
