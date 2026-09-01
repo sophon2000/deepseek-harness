@@ -159,12 +159,15 @@ root
 │  └─ conversation.hero.agentPreset
 ├─ details
 │  └─ conversation.details.tool
+├─ shell.details.view
 └─ shell.overlay
 ```
 
 生成的 Client inspect catalog 是每个 key 的完整参考，包含 cardinality、scope、owner props、标准 props、当前 occupant、声明 owner 与替换风险。运行中的动态包可以用 `cordis_inspect what:"client"` 查询实时树与某个精确 key；源码 catalog 由 `pnpm run gen-client-catalog` 根据 `SlotMap` 声明和 `slots.register()` 调用点生成。
 
 ## 扩展规则
+
+`shell.details.view` 是布局拥有的追加列表，用于 Session 作用域的工作视图。注册新的 id 和本地化 label，再从注入的动作调用 `ctx.detailViews.open(sessionId, id)`。陈旧的 Session 或已移除的视图返回 `false`；重复打开会聚焦所选视图。`close(sessionId)` 返回会话。切换 Session 和重新加载会重置选择；移除所选 entry 会回退到原生详情。原生 `details` owner 及其 Tool child 保持独立。紧凑布局和生命周期限制见 [ui-layout](../../packages/client/ui-layout/README.zh.md)。
 
 - 另一个功能包只能通过 `import type` 引入声明；绝不导入或转发它的运行时值。
 - 只在拥有并渲染某个位置的组件中声明新的 child slot。其他包通过 `ctx.slots.inject()` 等待，再通过 `ctx.slots.register()` 贡献内容。
