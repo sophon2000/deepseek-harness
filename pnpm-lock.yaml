@@ -2663,12 +2663,17 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:^
         version: link:../../core/session
+      '@dsh-test/detail-views':
+        specifier: workspace:*
+        version: link:tests/fixtures/detail-views
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
       react:
         specifier: ^18.2.0
         version: 18.3.1
+
+  packages/client/ui-layout/tests/fixtures/detail-views: {}
 
   packages/client/ui-message-feedback:
     devDependencies:
