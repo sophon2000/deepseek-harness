@@ -29,8 +29,10 @@ interface ToolDefinition extends ToolSchema {
   readonly output: ToolOutputDefinition
   /**
    * Validate snapshotted model arguments before policy or approval observes the
-   * call. Throw a structured error when the arguments are invalid. Omit this
-   * callback only when the tool provider owns validation during execution,
+   * call. Throw when the arguments are invalid; the registry normalizes every
+   * rejection to its own `ToolArgsError` / `INVALID_ARGS` identity, including
+   * errors originating in a separately materialized provider package. Omit
+   * this callback only when the provider owns validation during execution,
    * such as an MCP server. The registry still treats `execute` as the final
    * enforcement point, so implementations may validate there again.
    * @param args - losslessly snapshotted, frozen model arguments.
