@@ -793,6 +793,46 @@ describe('ToolRuntime', () => {
       expect(approvalCalls).toBe(0)
     })
 
+    it('normalizes a raw provider validator before policy or approval observes the call', async () => {
+      const ctx = await approvalSetup()
+      let policyCalls = 0
+      let approvalCalls = 0
+      let bodyCalls = 0
+      ctx.tools.register({
+        ...echoTool,
+        name: 'raw-validator',
+        validateArgs() { throw new TypeError('provider contract rejected the payload') },
+        async execute() { bodyCalls += 1; return 'unreachable' },
+      })
+      ctx.on('approval/request', () => {
+        approvalCalls += 1
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => {
+        policyCalls += 1
+        return { kind: 'ask' }
+      })
+
+      const result = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: ToolCallId('raw-invalid-before-approval'),
+        name: 'raw-validator',
+        arguments: { text: 'wrong for the provider' },
+        agent: fakeAgent(),
+      })
+
+      expect(result).toMatchObject({
+        isError: true,
+        error: {
+          message: 'invalid arguments: provider contract rejected the payload',
+          info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+        },
+      })
+      expect(policyCalls).toBe(0)
+      expect(approvalCalls).toBe(0)
+      expect(bodyCalls).toBe(0)
+    })
+
     it('denies with the user-rejection reason on rejected', async () => {
       const ctx = await approvalSetup()
       ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))

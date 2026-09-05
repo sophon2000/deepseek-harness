@@ -26,6 +26,7 @@ import type { CodeSdkLanguage } from './ptc.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 import { renderToolsSdkPy } from './py-types.ts'
+import { ToolArgsError as CanonicalToolArgsError } from './schema.ts'
 
 /**
  * Language → SDK-section renderer. The registry looks up the loaded
@@ -216,8 +217,10 @@ export interface ToolDefinition extends ToolSchema {
   readonly output: ToolOutputDefinition
   /**
    * Validate snapshotted model arguments before policy or approval observes the
-   * call. Throw a structured error when the arguments are invalid. Omit this
-   * callback only when the tool provider owns validation during execution,
+   * call. Throw when the arguments are invalid; the registry normalizes every
+   * rejection to its own `ToolArgsError` / `INVALID_ARGS` identity, including
+   * errors originating in a separately materialized provider package. Omit
+   * this callback only when the provider owns validation during execution,
    * such as an MCP server. The registry still treats `execute` as the final
    * enforcement point, so implementations may validate there again.
    * @param args - losslessly snapshotted, frozen model arguments.
@@ -620,6 +623,24 @@ function errorMessage(error: unknown): string {
     // coercion. Error normalization is the outermost safety boundary, so its
     // fallback must itself be total.
     return '<unprintable thrown value>'
+  }
+}
+
+/** Normalize provider-owned argument validators into this runtime's stable error identity. */
+function validateDefinitionArgs(tool: ToolDefinition | undefined, args: unknown): void {
+  try {
+    tool?.validateArgs?.(args)
+  } catch (error: unknown) {
+    if (error instanceof CanonicalToolArgsError) throw error
+    try {
+      if (typeof error === 'object' && error !== null && 'violations' in error
+        && Array.isArray(error.violations) && error.violations.every(item => typeof item === 'string')) {
+        throw new CanonicalToolArgsError(error.violations)
+      }
+    } catch (normalized: unknown) {
+      if (normalized instanceof CanonicalToolArgsError) throw normalized
+    }
+    throw new CanonicalToolArgsError([errorMessage(error)])
   }
 }
 
@@ -1471,7 +1492,7 @@ export class ToolRuntime extends Service {
     }
     try {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-      tool?.validateArgs?.(exec.arguments)
+      validateDefinitionArgs(tool, exec.arguments)
       const carrier = scopeTarget(this, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,
