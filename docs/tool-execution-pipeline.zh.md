@@ -5,13 +5,14 @@
 
 [English](tool-execution-pipeline.md) | 中文
 
-此图展示策略、钩子、沙箱、文件系统守卫、结果重写、最终结果观察和 UI 渲染在不改变循环的情况下何时运行。`tools/pre-execute` waterfall（瀑布式事件）首先运行，随后是单调守卫，然后运行 `tools/execute` 和 `tools/post-execute` waterfall；这三个 waterfall 可以改写一次调用。由定义自身控制的 `finalizeContent` 和 `tools/result` 在此之后运行。
+此图展示参数校验、策略、钩子、沙箱、文件系统守卫、结果重写、最终结果观察和 UI 渲染在不改变循环的情况下何时运行。由定义持有的前置校验会在 `tools/pre-execute` waterfall（瀑布式事件）或审批观察调用前运行。单调守卫、`tools/execute` 与 `tools/post-execute` waterfall、由定义持有的 `finalizeContent` 和 `tools/result` 随后运行。
 
 ```mermaid
 flowchart TD
   model["Assistant message contains tool-call block"]
   toolCall["Session event: <code>tool/call</code><br/>logged before execution"]
   presentCall["UI pending card<br/>presentCall(args)"]
+  validate["ToolDefinition.validateArgs(args)<br/>invalid: fail before policy or approval"]
   pre["<code>tools/pre-execute</code> waterfall<br/>hooks, permission, sandbox"]
   guards["Registered monotonic guards<br/>deny or abstain; identity protected"]
   denied["denied or approval refused<br/>tool body skipped"]
@@ -30,7 +31,9 @@ flowchart TD
   presentResult["UI completed card<br/>presentResult(args, result)"]
   model --> toolCall
   toolCall --> presentCall
-  toolCall --> pre
+  toolCall --> validate
+  validate -->|valid or omitted| pre
+  validate -->|invalid| normalized
   pre -->|allow| guards
   guards -->|allow| around
   guards -->|deny| denied
