@@ -764,6 +764,35 @@ describe('ToolRuntime', () => {
       expect(seen[0]?.signal).toBe(controller.signal)
     })
 
+    it('rejects invalid defineTool arguments before policy or approval observes the call', async () => {
+      const ctx = await approvalSetup()
+      let policyCalls = 0
+      let approvalCalls = 0
+      ctx.on('approval/request', () => {
+        approvalCalls += 1
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => {
+        policyCalls += 1
+        return { kind: 'ask' }
+      })
+
+      const result = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: ToolCallId('invalid-before-approval'),
+        name: 'echo',
+        arguments: { text: 42 },
+        agent: fakeAgent(),
+      })
+
+      expect(result).toMatchObject({
+        isError: true,
+        error: { info: { name: 'ToolArgsError', code: 'INVALID_ARGS' } },
+      })
+      expect(policyCalls).toBe(0)
+      expect(approvalCalls).toBe(0)
+    })
+
     it('denies with the user-rejection reason on rejected', async () => {
       const ctx = await approvalSetup()
       ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
@@ -2573,6 +2602,23 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
 })
 
 describe('defineTool validation (the runtime-validation Agent Note, part 1)', () => {
+  it('retains execute-time validation as defense in depth for direct callers', async () => {
+    const tool = defineContentToolFixture({
+      name: 'reader',
+      description: 'reads a path',
+      parameters: { path: { type: 'string', required: true } },
+      async execute(args) {
+        return [{ type: 'text', text: args.path }]
+      },
+    })
+
+    await expect(tool.execute({}, {} as never)).rejects.toMatchObject({
+      name: 'ToolArgsError',
+      code: 'INVALID_ARGS',
+      violations: ['missing required property "path"'],
+    })
+  })
+
   it('returns an isError result with the violations when the model sends bad args', async () => {
     const ctx = await setup()
     ctx.tools.register(defineContentToolFixture({
