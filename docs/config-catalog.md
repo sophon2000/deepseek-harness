@@ -3067,7 +3067,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:647`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:656`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
