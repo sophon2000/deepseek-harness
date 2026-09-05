@@ -29,7 +29,7 @@ Mount `dsh-tools` wherever agents call tools: it provides `ctx.tools`, the regis
 
 ### Register a tool
 
-`defineTool` builds a typed tool definition: a model-facing name, description, and parameter schema, a canonical output declaration, and an `execute` body that returns only the declared JSON value. Model arguments are validated before execution; invalid input becomes a normal error result.
+`defineTool` builds a typed tool definition: a model-facing name, description, and parameter schema, a canonical output declaration, and an `execute` body that returns only the declared JSON value. The registry validates model arguments before policy or approval observes the call; invalid input becomes a normal error result without consuming approval. Raw tool definitions may omit preflight validation when their provider owns validation during execution.
 
 ```ts
 import { readFile } from 'node:fs/promises'
@@ -100,7 +100,7 @@ This section explains how the package realizes the behavior above; the observabl
 
 ### Design concept
 
-The registry holds typed `ToolDefinition`s in scoped layers and projects them onto the model-facing `ToolSchema` set at request time — `output`, `execute`, `finalizeContent`, `timeoutMs`, and presentation callbacks never leak onto the wire. Every call runs a fixed pipeline: `tools/pre-execute` (extensible allow/deny/ask) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace, attach context) → definition-owned `finalizeContent` → the observe-only `tools/result` event. Only the `tools/execute` view may replace the required signal, and the registry re-fuses the caller signal before the body.
+The registry holds typed `ToolDefinition`s in scoped layers and projects them onto the model-facing `ToolSchema` set at request time — host callbacks and metadata never leak onto the wire. Every call runs a fixed pipeline: optional definition-owned `validateArgs` → `tools/pre-execute` (extensible allow/deny/ask) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace, attach context) → definition-owned `finalizeContent` → the observe-only `tools/result` event. Only the `tools/execute` view may replace the required signal, and the registry re-fuses the caller signal before the body.
 
 ### Source map
 
