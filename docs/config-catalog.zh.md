@@ -3838,7 +3838,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'ptc' | 'both'
 ```
 
-来源： [`packages/core/tools/src/index.ts:663`](../packages/core/tools/src/index.ts)
+来源： [`packages/core/tools/src/index.ts:703`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 
