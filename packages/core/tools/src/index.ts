@@ -215,6 +215,15 @@ export interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
+   * Validate snapshotted model arguments before policy or approval observes the
+   * call. Throw a structured error when the arguments are invalid. Omit this
+   * callback only when the tool provider owns validation during execution,
+   * such as an MCP server. The registry still treats `execute` as the final
+   * enforcement point, so implementations may validate there again.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   */
+  validateArgs?(args: unknown): void
+  /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
    * owned work reaches quiescence. The registry preserves caller cancellation
@@ -1462,6 +1471,8 @@ export class ToolRuntime extends Service {
       return next({ kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() })
     }
     try {
+      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+      tool?.validateArgs?.(exec.arguments)
       const carrier = scopeTarget(this, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,
