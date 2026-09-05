@@ -100,7 +100,7 @@ ctx.tools.register(defineTool({
 
 ### 设计理念
 
-注册表在作用域层中持有类型化 `ToolDefinition`，并在请求时把它们投影为面向模型的 `ToolSchema` 集合——Host 回调与 metadata 绝不会泄漏到协议上。每次调用都运行一条固定流水线：可选且由定义持有的 `validateArgs` → `tools/pre-execute`（可扩展的允许／拒绝／询问）→ 已注册单调守卫 → `tools/execute`（环绕分发包装层）→ `tools/post-execute`（检查／替换、附加上下文）→ 由定义持有的 `finalizeContent` → 仅观测的 `tools/result` 事件。只有 `tools/execute` 视图可以替换必填 signal，注册表会在调用主体前重新融合调用方 signal。
+注册表在作用域层中持有类型化 `ToolDefinition`，并在请求时把它们投影为面向模型的 `ToolSchema` 集合——Host 回调与 metadata 绝不会泄漏到协议上。每次调用都运行一条固定流水线：可选且由定义持有的 `validateArgs`（任何拒绝都会统一归一为 `INVALID_ARGS`）→ `tools/pre-execute`（可扩展的允许／拒绝／询问）→ 已注册单调守卫 → `tools/execute`（环绕分发包装层）→ `tools/post-execute`（检查／替换、附加上下文）→ 由定义持有的 `finalizeContent` → 仅观测的 `tools/result` 事件。只有 `tools/execute` 视图可以替换必填 signal，注册表会在调用主体前重新融合调用方 signal。
 
 ### 源码地图
 
