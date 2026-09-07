@@ -1,6 +1,9 @@
 packages:
   - vendor/*
   - packages/*/*
+  # Executable Loader fixture: resolve it as an internal workspace package so
+  # package-owned Cordis configs do not masquerade as third-party dependencies.
+  - packages/client/ui-layout/tests/fixtures/detail-views
   # The Landlock launcher is developed with its harness consumers but keeps
   # its native build and publication scripts under native/landlock-run.
   - native/landlock-run

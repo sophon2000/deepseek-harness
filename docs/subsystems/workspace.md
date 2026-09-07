@@ -2,7 +2,7 @@
 
 English | [中文](workspace.zh.md)
 
-A workspace is the persistent record of a directory the user works in: a stable id over a canonical path, a display title, and the ordered account of sessions that belong to it. The subsystem is one package ([dsh-workspace](../../packages/workspace/workspace), `ctx.workspaceRegistry`) — an optional host-side capability, not part of the agent-loop spine, and invisible to models (no tools, no prompt text, no session events). It stores its records through the [storage domain form](storage.md) and validates session membership against [`SessionHeader.cwd`](persistence.md#sessionheader--metadata-beside-the-log), so `storageDomain` and `sessionPersistence` are mandatory startup dependencies: an unavailable persistence peer leaves the plugin pending rather than being mistaken for an empty history. Design record: [domain KV storage Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md); bootstrap and GUI ordering: [Workspace UI product-flow Agent Note](../../.agents/notes/implemented/feature/2026-07-25-workspace-ui-product-flow.md).
+A workspace is the persistent record of a directory the user works in: a stable id over a canonical path, a display title, and the ordered account of sessions that belong to it. The subsystem is one package ([dsh-workspace](../../packages/workspace/workspace), `ctx.workspaceRegistry`) — an optional host-side capability, not part of the agent-loop spine, which contributes no tools, prompt text, or session events. Like other public Cordis Service APIs, its generated contract is discoverable when the deliberately opt-in [dsh-tool-cordis](../../packages/extensions/tool-cordis) is enabled. It stores its records through the [storage domain form](storage.md) and validates session membership against [`SessionHeader.cwd`](persistence.md#sessionheader--metadata-beside-the-log), so `storageDomain` and `sessionPersistence` are mandatory startup dependencies: an unavailable persistence peer leaves the plugin pending rather than being mistaken for an empty history. Design record: [domain KV storage Agent Note](../../.agents/notes/proposed/architecture/2026-07-24-domain-kv-storage-and-workspace.md); bootstrap and GUI ordering: [Workspace UI product-flow Agent Note](../../.agents/notes/implemented/feature/2026-07-25-workspace-ui-product-flow.md); durable account inspection: [Workspace Session Account Inspection Agent Note](../../.agents/notes/implemented/architecture/2026-08-26-workspace-session-account-inspection.md).
 
 Source: [`packages/workspace/workspace/src/types.ts`](../../packages/workspace/workspace/src/types.ts)
 
@@ -115,6 +115,26 @@ interface Workspace {
 
 Ownership truth is the record's ordered `sessionIds`, never derived from session cwd — but membership requires both: an id on the account and a header whose canonical cwd equals the workspace path, so one session structurally belongs to at most one workspace. Failed writes reject (`insertSessionBefore` account errors as `WorkspaceMoveInvalidError`, storage failures as plain errors); every accepted mutation stamps `updatedAt` and durably prunes candidates that no longer pass the membership check.
 
+## Durable session-account inspection
+
+```ts type-equiv
+/**
+ * Durable Workspace account lookup for one Session. `validation` reports
+ * whether the registry's indexed immutable header cwd identifies the
+ * Workspace path; it does not report live Workspace directory availability
+ * (see {@link Workspace.status}).
+ */
+interface WorkspaceSessionInspection {
+  /** Workspace whose durable candidate account contains the Session id. */
+  readonly workspace: Workspace
+
+  /** Canonical-cwd validation result from the registry's header index. */
+  readonly validation: 'valid' | 'cwd-unavailable' | 'cwd-mismatch'
+}
+```
+
+`Workspace.sessionIds` remains the validated membership projection used for grouping. `inspectSessionWorkspace(id)` instead locates the durable candidate account and returns its indexed cwd validation without exposing raw headers, the failed Session cwd, or the complete candidate list; an unaccounted id returns `undefined`. The synchronous inspection performs no persistence read or mutation. Its header index has the same refresh policy as membership, while current directory availability remains the separate uncached `Workspace.status()` check.
+
 ## The registry: `ctx.workspaceRegistry`
 
 `WorkspaceRegistry` ([signatures](#ctxworkspaceregistry--workspaceregistry)) owns registration and resolution. `create(path, title?)` requires a fully qualified path, canonicalizes it, rejects a nonexistent path (the original `ENOENT`) or a non-directory, returns the existing entity unchanged when the canonical path is already owned, and otherwise creates a record with `title ?? defaultWorkspaceTitle(path)` prepended to the durable registry order (different canonical paths may share a display title, and a path with no final segment uses its root spelling). `get(id)`, the ordered `list()`, and `inspectSessionWorkspace(id)` are synchronous cache reads; `resolveByPath(path)` applies the same fully qualified realpath canon without creating. `delete(id)` removes only the registration, order entry, and session account — the directory, user files, live sessions, and persisted logs are never touched, so those sessions become Ungrouped ([decision](../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.md)); unknown ids return `false`. Create and delete persist a pending-mutation marker before their two writes (record + order) can diverge; startup resolves exactly the marked mutation — by deleting the marked table row, which completes an interrupted delete and rolls back an interrupted create (the registration is re-creatable, so rollback is the safe direction) — and an unmarked order/table mismatch fails loud as corruption.
@@ -123,7 +143,7 @@ Sessions get their cwd at create time from whoever creates them, not from this r
 
 ## Consumers
 
-[`dsh-workspace-controller`](../../packages/api/workspace-controller) serves workspace CRUD to GUI clients over `ctx.workspaceRegistry`, and [`dsh-session-controller`](../../packages/api/session-controller) performs the create-session-then-attach flow above. [dsh-agent-instructions](../../packages/context/agent-instructions) is **not** a consumer despite the name: it discovers AGENTS.md-style instruction files under an agent's own cwd and never touches `ctx.workspaceRegistry` — the shared word refers to the user's working directory, not to this registry's entities.
+[`dsh-workspace-controller`](../../packages/api/workspace-controller) serves workspace CRUD to GUI clients over `ctx.workspaceRegistry`, and [`dsh-session-controller`](../../packages/api/session-controller) performs the create-session-then-attach flow above. [dsh-agent-instructions](../../packages/context/agent-instructions) is **not** a consumer despite the name: it discovers AGENTS.md-style instruction files under an agent's own cwd and never touches `ctx.workspaceRegistry` — the shared word refers to the user's working directory, not to this registry's entities. External Host plugins use `inspectSessionWorkspace()` when they need to distinguish no durable account from a failed account validation without widening membership.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -276,6 +296,17 @@ get(id: WorkspaceId): Workspace | undefined
  * @returns a fresh ordered array of workspace entities.
  */
 list(): Workspace[]
+
+/**
+ * Inspect the durable Workspace account for one Session without widening
+ * the validated {@link Workspace.sessionIds} membership projection. The
+ * result is derived synchronously from the registry's startup/live header
+ * index and performs no persistence read or mutation.
+ * @param sessionId - Session whose durable Workspace account to inspect.
+ * @returns the accounted Workspace and canonical-cwd validation, or
+ * `undefined` when no Workspace account contains the Session id.
+ */
+inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined
 
 /**
  * Delete one workspace registration while retaining its directory and every

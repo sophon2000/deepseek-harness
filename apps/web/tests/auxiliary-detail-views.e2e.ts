@@ -13,8 +13,8 @@ import {
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const PLUGIN = fileURLToPath(new URL('../../../packages/client/ui-layout/tests/fixtures/detail-views/', import.meta.url))
-const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/approval-composer/session.jsonl', import.meta.url))
-const SEED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/approval-composer/session.v2.jsonl', import.meta.url))
+const SEED = fileURLToPath(new URL('../../../snapshots/web/seeded-history/session.v2.jsonl', import.meta.url))
 
 describe.skipIf(webSnapshotMode() === 'record')('web e2e: additive details views', () => {
   let scaffold: WebScaffold
