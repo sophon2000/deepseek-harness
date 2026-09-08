@@ -115,6 +115,24 @@ interface Workspace {
 
 所有权的真源是记录中有序的 `sessionIds`，绝不从会话 cwd 派生——但成员资格要求两者同时成立：账本上有其 id，且 header 的规范 cwd 等于工作区路径，因此一个会话在结构上至多属于一个工作区。失败的写入会拒绝（`insertSessionBefore` 的账本错误以 `WorkspaceMoveInvalidError` 拒绝，存储失败以普通错误拒绝）；每次被接受的变更都盖上 `updatedAt` 时间戳，并持久修剪不再通过成员资格检查的候选项。
 
+## 持久会话记账检查
+
+```ts type-equiv
+/**
+ * Durable Workspace account lookup for one Session. `validation` reports
+ * whether the registry's indexed immutable header cwd identifies the
+ * Workspace path; it does not report live Workspace directory availability
+ * (see {@link Workspace.status}).
+ */
+interface WorkspaceSessionInspection {
+  /** Workspace whose durable candidate account contains the Session id. */
+  readonly workspace: Workspace
+
+  /** Canonical-cwd validation result from the registry's header index. */
+  readonly validation: 'valid' | 'cwd-unavailable' | 'cwd-mismatch'
+}
+```
+
 ## 注册表：`ctx.workspaceRegistry`
 
 `WorkspaceRegistry`（[签名](#ctxworkspaceregistry--workspaceregistry)）拥有注册与解析。`create(path, title?)` 要求完全限定路径并将其规范化，拒绝不存在的路径（原样传出原始 `ENOENT`）或非目录；当规范路径已被拥有时原样返回既有实体；否则创建一条标题为 `title ?? defaultWorkspaceTitle(path)` 的记录并前插到持久的注册表顺序中（不同规范路径可以共享同一显示标题，没有最终路径段时使用根路径拼写）。`get(id)`、有序的 `list()` 与 `inspectSessionWorkspace(id)` 都是同步缓存读取；`resolveByPath(path)` 应用同一套完全限定 realpath 规范但不创建。`delete(id)` 只移除注册记录、顺序条目和会话账本——目录、用户文件、实时会话和已持久化日志一概不动，因此这些会话变为 Ungrouped（[决策](../../.agents/notes/implemented/feature/2026-07-27-workspace-registration-deletion.zh.md)）；未知 id 返回 `false`。create 与 delete 会在其两次写入（记录 + 顺序）可能分叉之前先持久写入一个待定变更标记；启动时恰好解决被标记的那次变更——通过删除被标记的表行：这会补完被中断的 delete，并回滚被中断的 create（注册可以重建，因此回滚是安全方向）——而没有标记的顺序/表不一致则作为损坏大声失败。
@@ -338,6 +356,17 @@ get(id: WorkspaceId): Workspace | undefined
  * @returns a fresh ordered array of workspace entities.
  */
 list(): Workspace[]
+
+/**
+ * Inspect the durable Workspace account for one Session without widening
+ * the validated {@link Workspace.sessionIds} membership projection. The
+ * result is derived synchronously from the registry's startup/live header
+ * index and performs no persistence read or mutation.
+ * @param sessionId - Session whose durable Workspace account to inspect.
+ * @returns the accounted Workspace and canonical-cwd validation, or
+ * `undefined` when no Workspace account contains the Session id.
+ */
+inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined
 
 /**
  * Delete one workspace registration while retaining its directory and every

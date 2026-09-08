@@ -210,7 +210,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const hostUnknownRejected = forgedHostResponse.status === 200
         && forgedHostBody?.result?.ok === false
       const rejectedGoalAbsent = host.goals.get(rootAgent) === undefined
-      const rejectedEventCount = rootAgent.session.events.length
+      const rejectedEventCount = rootAgent.session.snapshotEvents().length
       // Every generated method resolves to the RemoteResult envelope; the
       // business values below are what the assertions pin.
       const rootResult = await client.remote.goals.create(rootAgent.id, { objective: 'root goal' })
