@@ -9,7 +9,7 @@ import type {
   InjectFace, KeyedSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
   SlotHookFactory, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { createChatStore } from '../stores.ts'
@@ -48,8 +48,40 @@ export interface AssistantActionOwnerProps {
   messageId: MessageId
 }
 
-/** Optional prose file-mention provider consumed by Chat. */
+/** One known file or resource; callbacks must recheck access when opening. */
+export interface ChatFileReference {
+  /** Exact reference spelling, such as a full path or stable resource identifier. */
+  readonly name: string
+  /** Optional short spellings; ambiguous aliases never produce a link. */
+  readonly aliases?: readonly string[]
+  readonly title: string
+  readonly label: string
+  /** Open in the owning viewer without invoking a model or modifying business data. */
+  open(): void
+}
+
+/** Pure projection from validated, Turn-owned result data to file references. */
+export interface ChatFileMentionProvider {
+  readonly id: string
+  /**
+   * Read only evidence preceding this closing reply; do not fetch or scan other Sessions.
+   * @param owner - viewed Turn and closing sequence.
+   * @param sessionId - viewed Session, including inherited history.
+   * @returns distinct references; multiple matches remain non-clickable.
+   */
+  forClosing(owner: TurnTailOwnerProps, sessionId: SessionId): readonly ChatFileReference[]
+}
+
+/** Chat-owned registry for native and plugin-contributed prose references. */
 export interface ChatFileMentions {
+  /** Provider-roster revision; subscribers invalidate previously resolved references. */
+  readonly revision: ObservableSnapshot<number>
+  /**
+   * Add a provider without replacing native file handling. Duplicate ids throw.
+   * @param provider - effect-owned contributor.
+   * @returns idempotent disposer; callers must own it through ctx.effect.
+   */
+  register(provider: ChatFileMentionProvider): () => void
   /**
    * Resolve prose links for one closing Turn.
    * @param owner - closing-Turn identity and file opener.
@@ -61,7 +93,7 @@ export interface ChatFileMentions {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** Optional prose file-mention provider. */
+    /** Chat-owned, effect-registered prose file-reference contributors. */
     chatFileMentions: ChatFileMentions
   }
 }
@@ -131,6 +163,8 @@ export interface ChatViewInjected {
   hooks: {
     /** Persisted completed-Turn transcript presentation. */
     transcriptView: SnapshotStore<TranscriptViewMode>
+    /** Changes when file-reference providers register or dispose. */
+    fileMentionRevision: ObservableSnapshot<number>
   }
   keyedHooks: {
     /** Resolve the stable source for one Chat Node key. */

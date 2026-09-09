@@ -178,11 +178,13 @@ describe('Chat inject API', () => {
     const owner = {} as never
 
     expect(injected.fileMentions(owner)).toBeUndefined()
-    const mentions = { resolve: vi.fn() } as never
-    const forClosing = vi.fn(() => mentions)
-    b.runtime.ctx.provide('chatFileMentions', { forClosing } as never)
-    expect(injected.fileMentions(owner)).toBe(mentions)
+    const reference = { name: 'report.txt', title: 'report.txt', label: 'Open report', open: vi.fn() }
+    const forClosing = vi.fn(() => [reference])
+    const dispose = b.runtime.ctx.chatFileMentions.register({ id: 'test', forClosing })
+    expect(injected.fileMentions(owner)?.resolve('report.txt')).toMatchObject({ title: 'report.txt' })
     expect(forClosing).toHaveBeenCalledWith(owner, ROOT)
+    dispose()
+    expect(injected.fileMentions(owner)).toBeUndefined()
 
     expect(injected.chatScroll.read()).toBeNull()
     const position = { anchorKey: 'node-1', anchorTop: 4, scrollTop: 12 }

@@ -20,6 +20,7 @@ import type {
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
+import { FileMentionRegistry } from '../../ui-chat/src/client/file-mentions.ts'
 import { makeTranslate, stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { Deliverables, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
 import { PresentedOpenController } from '../src/client/present-open.ts'
@@ -510,6 +511,7 @@ describe('producedFileMentions resolver', () => {
 describe('plugin registration', () => {
   it('registers the tail entry and fiber disposal removes it', async () => {
     const ctx = new Context()
+    ctx.provide('chatFileMentions', new FileMentionRegistry())
     await ctx.plugin(SlotRegistry).await()
     new UiConversation(ctx, { binding: () => undefined } as never)
     // The owning view's child declaration, stood up by a bench root entry.
@@ -551,9 +553,10 @@ describe('plugin registration', () => {
     expect(opened).toEqual(['site/report.html'])
     const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }))
     vi.stubGlobal('fetch', fetcher)
-    const delivered = tailOwner({ produced: [], presented: [{ path: 'report.docx', seq: 2, index: 0 }] }, 3)
+    const delivered = tailOwner({ produced: [], presented: [{ path: 'report.docx', seq: 2, index: 0 }] }, 3, (path) => { opened.push(path) })
     service?.forClosing(delivered, SessionId('child-session'))?.resolve('report.docx')?.open()
-    expect(fetcher).toHaveBeenCalledWith('/api/present.open?sessionId=child-session&seq=2&index=0', { method: 'POST', signal: expect.any(AbortSignal) as AbortSignal })
+    expect(opened).toEqual(['site/report.html', 'report.docx'])
+    expect(fetcher).not.toHaveBeenCalled()
     const face = entry!.inject!(SessionId('child-session') as never) as unknown as DeliverablesInjected
     fetcher.mockResolvedValueOnce(Response.json({ name: 'desktop', available: true, fileManager: 'finder' }))
     await face.reloadPresentedHost()
@@ -575,8 +578,7 @@ describe('plugin registration', () => {
     unsubscribe()
     expect(ctx.slots.entries('conversation.chat.turnTail')).toHaveLength(0)
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
-    // Fiber teardown retracts the service: the consumer's ctx.get sees the off state.
-    expect((ctx as unknown as { get(name: string): unknown }).get('chatFileMentions')).toBeUndefined()
+    expect(service?.forClosing(owner, SessionId('viewed-session'))).toBeUndefined()
   })
 })
 
