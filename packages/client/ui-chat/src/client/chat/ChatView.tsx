@@ -216,9 +216,12 @@ const ChatNodeList = memo(function ChatNodeList({ order, ...seatProps }: ChatNod
  */
 export function ChatView({
   useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot,
-  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions,
-  useTranscriptView, useProjection, t,
+  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions: resolveFileMentions,
+  useTranscriptView, useFileMentionRevision, useProjection, t,
 }: ChatViewSlotProps) {
+  const fileMentionRevision = useFileMentionRevision(value => value)
+  const fileMentions = useMemo(() => (owner: Parameters<typeof resolveFileMentions>[0]) => resolveFileMentions(owner),
+    [resolveFileMentions, fileMentionRevision])
   const order = useChat(s => s.order)
   const nodeStore = useChat(s => s.nodes)
   // The rail's items are accumulated in the Chat snapshot, so this selector is

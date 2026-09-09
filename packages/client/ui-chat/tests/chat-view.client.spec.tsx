@@ -390,6 +390,7 @@ function makeHarness(
     useStore: bindSnapshotSelector(chat),
     actions: chat.actions,
     useTranscriptView: bindSnapshotSelector(transcriptView),
+    useFileMentionRevision: select => select(0),
     renderSlot,
     SessionProvider: SessionProviderStub,
     viewRequest: null,
