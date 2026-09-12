@@ -11,6 +11,7 @@ import { webCardModel } from '../models/web-card-model.ts'
 import { toolRowModel, type ToolRowVariant } from '../models/tool-call-model.ts'
 import { localizeAutoReviewDenial } from '../models/auto-review-denial.ts'
 import { ToolRow } from '../components/ToolRow.tsx'
+import { genericImageCardModel } from '../models/image-card-model.ts'
 
 /** Variant leading icons (figma table); all glyphs render at 14 inside the 16px leading box. */
 const VARIANT_ICONS: Record<ToolRowVariant, ReactNode> = {
@@ -28,7 +29,7 @@ export interface GenericToolCardProps extends ToolCallOwnerProps {
   t: ToolTreeProps['t']
 }
 
-export function GenericToolCard({ toolName, block, cwd, home, openFile, inspect, t }: GenericToolCardProps) {
+export function GenericToolCard({ toolName, block, cwd, home, openFile, inspect, renderImages, t }: GenericToolCardProps) {
   const model = toolRowModel(toolName, block, cwd, home)
   const autoReview = model.autoReviewDenial === null
     ? null
@@ -38,6 +39,7 @@ export function GenericToolCard({ toolName, block, cwd, home, openFile, inspect,
   const diff = diffCardModel(block)
   const search = searchCardModel(block)
   const web = webCardModel(block)
+  const image = genericImageCardModel(block)
   // A failing exit status is the terminal card's own error signal (the call
   // itself settles isError:false), surfaced as the row's red state dot.
   const state = model.state === 'ok' && terminal !== null && terminalFailed(terminal)
@@ -63,6 +65,8 @@ export function GenericToolCard({ toolName, block, cwd, home, openFile, inspect,
       read={read}
       search={search}
       web={web}
+      image={image}
+      renderImages={renderImages}
       state={state}
       filePath={model.filePath}
       onOpenFile={singleFile ? openFile : undefined}
