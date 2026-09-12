@@ -1,5 +1,5 @@
 /** Root/subcall Tool composition with one keyed atomic dispatch path. */
-import { memo, useMemo, type ReactNode } from 'react'
+import { memo, useCallback, useMemo, type ReactNode } from 'react'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ToolCallOwnerProps, ToolTreeProps } from '../contract/slots.ts'
 import { GenericToolCard } from './toolviews/GenericToolCard.tsx'
@@ -10,7 +10,7 @@ function callName(node: ToolCallBlock): string {
   return 'kind' in node ? node.call?.name ?? '' : node.name
 }
 
-/** One atomic call dispatched through the Tool-owned keyed slot. */
+/** One atomic call dispatched through the Tool-owned keyed view slot. */
 const ToolCall = memo(function ToolCall({
   renderSlot, callId, toolName, block, openFile, cwd, home, inspectCall, loadImage, t, children,
 }: Pick<ToolTreeProps, 'renderSlot' | 'openFile' | 'cwd' | 'inspectCall' | 'loadImage' | 't'> & {
@@ -20,6 +20,10 @@ const ToolCall = memo(function ToolCall({
   home?: string | undefined
   children?: ReactNode
 }) {
+  const renderImages = useCallback<NonNullable<ToolCallOwnerProps['renderImages']>>(
+    (images, align = 'start') => renderSlot('tool.call.images', { images, loadImage, align }),
+    [loadImage, renderSlot],
+  )
   const owner: ToolCallOwnerProps = useMemo(() => ({
     callId,
     toolName,
@@ -28,8 +32,9 @@ const ToolCall = memo(function ToolCall({
     cwd,
     home,
     loadImage,
+    renderImages,
     inspect: () => { inspectCall(callId) },
-  }), [callId, toolName, block, openFile, cwd, home, loadImage, inspectCall])
+  }), [callId, toolName, block, openFile, cwd, home, loadImage, renderImages, inspectCall])
   return (
     <div
       className={css.callRow}

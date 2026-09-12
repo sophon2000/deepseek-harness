@@ -20,12 +20,12 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import type { RunningToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MessageImageLoader } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { zh } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
-import type { ToolImagesOwnerProps, ToolTreeProps } from '../src/client/contract/slots.ts'
-import { imageCardModel } from '../src/client/tool/models/image-card-model.ts'
+import type { ToolImageRenderer, ToolTreeProps } from '../src/client/contract/slots.ts'
+import { genericImageCardModel, imageCardModel } from '../src/client/tool/models/image-card-model.ts'
 import { ReadImageRow, readImageToolview } from '../src/client/tool/toolviews/read-image-row.tsx'
+import { GenericToolCard } from '../src/client/tool/toolviews/GenericToolCard.tsx'
 
 afterEach(cleanup)
 
@@ -78,15 +78,15 @@ const settled = (over?: Partial<ToolResultNode>): ToolResultNode => ({
 } as unknown as ToolResultNode)
 
 /**
- * A renderSlot stub standing in for the attachment presentation plugin's
- * `tool.call.images` gallery. The owner is the real `ToolImagesOwnerProps` —
- * `MessageImageSource` is a union of a durable attachment arm and a
- * submission-echo preview arm, so the stub renders both.
+ * A renderer stub standing in for the attachment presentation plugin's
+ * Tool-tree-owned `tool.call.images` gallery. `MessageImageSource` is a union
+ * of a durable attachment arm and a submission-echo preview arm, so the stub
+ * renders both.
  */
-const stubRenderSlot = (): PropsRenderSlots<'tool.call.images'>['renderSlot'] => (
-  vi.fn((_key: 'tool.call.images', owner: ToolImagesOwnerProps) => (
+const stubRenderImages = (): ToolImageRenderer => (
+  vi.fn((images: Parameters<ToolImageRenderer>[0]) => (
     <div data-images>
-      {owner.images.map((image, index) => (
+      {images.map((image, index) => (
         'attachment' in image ? (
           <span key={image.attachment.attachmentId} data-image-id={image.attachment.attachmentId} />
         ) : (
@@ -94,13 +94,24 @@ const stubRenderSlot = (): PropsRenderSlots<'tool.call.images'>['renderSlot'] =>
         )
       ))}
     </div>
-  )) as unknown as PropsRenderSlots<'tool.call.images'>['renderSlot']
+  ))
 )
 
 /** Session-authorized loader stand-in; the stub gallery never resolves it. */
 const loadImage: MessageImageLoader = vi.fn(() => Promise.reject(new Error('not used')))
 
 describe('imageCardModel', () => {
+  it('derives a generic image card for a third-party image-bearing result', () => {
+    const block = settled({
+      call: { name: 'director_workset_candidate_contact_sheet', argsRaw: '{}' },
+      meta: undefined,
+    })
+    expect(genericImageCardModel(block)).toEqual({
+      label: 'card.png',
+      images: [{ attachment: sampleImage }],
+      text: ENVELOPE,
+    })
+  })
   it('derives the card from settled image metadata and its raw envelope', () => {
     expect(imageCardModel(settled())).toEqual({
       label: 'shots/card.png',
@@ -263,6 +274,28 @@ describe('imageCardModel', () => {
   })
 })
 
+describe('generic image-bearing Tool result', () => {
+  it('uses the native gallery and hides the raw attachment JSON', () => {
+    const renderImages = stubRenderImages()
+    const block = settled({
+      call: { name: 'director_workset_candidate_contact_sheet', argsRaw: '{}' },
+      meta: undefined,
+    })
+    const view = render(<GenericToolCard
+      callId="c1"
+      toolName="director_workset_candidate_contact_sheet"
+      block={block}
+      openFile={vi.fn()}
+      loadImage={loadImage}
+      renderImages={renderImages}
+      t={t}
+    />)
+    fireEvent.click(view.container.querySelector('[data-expandable]')!)
+    expect(view.container.querySelector(`[data-image-id="${sampleImage.attachmentId}"]`)).not.toBeNull()
+    expect(view.container.textContent).not.toContain('"attachmentId"')
+  })
+})
+
 describe('ReadImageRow keyed toolview', () => {
   const list = () => createSnapshotStore<SessionListState>({
     ids: [SID],
@@ -275,10 +308,9 @@ describe('ReadImageRow keyed toolview', () => {
 
   const rowProps = (
     block: RunningToolCall | ToolResultNode,
-    renderSlot?: PropsRenderSlots<'tool.call.images'>['renderSlot'],
-    loader: MessageImageLoader = loadImage,
+    renderImages?: ToolImageRenderer,
   ): Parameters<typeof ReadImageRow>[0] => ({
-    callId: 'c1', toolName: 'read_image', block, openFile: vi.fn(), renderSlot, loadImage: loader,
+    callId: 'c1', toolName: 'read_image', block, openFile: vi.fn(), renderImages, loadImage,
     sessionId: SID, useSessions: bindSnapshotSelector(list()),
     t,
   } as unknown as Parameters<typeof ReadImageRow>[0])
@@ -292,7 +324,7 @@ describe('ReadImageRow keyed toolview', () => {
     // (FILE_PATH_VARIANTS covers only read/write/edit), so the openable path the
     // row advertises would never be openable.
     const openFile = vi.fn()
-    const view = render(<ReadImageRow {...rowProps(settled(), stubRenderSlot())} openFile={openFile} />)
+    const view = render(<ReadImageRow {...rowProps(settled(), stubRenderImages())} openFile={openFile} />)
     expect(view.container.querySelector('[data-variant]')?.getAttribute('data-variant')).toBe('read')
     const link = view.container.querySelector('button[class*="fileLink"]')
     expect(link).not.toBeNull()
@@ -300,24 +332,20 @@ describe('ReadImageRow keyed toolview', () => {
     expect(openFile).toHaveBeenCalledWith('shots/card.png')
   })
 
-  it('expands to the image, dispatched through the tool-owned image slot', () => {
-    const renderSlot = stubRenderSlot()
-    const view = render(<ReadImageRow {...rowProps(settled(), renderSlot)} />)
+  it('expands to the image, dispatched through the Tool-tree-owned image slot', () => {
+    const renderImages = stubRenderImages()
+    const view = render(<ReadImageRow {...rowProps(settled(), renderImages)} />)
     expect(view.container.querySelector('[data-images]')).toBeNull()
     toggleRow(view)
     expect(view.container.querySelector('[data-images]')).not.toBeNull()
-    expect(renderSlot).toHaveBeenLastCalledWith('tool.call.images', {
-      images: [{ attachment: sampleImage }],
-      loadImage,
-      align: 'start',
-    })
+    expect(renderImages).toHaveBeenLastCalledWith([{ attachment: sampleImage }], 'start')
     expect(view.container.querySelector(`[data-image-id="${sampleImage.attachmentId}"]`)).not.toBeNull()
   })
 
   it('never prints the raw attachment object under the picture', () => {
     // The row's flattened output JSON.stringifies the image block the real content
     // carries, so the card takes its text from the derived envelope instead.
-    const view = render(<ReadImageRow {...rowProps(settled(), stubRenderSlot())} />)
+    const view = render(<ReadImageRow {...rowProps(settled(), stubRenderImages())} />)
     toggleRow(view)
     const text = view.container.textContent ?? ''
     expect(text).not.toContain('"attachmentId"')
@@ -336,34 +364,34 @@ describe('ReadImageRow keyed toolview', () => {
     expect(view.container.textContent).toContain('image/png image, 1496x260 px')
   })
 
-  it('degrades to the text body when neither the slot nor the loader is supplied', () => {
+  it('degrades to the text body when no image renderer is supplied', () => {
     const view = render(<ReadImageRow {...rowProps(settled(), undefined)} />)
     toggleRow(view)
     expect(view.container.querySelector('[data-images]')).toBeNull()
   })
 
   it('a running call renders the summary row alone', () => {
-    const renderSlot = stubRenderSlot()
-    const view = render(<ReadImageRow {...rowProps(running(), renderSlot)} />)
+    const renderImages = stubRenderImages()
+    const view = render(<ReadImageRow {...rowProps(running(), renderImages)} />)
     expect(view.container.querySelector('[data-images]')).toBeNull()
-    expect(renderSlot).not.toHaveBeenCalled()
+    expect(renderImages).not.toHaveBeenCalled()
   })
 
   it('a refusal renders its error without an image card', () => {
     // read_image refuses a text-only route, a missing attachment service, and an
     // unreadable file. Claiming the key means this row owns those shapes too.
-    const renderSlot = stubRenderSlot()
+    const renderImages = stubRenderImages()
     const view = render(<ReadImageRow {...rowProps(settled({
       isError: true,
       meta: undefined,
       content: [{ type: 'text', text: 'Error: model "x" does not declare image input' }],
-    } as never), renderSlot)} />)
+    } as never), renderImages)} />)
     expect(view.container.querySelector('[data-images]')).toBeNull()
-    expect(renderSlot).not.toHaveBeenCalled()
+    expect(renderImages).not.toHaveBeenCalled()
     expect(view.container.textContent).toContain('does not declare image input')
   })
 
-  it('registers under the read_image key of the keyed toolview slot, declaring the image slot', () => {
+  it('registers under the read_image key while the Tool tree owns the shared image slot', () => {
     const registered: { name: unknown; key?: unknown; children?: unknown }[] = []
     const ctx = { slots: {
       inject: (_name: string, callback: () => () => void) => callback(),
@@ -377,7 +405,6 @@ describe('ReadImageRow keyed toolview', () => {
       name: 'tool.call.toolview',
       key: 'read_image',
       locale: 'conversation',
-      children: { 'tool.call.images': { kind: 'single', scope: 'session' } },
     }])
     expect(readImageToolview.inject).toEqual(['slots'])
   })

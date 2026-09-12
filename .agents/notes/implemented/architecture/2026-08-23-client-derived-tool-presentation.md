@@ -22,7 +22,7 @@ The required result is one raw Session journal and one Client presentation owner
 
 ## Decision
 
-The visual-equivalence requirements below exclude the separately approved [nested terminal-card fix](../bug-fix/2026-09-05-nested-terminal-cards.md); all other presentation and ownership constraints remain.
+The visual-equivalence requirements below exclude the separately approved [nested terminal-card fix](../bug-fix/2026-09-05-nested-terminal-cards.md) and the later [generic image-result gallery](../feature/2026-09-12-generic-tool-image-result-gallery.md); all other presentation and ownership constraints remain.
 
 The Session Remote journal sends only raw, validated, persistable Session events. `session.page` and `session.follow` do not parse tool arguments, query the Tools registry, restore a presenter scope, execute `presentCall` or `presentResult`, or construct or clone any tool view.
 
@@ -51,7 +51,7 @@ The Host `ToolDefinition.presentCall`, `ToolDefinition.presentResult`, `ToolCall
 | Retained | the Session log format, Remote journal lifecycle, and Conversation identity/topology |
 | Retained | the existing keyed slot, Generic fallback, and Chat, Details, and Trajectory structure |
 | Forbidden | a new Client presenter service, parallel registry, or wire renderer id |
-| Forbidden | new cards, visual redesign, interaction redesign, or Code Dispatch rich-card enhancements except the [nested terminal-card exception](../bug-fix/2026-09-05-nested-terminal-cards.md) |
+| Forbidden | new cards, visual redesign, interaction redesign, or Code Dispatch rich-card enhancements except the [nested terminal-card](../bug-fix/2026-09-05-nested-terminal-cards.md) and [generic image-result](../feature/2026-09-12-generic-tool-image-result-gallery.md) exceptions |
 | Forbidden | compatibility dual-writing, version negotiation, or retention of the old `view` field |
 
 ## Terminology
@@ -68,7 +68,7 @@ The Host `ToolDefinition.presentCall`, `ToolDefinition.presentResult`, `ToolCall
 
 **Equivalent** means that the same supported input produces the user-visible result and interaction pinned by the existing component, assembly, and browser evidence. It does not require the same intermediate TypeScript types or internal calls.
 
-**No enhancement** means that this decision does not give an input pinned to Generic fallback a new specialized card or expand an existing card's data or interactions.
+**No enhancement** means that this decision does not give an input pinned to Generic fallback a new specialized card or expand an existing card's data or interactions, apart from separately recorded later decisions such as the generic image-result gallery.
 
 ## Architecture and Ownership
 
