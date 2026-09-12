@@ -190,6 +190,28 @@ function fullyRendered(content: readonly unknown[]): boolean {
 }
 
 /**
+ * Derive a presentation card for any successful Tool result made entirely of
+ * standard text and image blocks. This is deliberately result-shape based, not
+ * tool-name based, so third-party tools receive the native attachment gallery
+ * without registering a DSH-specific view.
+ * @param block - running or settled Tool block.
+ * @returns the generic image card, or null when another renderer must own it.
+ */
+export function genericImageCardModel(block: ToolCallBlock): ImageCardModel | null {
+  if (!('kind' in block) || block.isError || !fullyRendered(block.content)) return null
+  const refs = imageReferences(block.content)
+  if (refs === null) return null
+  const text = block.content
+    .flatMap(part => part.type === 'text' && typeof part.text === 'string' ? [part.text] : [])
+    .join('\n')
+  return {
+    label: refs[0]?.name ?? block.call?.name ?? 'image',
+    images: refs.map(ref => ({ attachment: ref })),
+    text,
+  }
+}
+
+/**
  * Derive a settled image card after validating the call head, persisted
  * metadata (or its argument fallback), and the model-facing image envelope.
  *

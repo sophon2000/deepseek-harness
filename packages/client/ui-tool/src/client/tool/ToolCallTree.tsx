@@ -1,5 +1,5 @@
 /** Root/subcall Tool composition with one keyed atomic dispatch path. */
-import { memo, useMemo, type ReactNode } from 'react'
+import { memo, useCallback, useMemo, type ReactNode } from 'react'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ToolCallHookContext, ToolCallOwnerProps, ToolCallPhaseProps, ToolTreeProps } from '../contract/slots.ts'
 import { toolRowModel } from './models/tool-call-model.ts'
@@ -16,7 +16,7 @@ function callName(call: ToolCallPhaseProps): string {
   return call.phase === 'result' ? call.block.call?.name ?? '' : call.block.name
 }
 
-/** One atomic call dispatched through the Tool-owned keyed slot. */
+/** One atomic call dispatched through the Tool-owned keyed view slot. */
 const ToolCall = memo(function ToolCall({
   renderSlot, callId, toolName, call, assistant, openFile, cwd, home, inspectCall, loadImage, useDisclosure, t, children,
 }: Pick<ToolTreeProps, 'renderSlot' | 'openFile' | 'cwd' | 'inspectCall' | 'loadImage' | 'useDisclosure' | 't'> & {
@@ -31,6 +31,10 @@ const ToolCall = memo(function ToolCall({
   const hookContext = useMemo<ToolCallHookContext>(() => ({
     callId, assistant: preparing ? assistant : undefined,
   }), [assistant, callId, preparing])
+  const renderImages = useCallback<NonNullable<ToolCallOwnerProps['renderImages']>>(
+    (images, align = 'start') => renderSlot('tool.call.images', { images, loadImage, align }),
+    [loadImage, renderSlot],
+  )
   const owner: ToolCallOwnerProps = useMemo(() => ({
     callId,
     toolName,
@@ -39,9 +43,10 @@ const ToolCall = memo(function ToolCall({
     cwd,
     home,
     loadImage,
+    renderImages,
     useDisclosure,
     inspect: inspectCall === undefined ? undefined : () => { inspectCall(callId) },
-  }), [callId, toolName, call, openFile, cwd, home, loadImage, inspectCall, useDisclosure])
+  }), [callId, toolName, call, openFile, cwd, home, loadImage, renderImages, inspectCall, useDisclosure])
   const autoReviewDenied = useMemo(
     () => call.phase === 'result' && toolRowModel(toolName, call.block).autoReviewDenial !== null,
     [toolName, call],
