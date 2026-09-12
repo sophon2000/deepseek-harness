@@ -1,10 +1,10 @@
 // read_image toolview registrant: the keyed toolview hole for the read_image
 // tool. The row composes the shared read-family assembly and feeds it the durable
 // image reference as ToolRow's `image` card material, so the image renders through
-// the Tool-owned `tool.call.images` slot inside the collapsed-by-default expanded
-// body — the same unified interaction every other card row has. The attachment
-// presentation plugin fills that slot; the tool layer only ever supplies the
-// references and the session-authorized loader it received from the chat node.
+// the Tool-tree-owned `tool.call.images` slot inside the collapsed-by-default
+// expanded body — the same unified interaction every other card row has. The
+// attachment presentation plugin fills that slot; the tool layer only ever
+// supplies the references through its parent-provided renderer capability.
 //
 // Claiming the `read_image` key suppresses the generic fallback for EVERY
 // read_image result, so this component must cover all of the tool's shapes, not
@@ -24,23 +24,21 @@ import { CONVERSATION_NS as NS } from '../../locale.ts'
 
 /**
  * read_image row: the read-family chrome with the durably committed image as the
- * row's collapsed-by-default card body, rendered through the `tool.call.images`
- * slot this entry declares.
+ * row's collapsed-by-default card body, rendered through the parent-provided
+ * `tool.call.images` renderer capability.
  */
 export function ReadImageRow(props: ReadImageRowProps) {
-  const { block, cwd, home, renderSlot, loadImage } = props
+  const { block, cwd, home, renderImages } = props
   return readFamilyRow(props, {
     image: imageCardModel(block, cwd, home),
-    renderSlot,
-    loadImage,
+    renderImages,
   })
 }
 
 /**
  * The read_image row as a plain registrant plugin following the atomic Tool-view
- * declaration across independent activation and reload lifetimes. Declaring
- * `tool.call.images` as a child slot authorizes this entry's `renderSlot` to
- * dispatch the gallery.
+ * declaration across independent activation and reload lifetimes. The Tool tree
+ * owns the image child slot, so this entry remains an ordinary keyed registrant.
  */
 export const readImageToolview = {
   name: 'read-image-toolview',
@@ -55,7 +53,6 @@ export const readImageToolview = {
         name: 'tool.call.toolview',
         key: 'read_image',
         locale: NS,
-        children: { 'tool.call.images': { kind: 'single', scope: 'session' } },
       }, ReadImageRow))
   },
 }
