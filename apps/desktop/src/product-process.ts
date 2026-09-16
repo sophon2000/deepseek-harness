@@ -19,10 +19,13 @@ function exitsWithin(exit: Promise<void>, milliseconds: number): Promise<boolean
 }
 
 function cleanEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(environment).filter(([name]) => (
-    name !== 'NODE_OPTIONS' && name !== 'NODE_PATH' && !/^DSH_DESKTOP_/u.test(name)
-    && !/^(?:npm|pnpm|corepack)_/iu.test(name)
-  )))
+  return {
+    ...Object.fromEntries(Object.entries(environment).filter(([name]) => (
+      name !== 'NODE_OPTIONS' && name !== 'NODE_PATH' && !/^DSH_DESKTOP_/u.test(name)
+      && !/^(?:npm|pnpm|corepack)_/iu.test(name)
+    ))),
+    ELECTRON_RUN_AS_NODE: '1',
+  }
 }
 
 function readyEnvironment(message: unknown, allowed: readonly string[]): NodeJS.ProcessEnv | undefined {
@@ -56,6 +59,7 @@ export class DesktopProductProcess {
   private stderr = ''
   private stopping = false
   private failureReported = false
+  private readyTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(
     private readonly node: string,
@@ -64,8 +68,12 @@ export class DesktopProductProcess {
     private readonly dataRoot: string,
     private readonly environment: NodeJS.ProcessEnv = process.env,
     private readonly onFailure?: (error: Error) => void,
+    private readonly readyTimeoutMs = 30_000,
   ) {
     if (product.service === undefined) throw new Error('desktop product service is not declared')
+    if (!Number.isSafeInteger(readyTimeoutMs) || readyTimeoutMs < 1) {
+      throw new Error('desktop product service ready timeout must be a positive integer')
+    }
   }
 
   /** Start once and resolve after the product reports its exact allowlisted Host environment. */
@@ -83,6 +91,11 @@ export class DesktopProductProcess {
       stdio: ['ignore', 'inherit', 'pipe', 'ipc'],
     })
     this.child = child
+    this.readyTimer = setTimeout(() => {
+      this.fail(new Error(`desktop product service did not become ready within ${String(this.readyTimeoutMs)} ms`))
+      child.kill('SIGTERM')
+    }, this.readyTimeoutMs)
+    this.readyTimer.unref()
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => {
       this.stderr = (this.stderr + chunk).slice(-MAX_STDERR)
@@ -90,6 +103,7 @@ export class DesktopProductProcess {
     child.on('message', (message: unknown) => {
       const environment = readyEnvironment(message, service.exportedEnvironment)
       if (environment !== undefined) {
+        this.clearReadyTimer()
         this.readyResolve({ environment })
         return
       }
@@ -131,9 +145,15 @@ export class DesktopProductProcess {
   }
 
   private fail(error: Error): void {
+    this.clearReadyTimer()
     this.readyReject(error)
     if (this.failureReported || this.stopping) return
     this.failureReported = true
     this.onFailure?.(error)
+  }
+
+  private clearReadyTimer(): void {
+    if (this.readyTimer !== undefined) clearTimeout(this.readyTimer)
+    this.readyTimer = undefined
   }
 }

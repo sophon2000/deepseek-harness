@@ -140,7 +140,7 @@ export function createElectronBuilderConfig(
       // electron-builder excludes a source directory's root node_modules.
       { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
     ],
-    asarUnpack: unpack,
+    asarUnpack: ['dsh/products/**/*', ...unpack],
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
