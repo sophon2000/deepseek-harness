@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
+import { DesktopProductProcess } from '../src/product-process.ts'
 import { createPluginProfile } from '../src/project-manager.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 
@@ -25,11 +26,19 @@ export async function smokeDesktopRuntime(
 ): Promise<void> {
   const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
   const profile = join(home, 'profiles', 'desktop')
-  const host = new DesktopHostProcess(node, root, profile, undefined, { ...environment, DSH_HOME: home },
-    undefined, join(resourcesRuntime, 'primary-runtime'),
-    { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.cjs'), nodeBin: join(resourcesRuntime, 'bin') })
+  const product = runtime.product?.service === undefined
+    ? undefined
+    : new DesktopProductProcess(node, root, runtime.product, join(home, 'product'), environment)
+  let host: DesktopHostProcess | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    const productEnvironment = product === undefined ? {} : (await product.start()).environment
+    host = new DesktopHostProcess(node, root, profile, undefined, {
+      ...environment,
+      DSH_HOME: home,
+      ...productEnvironment,
+    }, undefined, join(resourcesRuntime, 'primary-runtime'),
+    { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.cjs'), nodeBin: join(resourcesRuntime, 'bin') })
     createPluginProfile(profile, runtime.product?.profileBundles)
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(profile, 'node_modules', pluginName)
@@ -133,7 +142,8 @@ export function apply(ctx) {
     console.log('desktop runtime: DOCX, XLSX, PPTX to PDF and skill CLI discovery passed')
   } finally {
     clearTimeout(timer)
-    await host.stop()
+    await host?.stop()
+    await product?.stop()
     rmSync(home, { recursive: true, force: true })
   }
 }
