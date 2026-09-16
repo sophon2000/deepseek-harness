@@ -110,6 +110,7 @@ vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease
     readonly assertProfileRuntime = harness.assertProfileRuntime
+    runtimeProduct = () => undefined
     canRecoverProfile = harness.canRecoverProfile
     constructor(_paths: unknown, runtime: unknown) { harness.managerRuntimes.push(runtime) }
     async mutate(_mutation: unknown, hooks: { beforeChange(): Promise<void>; afterChange(): Promise<void> }) {
@@ -122,7 +123,7 @@ vi.mock('../src/project-manager.ts', () => ({
     }
   },
 }))
-vi.mock('../src/host-process.ts', () => ({ DesktopHostProcess: harness.FakeHost }))
+vi.mock('../src/product-host-process.ts', () => ({ DesktopProductHostProcess: harness.FakeHost }))
 vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: vi.fn() }))
 
 function invoke(channel: string): unknown {

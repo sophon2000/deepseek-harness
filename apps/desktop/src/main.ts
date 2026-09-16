@@ -14,7 +14,7 @@ import {
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager, type DesktopProjectHooks } from './project-manager.ts'
-import { DesktopHostProcess } from './host-process.ts'
+import { DesktopProductHostProcess } from './product-host-process.ts'
 import { DesktopBackendController, type DesktopBackendState } from './backend-controller.ts'
 import { DESKTOP_IPC, type DesktopUpdateState } from './ipc.ts'
 import { formatDesktopMessage, resolveDesktopLocale } from './locale.ts'
@@ -207,8 +207,16 @@ async function main(): Promise<void> {
   const backend = new DesktopBackendController((onFailure) => {
     if (development === undefined) manager.assertProfileRuntime(activeProject)
     const hostInspectPort = developmentHostInspectPort(development !== undefined)
-    const host = new DesktopHostProcess(resources.node, development ?? resources.dsh, activeProject,
-      hostInspectPort, process.env, onFailure)
+    const host = new DesktopProductHostProcess(
+      resources.node,
+      development ?? resources.dsh,
+      activeProject,
+      paths.products,
+      development === undefined ? manager.runtimeProduct() : undefined,
+      hostInspectPort,
+      process.env,
+      onFailure,
+    )
     return {
       start: () => host.start(),
       stop: () => host.stop(),

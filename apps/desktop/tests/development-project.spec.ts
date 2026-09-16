@@ -34,13 +34,21 @@ describe('desktop development project', () => {
     const cli = join(root, 'apps', 'cli')
     const host = join(root, 'apps', 'desktop-host')
     const dependencies = join(root, 'workspace-dependencies')
+    const plugin = join(root, 'external', 'plugin')
+    const bundle = join(root, 'external', 'bundle')
+    const presets = join(root, 'external', 'presets')
     mkdirSync(join(cli, 'lib'), { recursive: true })
     mkdirSync(join(host, 'lib'), { recursive: true })
     mkdirSync(join(dependencies, '@scope'), { recursive: true })
+    mkdirSync(plugin, { recursive: true })
+    mkdirSync(bundle, { recursive: true })
+    mkdirSync(presets, { recursive: true })
     mkdirSync(join(dependencies, '@deepseek-ai', 'dsh'), { recursive: true })
     writeFileSync(join(cli, 'package.json'), '{"name":"@deepseek-ai/dsh","version":"1.2.3"}\n')
     writeFileSync(join(host, 'package.json'), '{"name":"@deepseek-ai/dsh-desktop-host","version":"1.2.3"}\n')
     writeFileSync(join(host, 'lib', 'index.js'), '')
+    writeFileSync(join(plugin, 'package.json'), '{"name":"@product/plugin","version":"4.5.6"}\n')
+    writeFileSync(join(bundle, 'package.json'), '{"name":"@product/bundle","version":"4.5.6","dsh":{"bundle":{"patch":"./patch.yml"}}}\n')
     writeFileSync(join(dependencies, '@deepseek-ai', 'dsh', 'package.json'), '{}\n')
     mkdirSync(join(dependencies, 'plain-dependency'))
     writeFileSync(join(dependencies, 'plain-dependency', 'package.json'), '{}\n')
@@ -53,6 +61,8 @@ describe('desktop development project', () => {
       hostDir: host,
       dependencyDir: dependencies,
       release: release(),
+      profilePackageDirs: [plugin, bundle],
+      systemPresetRoots: [presets],
     })
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh'))).toBe(realpathSync(cli))
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh-desktop-host'))).toBe(realpathSync(host))
@@ -62,9 +72,16 @@ describe('desktop development project', () => {
       .toBe(realpathSync(join(dependencies, '@scope', 'dependency')))
     const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
+      dsh: { profile: { bundles: string[] }; desktop: { systemPresetRoots: string[] } }
     }
     expect(manifest.dependencies['@deepseek-ai/dsh']).toBe('1.2.3')
     expect(manifest.dependencies['@deepseek-ai/dsh-desktop-host']).toBe('1.2.3')
+    expect(manifest.dependencies['@product/plugin']).toBe('4.5.6')
+    expect(manifest.dependencies['@product/bundle']).toBe('4.5.6')
+    expect(manifest.dsh.profile.bundles.at(-1)).toBe('@product/bundle')
+    expect(manifest.dsh.desktop.systemPresetRoots).toEqual([realpathSync(presets)])
+    expect(realpathSync(join(project, 'node_modules', '@product', 'plugin'))).toBe(realpathSync(plugin))
+    expect(realpathSync(join(project, 'node_modules', '@product', 'bundle'))).toBe(realpathSync(bundle))
   })
 
   it('rejects a CLI package from another release', () => {

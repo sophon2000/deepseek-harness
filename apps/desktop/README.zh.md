@@ -11,6 +11,7 @@
 | 发布身份 | 桌面壳 API、Web 客户端、后端与插件依赖图作为一个组合完成验证；独立版本会产生未经验证的组合，并让更新可用性含糊不清。 | Electron 与 `@deepseek-ai/dsh` 始终使用同一精确版本。即使桌面壳代码不变，升级 dsh 也必须发布新 Desktop 版本。 |
 | 运行时 | Electron 的 Node.js 带有 Electron 补丁、fuse、ABI 与生命周期约束，而系统运行时和包管理器状态不可控。 | dsh 通过内置的上游 Node.js 运行，所有包操作都使用内置 pnpm。Electron 的 Node.js、系统 Node.js、系统 pnpm 与用户的包管理器配置都不进入执行路径。 |
 | 包来源 | 即使离线，启动时安装核心依赖也会增加开销。 | `extraResources/dsh` 携带完整生产依赖树；profile 只安装外部插件。 |
+| 产品服务 | 产品插件启动前可能依赖本地 API 或数据库，但业务专属的进程知识不应进入通用桌面壳。 | 已签名产品描述符可以声明资源清单根目录下的一个入口和精确环境变量白名单。Electron 用内置 Node.js 启动它，等待就绪 IPC，只把获准返回值交给 Host，并在停止产品服务前先停止 Host。 |
 | 共享模块 | 宿主 API 可能依赖模块实例身份。 | Desktop 用目录软链接或 Windows junction 把每个内置第一方包连接到 profile；普通插件依赖保留在本地。 |
 | 状态归属 | 共享可执行依赖图会让 CLI（命令行界面）与 Desktop 相互改变 dsh、Cordis、插件或原生模块版本，而两个桌面进程还可能争用同一个 profile。 | Electron 在访问任何 profile 前获取进程生命周期单实例锁，并独占 `$DSH_HOME/profiles/desktop` 及其包管理器状态。CLI 与 Desktop 共享 `$DSH_HOME` 下受支持的产品数据，但绝不共享可执行包、插件激活、锁文件或 `node_modules`。 |
 | 通信 | 监听 Web 服务会引入端口归属、认证、CORS 与暴露风险；Electron 与上游 Node.js 之间也需要明确的跨进程协议。 | 应用不打开 Web 端口。`dsh-app://` 承载 Web 资源和 Fetch 流量；分帧字节管道以背压传输有界请求与响应分块，Node IPC 只承载子进程生命周期控制。 |
@@ -22,6 +23,8 @@
 ## 安装归属
 
 Electron 拥有 `$DSH_HOME/profiles/desktop`。其 `dependencies` 只包含已安装外部插件的精确版本；`dsh.profile.bundles` 包含内置 bundle，后接已启用插件。签名应用从 `resources/dsh` 提供 dsh、私有 Desktop Host 及其生产依赖。共享包链接解析到这些实际目录。宿主与插件在同一个内置上游 Node 进程中执行，使用正常的 realpath 解析；Desktop 不启用 `--preserve-symlinks`。CLI 不能启动或修改此 profile。
+
+可选产品服务只能从经过验证的 `resources/dsh/products/<id>/resources` 树执行。其持久数据独立存放在 `$DSH_HOME/desktop/products/<id>`，既不会随 Desktop profile 重置，也不会嵌入更新。就绪 IPC 必须精确返回已签名元数据声明的环境变量名；进程控制变量和未声明值都会被拒绝。
 
 本地启动页提供启动状态和可用恢复操作；加载后的 dsh 渲染进程仅接收桌面协议标记。独立插件窗口接收结构化的列表、安装、删除、更新和更新检查操作；两个渲染进程都无法访问文件系统、原始 Electron IPC、shell 或任意 pnpm 参数。
 
@@ -50,6 +53,16 @@ Electron 根据应用 locale 选择类型化的英文或中文桌面壳文案，
 ```sh
 pnpm run dev:desktop
 ```
+
+产品仓只能通过可重复的 package 与 preset 参数扩展这份一次性开发 profile：
+
+```sh
+pnpm --filter @deepseek-ai/dsh-desktop run dev --profile-package /absolute/path/to/package \
+  --profile-package /absolute/path/to/bundle \
+  --system-preset-root /absolute/path/to/presets
+```
+
+每个包都必须已经构建，并拥有唯一的名称与版本；声明 `dsh.bundle` 的包会自动追加到一次性 profile。preset root 是显式的产品开发输入，因此按 system trust 加载。这些参数只允许未打包的 linked Host 使用；打包应用或其他受管 profile 会拒绝相同的树外 preset 配置。
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。因此，会话、设置、凭据、包链接和浏览器数据都不会进入用户正常使用的 Harness home；显式 `DSH_HOME` 只会替换开发 Harness home。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 

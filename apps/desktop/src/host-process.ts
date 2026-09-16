@@ -120,6 +120,7 @@ export class DesktopHostProcess {
         ))),
         ELECTRON_RUN_AS_NODE: '1',
       },
+      windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe', 'ipc'],
     })
     const requestPipe = child.stdio[DESKTOP_REQUEST_PIPE_FD]

@@ -1,9 +1,9 @@
 /** Materialize the complete production runtime before publishing Desktop resources. */
 
 import { spawn, execFile } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join, relative, resolve } from 'node:path'
+import { delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { parseDesktopRelease, type DesktopRelease } from '../src/release.ts'
@@ -26,6 +26,7 @@ import {
 } from './macos-runtime.ts'
 import { resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
+import { readDesktopProductPayload, type DesktopRuntimeProduct } from '../src/desktop-product.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
@@ -37,6 +38,39 @@ const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
 const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
 const NODE = join(RUNTIME_ROOT, 'node', process.platform === 'win32' ? 'node.exe' : 'node')
 const PNPM = join(RUNTIME_ROOT, 'pnpm', 'bin', 'pnpm.mjs')
+
+function prepareProductResources(): DesktopRuntimeProduct | undefined {
+  const configuredRoot = process.env.DSH_DESKTOP_PRODUCT_ROOT
+  if (configuredRoot === undefined) return undefined
+  const productRoot = realpathSync(resolve(configuredRoot))
+  const product = readDesktopProductPayload(productRoot)
+  const destinationRoot = join(DSH_OUTPUT_ROOT, 'products', product.id)
+  const resourcesRoot = realpathSync(join(productRoot, ...product.resourcesDirectory.split('/')))
+  if (resourcesRoot !== productRoot && !resourcesRoot.startsWith(productRoot + sep)) {
+    throw new Error('desktop product: resources directory escapes product payload')
+  }
+  if (!lstatSync(resourcesRoot).isDirectory()) throw new Error('desktop product: resources path is not a directory')
+  const relativeResourcesRoot = `products/${product.id}/resources`
+  cpSync(resourcesRoot, join(DSH_OUTPUT_ROOT, ...relativeResourcesRoot.split('/')), { recursive: true, dereference: true })
+  const systemPresetRoots = product.systemPresetRoots.map((sourceName, index) => {
+    const source = realpathSync(join(productRoot, ...sourceName.split('/')))
+    if (source !== productRoot && !source.startsWith(productRoot + sep)) {
+      throw new Error(`desktop product: preset root escapes product payload: ${sourceName}`)
+    }
+    if (!lstatSync(source).isDirectory()) throw new Error(`desktop product: preset root is not a directory: ${sourceName}`)
+    const relativeDestination = `products/${product.id}/presets-${String(index + 1)}`
+    cpSync(source, join(DSH_OUTPUT_ROOT, ...relativeDestination.split('/')), { recursive: true, dereference: true })
+    return relativeDestination
+  })
+  if (systemPresetRoots.length === 0) mkdirSync(destinationRoot, { recursive: true })
+  return {
+    id: product.id,
+    profileBundles: product.profileBundles,
+    systemPresetRoots,
+    resourcesRoot: relativeResourcesRoot,
+    ...(product.service === undefined ? {} : { service: product.service }),
+  }
+}
 
 function manifestVersion(path: string, subject: string): string {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
@@ -108,7 +142,9 @@ async function main(): Promise<void> {
     const release = desktopRelease()
     copyFileSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGE_SET_FILE), join(BUILD_ROOT, DESKTOP_PACKAGE_SET_FILE))
     cpSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGES_DIR), join(BUILD_ROOT, DESKTOP_PACKAGES_DIR), { recursive: true })
-    createRuntimeProjectMetadata(BUILD_ROOT, release)
+    const productRoot = process.env.DSH_DESKTOP_PRODUCT_ROOT
+    const product = productRoot === undefined ? undefined : readDesktopProductPayload(realpathSync(resolve(productRoot)))
+    createRuntimeProjectMetadata(BUILD_ROOT, release, product?.profileBundles)
     await runPnpm(['install', '--lockfile-only'])
     verifyDesktopCoreLockfile(
       readFileSync(join(BUILD_ROOT, 'pnpm-lock.yaml'), 'utf8'),
@@ -124,6 +160,7 @@ async function main(): Promise<void> {
       recursive: true, dereference: true,
       filter: source => desktopRuntimeFileExclusion(relative(modules, source), target) === undefined,
     })
+    const runtimeProduct = prepareProductResources()
     writeFileSync(join(DSH_OUTPUT_ROOT, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: release.version, type: 'module',
       dependencies: Object.fromEntries(packageSet.packages.map(entry => [entry.name, entry.version])),
@@ -136,7 +173,7 @@ async function main(): Promise<void> {
     if (process.platform === 'darwin') {
       await signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env))
     }
-    writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target)
+    writeDesktopRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target, runtimeProduct)
     const descriptor = await verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target)
     await new Promise<void>((accept, reject) => {
       execFile(NODE, [join(APP_ROOT, 'tests/fixtures/runtime-payload-smoke.mjs'), DSH_OUTPUT_ROOT],

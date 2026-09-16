@@ -19,7 +19,7 @@ export async function smokeDesktopRuntime(root: string, node: string, runtime: D
   const profile = join(home, 'profiles', 'desktop')
   const host = new DesktopHostProcess(node, root, profile, undefined, { ...process.env, DSH_HOME: home })
   try {
-    createPluginProfile(profile)
+    createPluginProfile(profile, runtime.product?.profileBundles)
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(profile, 'node_modules', pluginName)
     mkdirSync(plugin, { recursive: true })

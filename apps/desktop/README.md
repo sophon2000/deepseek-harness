@@ -11,6 +11,7 @@ The desktop application is an Electron shell around the dsh Web UI. It opens no 
 | Release identity | The shell API, Web client, backend, and plugin graph are qualified as one combination; independent versions would create untested combinations and ambiguous update availability. | Electron and `@deepseek-ai/dsh` always have the same exact version. A dsh upgrade is a Desktop release, even when the shell code is unchanged. |
 | Runtime | Electron's Node.js carries Electron patches, fuses, ABI, and lifecycle constraints, while system runtimes and package-manager state are uncontrolled. | dsh runs under the bundled upstream Node.js and every package operation uses the bundled pnpm. Electron's Node.js, system Node.js, system pnpm, and user package-manager configuration are outside the execution path. |
 | Package sources | Core installation at startup adds work even when offline. | `extraResources/dsh` carries a complete production dependency tree; the profile installs only external plugins. |
+| Product services | A product may require a local API or database before its plugins can start, but business-specific process knowledge does not belong in the generic shell. | A signed product descriptor may name one entrypoint below its inventoried resource root and an exact environment allowlist. Electron starts it under bundled Node.js, waits for ready IPC, starts the Host with only those returned values, and stops the Host before the product service. |
 | Shared modules | Host APIs can depend on module identity. | Desktop links every bundled first-party package into the profile using directory symlinks, or Windows junctions; ordinary plugin dependencies remain local. |
 | State ownership | Sharing executable dependency graphs would let CLI and Desktop change each other's dsh, Cordis, plugin, or native-module versions, while two desktop processes could race on the same profile. | Electron acquires its process-lifetime single-instance lock before any profile access and exclusively owns `$DSH_HOME/profiles/desktop` plus its package-manager state. CLI and Desktop share supported product data under `$DSH_HOME`, but never executable packages, plugin activation, lockfiles, or `node_modules`. |
 | Transport | A listening Web service adds port ownership, authentication, CORS, and exposure concerns; Electron and upstream Node.js also need an explicit cross-process protocol. | The application opens no Web port. `dsh-app://` carries Web assets and Fetch traffic; framed byte pipes carry bounded request and response chunks with backpressure, while Node IPC carries only child lifecycle control. |
@@ -22,6 +23,8 @@ The [Electron packaging and update Agent Note](../../.agents/notes/implemented/a
 ## Installation ownership
 
 Electron owns `$DSH_HOME/profiles/desktop`. Its `dependencies` contains only installed external plugins at exact versions; `dsh.profile.bundles` contains the built-in bundles followed by enabled plugins. The signed application supplies dsh, the private Desktop Host, and their production packages from `resources/dsh`. Shared package links resolve to those actual directories. Both host and plugins execute in the same bundled upstream Node process, with normal realpath resolution; Desktop does not enable `--preserve-symlinks`. The CLI cannot boot or mutate this profile.
+
+An optional product service executes only from the verified `resources/dsh/products/<id>/resources` tree. Its persistent data is separate at `$DSH_HOME/desktop/products/<id>` and is neither reset with the Desktop profile nor embedded in updates. Ready IPC must return exactly the environment names declared in signed metadata; process-control variables and undeclared values are rejected.
 
 The local startup page exposes startup status and available recovery actions; the loaded dsh renderer receives only the desktop protocol marker. The separate plugin window receives structured list, install, remove, update, and update-check operations; neither renderer receives filesystem access, raw Electron IPC, a shell, or arbitrary pnpm arguments.
 
@@ -50,6 +53,16 @@ Package transactions hold `$DSH_HOME/profiles/desktop/lock` exclusively through 
 ```sh
 pnpm run dev:desktop
 ```
+
+Product repositories may extend only this disposable development profile with repeatable package and preset arguments:
+
+```sh
+pnpm --filter @deepseek-ai/dsh-desktop run dev --profile-package /absolute/path/to/package \
+  --profile-package /absolute/path/to/bundle \
+  --system-preset-root /absolute/path/to/presets
+```
+
+Every package must already be built, have a unique name and version, and a package that declares `dsh.bundle` is appended to the disposable profile automatically. Each preset root is loaded with system trust because it is an explicit product-development input. These arguments are accepted only by the unpackaged linked Host; a packaged or otherwise managed profile rejects the same out-of-tree preset configuration.
 
 Development Harness state defaults to `apps/desktop/.desktop-build/development/home`, the disposable npm project lives at `apps/desktop/.desktop-build/development/project`, and Electron browser data lives at `apps/desktop/.desktop-build/development/electron-user-data`. Sessions, settings, credentials, package links, and browser data therefore stay out of the user's normal Harness home. An explicit `DSH_HOME` replaces only the development Harness home. Renderer DevTools opens automatically; Main, Renderer, and dsh Host debugging listen on ports 9229, 9222, and 9230. `DSH_DESKTOP_MAIN_INSPECT_PORT`, `DSH_DESKTOP_RENDERER_DEBUG_PORT`, and `DSH_DESKTOP_HOST_INSPECT_PORT` replace those ports, while `DSH_DESKTOP_OPEN_DEVTOOLS=0` keeps the detached Renderer tools closed.
 
