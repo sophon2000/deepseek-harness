@@ -22,6 +22,8 @@ DeepSeek Harness 需要一个复用 Web UI 的 Electron 桌面应用。该应用
 
 Electron 拥有 `.dsh/profiles/desktop` 保留 profile。[内置运行时决策](2026-09-08-desktop-bundled-runtime-and-external-plugins.zh.md)负责核心资源存储、外部插件依赖、共享包链接和 profile 协调。私有 Desktop Host 保持独立于公共 CLI 包，且不会发布到 npm。
 
+产品发布还可以携带一份签名后台服务声明。声明只包含产品清单覆盖的资源根目录下的可移植入口点，以及它允许返回的精确环境变量名列表。Electron 会在 Host 前通过 RunAsNode 启动该入口，拒绝路径穿越、进程控制环境变量、缺失或多余的 ready 值，并把产品自有可变数据存放在 `.dsh/desktop/products/<id>`。关闭顺序遵循依赖关系：先 Host，后产品服务。通用桌面壳不了解产品命令、端口、数据库 schema 或凭据。
+
 一个 Desktop 发布号同时标识 Electron 产物及其精确的 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-desktop-host` 依赖。发布不能在构建或运行时选择不同的核心版本。因此，即使壳代码没有变化，更新 dsh 也必须产生新的 Electron 发布。
 
 Desktop Host 为保留 profile 提供共享 Web 插件管理器，并通过启动器信息提供内置 pnpm。CLI 保留 `desktop` 名称的所有大小写变体，并拒绝针对它的启动、配置 dump 和插件管理请求。Electron 在 profile 恢复或 Host 启动前获取进程生命周期单实例锁；后续启动只会聚焦或重建主窗口，不会接触 profile 状态。
@@ -31,6 +33,7 @@ Desktop Host 为保留 profile 提供共享 Web 插件管理器，并通过启�
 | Owner | 职责 |
 |---|---|
 | Electron 壳 | 窗口与子进程生命周期、保留 desktop profile 准备、原生恢复、更新协调 |
+| 签名产品服务 | 产品本地 API／数据库生命周期与持久产品数据；仅通过 ready IPC 返回其声明的 Host 环境变量 |
 | Electron RunAsNode 与 pnpm | 执行 dsh 并安装桌面项目依赖，使用 pnpm 的正常配置 |
 | Desktop profile | 由内置运行时决策定义的外部插件依赖、已启用 bundle 顺序和共享链接 |
 | 私有 Desktop Host 包 | 与 dsh 一起安装、但不进入公共 CLI 包或 npm 发布的 Electron 专用子进程入口与组合 overlay |
@@ -102,7 +105,7 @@ Windows 应用替换遵循[目录安装决策](2026-09-11-windows-directory-inst
 | 包状态 | Electron RunAsNode 执行不可变核心资源；内置 pnpm 只修改 Desktop profile 中的外部插件依赖图。 |
 | 资格验证 | macOS 打包要求已配置的公司身份与公证凭据可用，在生成清单前验证每个原生运行时文件，验证完整应用签名，并要求应用和 DMG 都完成公证且通过 Gatekeeper。Windows 打包要求已配置的公开证书、SafeNet 私钥容器、Token Password 与 SignTool，并验证生成的每个签名。更新托管、跨上一版本的已安装产物测试和各平台 GUI 录制仍是发布环境门槛。 |
 
-`dev:desktop` 会构建当前 workspace，把已构建 CLI 包、私有 Desktop Host 包及其依赖链接投影为一次性项目，使用隔离的 Harness home，打开 Main、Renderer 和 Host 调试器，并在不准备发布资源的情况下启动未打包 Electron。开发运行时为独立的插件 profile 提供工作区链接；插件管理和恢复使用与打包应用相同的流程。固定的 macOS arm64、macOS x64 与 Windows x64 打包命令会把同一目标传给运行时准备、dsh 准备和 electron-builder；每条命令还提供未封装安装器的变体，用于在生成安装器前验证发布路径。
+`dev:desktop` 会构建当前 workspace，把已构建 CLI 包、私有 Desktop Host 包及其依赖链接投影为一次性项目，使用隔离的 Harness home，打开 Main、Renderer 和 Host 调试器，并在不准备发布资源的情况下启动未打包 Electron。产品仓库可以向这份一次性项目加入已构建且名称唯一的包目录和系统信任 preset 根目录；声明为 bundle 的包会自动启用。只有 linked 开发 Host 接受这些树外根目录。固定的 macOS arm64、macOS x64 与 Windows x64 打包命令会把同一目标传给运行时准备、dsh 准备和 electron-builder；每条命令还提供未封装安装器的变体，用于在生成安装器前验证发布路径。
 
 ## 考虑过的替代方案
 

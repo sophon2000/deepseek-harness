@@ -20,7 +20,8 @@ import {
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
-import { DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
+import { DesktopHostUncleanExitError } from './host-process.ts'
+import { DesktopProductHostProcess } from './product-host-process.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { DesktopBackendController } from './backend-controller.ts'
 import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
@@ -247,11 +248,20 @@ async function main(): Promise<void> {
   }
   const backend = new DesktopBackendController((onFailure) => {
     const hostInspectPort = developmentHostInspectPort(development)
-    const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
-      hostInspectPort, process.env, onFailure,
+    const host = new DesktopProductHostProcess(
+      resources.node,
+      resources.dsh,
+      activeProject,
+      paths.products,
+      development ? undefined : readDesktopRuntime(resources.dsh).product,
+      hostInspectPort,
+      process.env,
+      onFailure,
       development ? join(app.getAppPath(), '.desktop-build', 'targets', `${process.platform === 'darwin' ? 'mac' : 'win'}-${process.arch}`, 'runtime', 'primary-runtime')
         : join(process.resourcesPath, 'runtime', 'primary-runtime'),
-      development ? 'link' : 'runtime', resources)
+      development ? 'link' : 'runtime',
+      resources,
+    )
     return {
       start: async () => {
         const ready = await host.start()

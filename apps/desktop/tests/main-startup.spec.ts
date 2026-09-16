@@ -220,7 +220,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }) }
 })
 vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' } }) }))
-vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
+vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile', products: 'desktop-test-products' }) }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease
@@ -229,8 +229,9 @@ vi.mock('../src/project-manager.ts', () => ({
   },
 }))
 vi.mock('../src/host-process.ts', async importOriginal => ({
-  ...await importOriginal<typeof import('../src/host-process.ts')>(), DesktopHostProcess: harness.FakeHost,
+  ...await importOriginal<typeof import('../src/host-process.ts')>(),
 }))
+vi.mock('../src/product-host-process.ts', () => ({ DesktopProductHostProcess: harness.FakeHost }))
 vi.mock('../src/update-dialog.ts', () => ({ DesktopUpdateDialog: class {
   show(owner: { options: { modal?: boolean } }, options: unknown) {
     return (owner.options.modal ? harness.dialog.showMessageBox(owner, options)

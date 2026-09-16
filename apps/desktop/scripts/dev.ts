@@ -81,7 +81,11 @@ async function launchElectron(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { 'skip-build': { type: 'boolean', default: false } } })
+  const { values } = parseArgs({ options: {
+    'skip-build': { type: 'boolean', default: false },
+    'profile-package': { type: 'string', multiple: true, default: [] },
+    'system-preset-root': { type: 'string', multiple: true, default: [] },
+  } })
   if (!values['skip-build']) {
     await runPackageScript('build', REPOSITORY_ROOT)
     await runPackageScript('build', APP_ROOT)
@@ -108,6 +112,8 @@ async function main(): Promise<void> {
     hostDir: join(REPOSITORY_ROOT, 'apps', 'desktop-host'),
     dependencyDir: join(REPOSITORY_ROOT, 'node_modules', '.pnpm', 'node_modules'),
     release,
+    profilePackageDirs: values['profile-package'].map(path => resolve(path)),
+    systemPresetRoots: values['system-preset-root'].map(path => resolve(path)),
   })
   await preparePrimaryRuntime()
   await launchElectron()

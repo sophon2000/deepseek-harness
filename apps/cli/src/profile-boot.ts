@@ -234,6 +234,8 @@ export interface RunProfileOptions {
   fromDefaultProfile?: string | undefined
   /** `--patch` overlay paths, in argv order. */
   patchFiles: readonly string[]
+  /** Application-owned final patch adaptation after profile and user layers are loaded. */
+  transformPatches?: ((patches: PatchOptions[]) => PatchOptions[]) | undefined
   /** The invocation's inner arguments, handed to the tree through `ctx.cmdlineArgs`. */
   args: readonly string[]
   /** Application-owned package runtime, scoped to plugin package operations. */
@@ -303,7 +305,9 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
       cwd: process.cwd(), home: resolveDshHome(),
       overlays: composed.overlays, telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED,
     }
-    const ctx = await boot(NAME, rootConfig, readProfilePatches(NAME, profileContext, composed.profile), async (hostCtx) => {
+    const profilePatches = readProfilePatches(NAME, profileContext, composed.profile)
+    const patches = options.transformPatches?.(profilePatches) ?? profilePatches
+    const ctx = await boot(NAME, rootConfig, patches, async (hostCtx) => {
       app.current = hostCtx
       hostCtx.provide('profileContext', profileContext)
       // Before any config-tree entry mounts, so plugins resolve all launch-time

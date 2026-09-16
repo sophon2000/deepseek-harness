@@ -177,6 +177,7 @@ interface DesktopPackageInvocation {
   readonly prepareOnly: boolean
   readonly unsigned: boolean
   readonly check: boolean
+  readonly productRoot?: string
 }
 
 function hostTargetName(platform: NodeJS.Platform, arch: string): DesktopPackageTargetName {
@@ -205,6 +206,7 @@ export function parseDesktopPackageInvocation(
       'prepare-only': { type: 'boolean', default: false },
       unsigned: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
+      'product-root': { type: 'string' },
     },
   })
   if (positionals.length > 1) throw new Error('desktop package: expected at most one target')
@@ -217,6 +219,7 @@ export function parseDesktopPackageInvocation(
     prepareOnly: values['prepare-only'],
     unsigned: values.unsigned,
     check: values.check,
+    ...(values['product-root'] === undefined ? {} : { productRoot: resolve(values['product-root']) }),
   }
 }
 
@@ -326,6 +329,7 @@ export async function packageTarget(
     ...buildEnv,
     DSH_DESKTOP_TARGET_PLATFORM: target.platform,
     DSH_DESKTOP_TARGET_ARCH: target.arch,
+    ...(invocation.productRoot === undefined ? {} : { DSH_DESKTOP_PRODUCT_ROOT: invocation.productRoot }),
   }
   const electronBuilderEnv = desktopElectronBuilderEnvironment(targetEnv, invocation.unsigned)
   for (const name of WINDOWS_SIGNING_ENV_NAMES) {

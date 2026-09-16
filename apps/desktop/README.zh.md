@@ -35,6 +35,7 @@ Node 准备内置解释器和 Python 库，无需系统 Python 或 pip。[下载
 | 发布身份 | 桌面壳 API、Web 客户端、后端与插件依赖图作为一个组合完成验证；独立版本会产生未经验证的组合，并让更新可用性含糊不清。 | Electron 与 `@deepseek-ai/dsh` 始终使用同一精确版本。即使桌面壳代码不变，升级 dsh 也必须发布新 Desktop 版本。 |
 | 运行时 | 应用必须能够在没有系统 Node.js 或 pnpm 的机器上运行。 | dsh 通过设置 `ELECTRON_RUN_AS_NODE=1` 和 `--expose-internals` 的 Electron 运行，所有包操作都使用内置 pnpm。包管理器配置和 Host 环境遵循用户设置。包脚本通过 `node` shell 启动器转发给 Electron。 |
 | 包来源 | 即使离线，启动时安装核心依赖也会增加开销。 | `app.asar/dsh` 携带完整生产依赖树；profile 只安装外部插件。 |
+| 产品服务 | 产品插件启动前可能需要本地 API 或数据库，但业务专属的进程知识不应进入通用桌面壳。 | 签名产品描述符可以指定清单所覆盖资源根目录下的一个入口点和精确的环境变量白名单。Electron 通过 RunAsNode 启动它，等待 ready IPC，只把返回的白名单值交给 Host，并先停止 Host、再停止产品服务。 |
 | 状态归属 | 共享可执行依赖图会让 CLI（命令行界面）与 Desktop 相互改变 dsh、Cordis、插件或原生模块版本，而两个桌面进程还可能争用同一个 profile。 | Electron 在访问任何 profile 前获取进程生命周期单实例锁，并独占 `$DSH_HOME/profiles/desktop` 及其包管理器状态。CLI 与 Desktop 共享 `$DSH_HOME` 下受支持的产品数据，但绝不共享可执行包、插件激活、锁文件或 `node_modules`。 |
 | 传输 | Web 服务与认证共享一套实现。 | Electron 加载打包的 Web 资源；Host 提供启动注入和经过认证的 API。 |
 | 插件变更 | Desktop 与 Web 需要一致的安装和激活行为。 | 主应用使用共享 Web 插件管理器和内置 pnpm。 |
@@ -45,6 +46,8 @@ Node 准备内置解释器和 Python 库，无需系统 Python 或 pip。[下载
 ## 安装归属
 
 Electron 拥有 `$DSH_HOME/profiles/desktop`。其 `dependencies` 包含 pnpm 安装的包；`dsh.profile.bundles` 包含内置 bundle，后接已启用插件。签名应用从 `resources/app.asar/dsh` 提供 dsh、私有 Desktop Host 及其生产依赖。打包应用选择 runtime profile 解析，不创建包链接；开发 profile 使用文件系统链接。宿主与插件在同一个 Electron Node 模式进程中执行；Desktop 不启用 `--preserve-symlinks`。CLI 不能启动或修改此 profile。
+
+可选产品服务只能从已验证的 `resources/dsh/products/<id>/resources` 树执行。其持久数据独立存放在 `$DSH_HOME/desktop/products/<id>`，既不会随 Desktop profile 重置，也不会嵌入更新包。ready IPC 必须精确返回签名元数据声明的环境变量；进程控制变量和未声明值都会被拒绝。产品 profile bundle 会加入 Desktop 内置 bundle 列表；产品 preset 根目录以 system 信任级别追加，且不会覆盖部署层或用户层已经生效的 preset 配置。
 
 应用 preload 暴露启动就绪、致命启动失败上报和原生目录选择。产品页面还获得 Desktop 标记、更新展示数据和打开原生确认的操作，不能选择安装产物或授权安装。插件管理使用 Web 应用经过认证的 HTTP API；Electron 不提供插件管理 IPC 或独立管理页面。
 
@@ -83,6 +86,8 @@ macOS 上自定义应用菜单还会声明标准的 File、Window 和应用菜�
 ```sh
 pnpm run dev:desktop
 ```
+
+产品仓库只能通过可重复的 `--profile-package` 与 `--system-preset-root` 参数扩展这份一次性开发 profile。声明为 bundle 的包会自动启用；只有 linked 开发 Host 接受这些树外 preset 根目录。
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。因此，会话、设置、凭据、包链接和浏览器数据都不会进入用户正常使用的 Harness home；显式 `DSH_HOME` 只会替换开发 Harness home。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 
