@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { DESKTOP_HOST_RUNTIME_FILES } from '../src/core-package-set.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { writeDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
+import type { DesktopRuntimeProduct } from '../src/desktop-product.ts'
 
 /**
  * Write a package fixture with explicit runtime exports.
@@ -29,8 +30,13 @@ export function writePackage(modules: string, name: string, fields: Record<strin
  * @param nodeVersion - Bundled Node version recorded in resource metadata.
  * @returns Sealed runtime metadata.
  */
-export function runtimeFixture(root: string, version = '1.0.0', nodeVersion = '24.17.0'): DesktopRuntimeDescriptor {
-  const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/cordis']
+export function runtimeFixture(
+  root: string,
+  version = '1.0.0',
+  nodeVersion = '24.17.0',
+  product?: DesktopRuntimeProduct,
+): DesktopRuntimeDescriptor {
+  const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/cordis', ...(product?.profileBundles ?? [])]
   for (const name of names) {
     const bundle = name === '@deepseek-ai/dsh-base' || name === '@deepseek-ai/dsh-web-app'
     const path = writePackage(join(root, 'node_modules'), name, {
@@ -46,5 +52,5 @@ export function runtimeFixture(root: string, version = '1.0.0', nodeVersion = '2
     writeFileSync(path, '')
   }
   writeFileSync(join(root, 'package.json'), '{"type":"module"}\n')
-  return writeDesktopRuntime(root, { schemaVersion: 1, version, nodeVersion, pnpmVersion: '11.7.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION }, names)
+  return writeDesktopRuntime(root, { schemaVersion: 1, version, nodeVersion, pnpmVersion: '11.7.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION }, names, process, product)
 }

@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { valid } from 'semver'
 import { DESKTOP_HOST_PACKAGE } from './core-package-set.ts'
 import { parseDesktopRelease, type DesktopRelease } from './release.ts'
+import { parseDesktopRuntimeProduct, type DesktopRuntimeProduct } from './desktop-product.ts'
 
 /** Descriptor at the root of the immutable Desktop resource tree. */
 export const DESKTOP_RUNTIME_FILE = 'desktop-runtime.json'
@@ -34,6 +35,7 @@ export interface DesktopRuntimeDescriptor {
   readonly arch: string
   readonly sharedPackages: readonly DesktopSharedPackage[]
   readonly files: readonly DesktopRuntimeFile[]
+  readonly product?: DesktopRuntimeProduct
 }
 
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/u
@@ -124,6 +126,7 @@ async function inventoryRuntimeForVerification(root: string): Promise<DesktopRun
 export function writeDesktopRuntime(
   root: string, release: DesktopRelease, sharedNames: readonly string[],
   target: { platform: NodeJS.Platform; arch: string } = process,
+  product?: DesktopRuntimeProduct,
 ): DesktopRuntimeDescriptor {
   const sharedPackages = [...new Set(sharedNames)].sort().map((name) => {
     if (!PACKAGE_NAME.test(name)) throw new Error(`desktop runtime: invalid shared package ${name}`)
@@ -136,7 +139,7 @@ export function writeDesktopRuntime(
   })
   const descriptor: DesktopRuntimeDescriptor = {
     schemaVersion: 1, release, platform: target.platform, arch: target.arch,
-    sharedPackages, files: inventoryDesktopRuntime(root),
+    sharedPackages, files: inventoryDesktopRuntime(root), ...(product === undefined ? {} : { product }),
   }
   writeFileSync(join(root, DESKTOP_RUNTIME_FILE), `${JSON.stringify(descriptor, undefined, 2)}\n`)
   return descriptor
@@ -174,8 +177,12 @@ export function readDesktopRuntime(root: string): DesktopRuntimeDescriptor {
       throw new Error(`desktop runtime: missing or mismatched ${name}`)
     }
   }
+  const product = value.product === undefined ? undefined : parseDesktopRuntimeProduct(value.product)
+  if (product !== undefined && !product.profileBundles.every(name => sharedPackages.some(entry => entry.name === name))) {
+    throw new Error('desktop runtime: product profile bundle is not a shared package')
+  }
   return { schemaVersion: value.schemaVersion as 1, release, platform: value.platform as NodeJS.Platform,
-    arch: value.arch, sharedPackages, files }
+    arch: value.arch, sharedPackages, files, ...(product === undefined ? {} : { product }) }
 }
 
 /**

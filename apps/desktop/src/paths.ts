@@ -7,6 +7,7 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 export interface DesktopPaths {
   readonly profile: string
   readonly lock: string
+  readonly products: string
 }
 
 /**
@@ -18,5 +19,6 @@ export function resolveDesktopPaths(dshHome: string = resolveDshHome()): Desktop
   return {
     profile: join(dshHome, 'profiles', 'desktop'),
     lock: join(dshHome, 'profiles', 'desktop', 'lock'),
+    products: join(dshHome, 'desktop', 'products'),
   }
 }

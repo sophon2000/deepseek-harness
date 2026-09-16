@@ -57,6 +57,14 @@ function migrateProfileSettings(projectDir: string): void {
   }
 }
 
+function desktopProfileBundles(productBundles: readonly string[] = []): string[] {
+  const bundles = [...WEB_PROFILE.bundles, ...productBundles]
+  if (new Set(bundles).size !== bundles.length) {
+    throw new Error('desktop project: duplicate built-in profile bundle')
+  }
+  return bundles
+}
+
 /** Initializes the Desktop profile and disables third-party bundles during recovery. */
 export class DesktopProjectManager {
   /**
@@ -74,7 +82,10 @@ export class DesktopProjectManager {
    * @returns Backup path after the locked profile write, or undefined if the patch was absent.
    */
   async disableAllPlugins(): Promise<string | undefined> {
-    return this.withLock(() => sanitizeProfile('dsh', this.paths.profile, WEB_PROFILE.bundles))
+    const descriptor = readDesktopRuntime(this.runtime.dsh)
+    return this.withLock(() => sanitizeProfile(
+      'dsh', this.paths.profile, desktopProfileBundles(descriptor.product?.profileBundles),
+    ))
   }
 
   /**
@@ -83,9 +94,9 @@ export class DesktopProjectManager {
   async applyRelease(): Promise<void> {
     await this.withLock(() => {
       // Validation only: an unreadable or mismatched runtime descriptor stops preparation before the Host starts.
-      readDesktopRuntime(this.runtime.dsh)
+      const descriptor = readDesktopRuntime(this.runtime.dsh)
       migrateProfileSettings(this.paths.profile)
-      createPluginProfile(this.paths.profile)
+      createPluginProfile(this.paths.profile, descriptor.product?.profileBundles)
       removeLinkProjections(this.paths.profile)
     })
   }
@@ -131,7 +142,11 @@ export class DesktopProjectManager {
 }
 
 /** Create build-only project metadata for materializing the signed runtime. */
-export function createRuntimeProjectMetadata(projectDir: string, release: DesktopRelease): void {
+export function createRuntimeProjectMetadata(
+  projectDir: string,
+  release: DesktopRelease,
+  productBundles: readonly string[] = [],
+): void {
   mkdirSync(projectDir, { recursive: true, mode: 0o700 })
   const packageSet = verifyDesktopCorePackageSet(projectDir, release.version)
   const manifest = {
@@ -139,7 +154,7 @@ export function createRuntimeProjectMetadata(projectDir: string, release: Deskto
     private: true,
     version: '0.0.0',
     dependencies: desktopCorePackageOverrides(packageSet),
-    dsh: { profile: { bundles: [...WEB_PROFILE.bundles] } },
+    dsh: { profile: { bundles: desktopProfileBundles(productBundles) } },
   }
   writeJson(join(projectDir, 'package.json'), manifest)
   writeFileSync(
@@ -171,6 +186,6 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
 }
 
 /** Create the first external plugin profile without running a package manager. */
-export function createPluginProfile(projectDir: string): void {
-  initProfile(projectDir, WEB_PROFILE.bundles)
+export function createPluginProfile(projectDir: string, productBundles: readonly string[] = []): void {
+  initProfile(projectDir, desktopProfileBundles(productBundles))
 }
