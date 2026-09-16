@@ -78,7 +78,7 @@ The `dsh` launcher selects link mode when an ordinary Node caller omits `resolut
 
 Runtime mode requires a supported Node Internal loader interface and does not create, update, or retire fallback links. Dual mode retains link writes and fails when Node's disk result differs from the generation. Writable profile state and package-manager transactions remain outside the resolver.
 
-Pkg and packaged Electron carriers force runtime resolution. The Electron Host runs through the Electron executable with `ELECTRON_RUN_AS_NODE=1`, reads its dsh tree from ASAR, and maps executable ASAR entries to electron-builder's unpacked tree. Neither carrier creates, updates, or removes legacy resolution links.
+Pkg and packaged Electron carriers force runtime resolution. The Electron Host runs through the Electron executable with `ELECTRON_RUN_AS_NODE=1` and reads its complete dsh tree from `Resources/dsh`, which electron-builder carries outside ASAR because the Host and optional product service are child processes. Neither carrier creates, updates, or removes legacy resolution links.
 
 ### Performance and verification
 
@@ -106,7 +106,7 @@ Behavior tests compare the runtime generation with the disk materializer over th
 
 - One eager computation supplies the retained disk materializer and runtime generation.
 - Link-only, dual, and runtime-only tests consume the same generation; runtime startup neither writes nor retires module-resolution data.
-- Pkg and Electron carriers select runtime resolution; Electron executes its Host in Node mode from the ASAR-backed dsh tree while native executable entries remain unpacked.
+- Pkg and Electron carriers select runtime resolution; Electron executes its Host in Node mode from the complete external `Resources/dsh` tree.
 - ESM and CommonJS adapters share one router and delegate final resolution to Node without `module.registerHooks` or `_findPath` replacement.
 - Production metadata lookup does not record Loader import results or wrap Entry, registry, tree, or HMR methods.
 - The Node compatibility matrix runs main-thread resolver specifications across supported loader interfaces; service and bootstrap specifications cover Worker environment-data and installation interfaces without launching a built Worker.

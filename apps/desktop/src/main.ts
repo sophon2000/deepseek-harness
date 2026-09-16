@@ -78,10 +78,8 @@ function runtimeResources(): RuntimeResources {
   const pnpm = (development ? process.env.DSH_DESKTOP_PNPM_ENTRY : undefined)
     ?? join(process.resourcesPath, 'runtime', 'pnpm', 'bin', 'pnpm.mjs')
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
-    ?? (development ? join(process.resourcesPath, 'dsh') : join(app.getAppPath(), 'dsh'))
-  const productRuntime = development
-    ? dsh
-    : join(process.resourcesPath, 'app.asar.unpacked', 'dsh')
+    ?? join(process.resourcesPath, 'dsh')
+  const productRuntime = dsh
   return { node, pnpm, dsh, productRuntime, ...(development ? {} : { profileResolution: 'runtime' }) }
 }
 

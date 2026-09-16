@@ -40,19 +40,14 @@ describe('desktop macOS release signature', () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     const config = createElectronBuilderConfig(RELEASE_ENVIRONMENT, 'darwin', 'arm64')
     expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
-    expect(config.extraResources).toHaveLength(1)
-    expect(config.extraResources[0]?.to).toBe('runtime')
-    expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
-    const [dshFiles, dshNodeModules] = config.files.slice(-2)
-    if (!dshFiles || !dshNodeModules || typeof dshFiles === 'string' || typeof dshNodeModules === 'string') {
-      throw new Error('desktop DSH resources must use electron-builder file mappings')
-    }
-    expect(portablePath(dshFiles.from)).toContain('/.desktop-build/targets/mac-arm64/dsh')
-    expect(dshFiles.to).toBe('dsh')
-    expect(portablePath(dshNodeModules.from)).toContain('/.desktop-build/targets/mac-arm64/dsh/node_modules')
-    expect(dshNodeModules.to).toBe('dsh/node_modules')
+    expect(config.extraResources).toHaveLength(3)
+    expect(config.extraResources[0]?.to).toBe('dsh')
+    expect(portablePath(config.extraResources[0]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/dsh')
+    expect(config.extraResources[1]?.to).toBe('dsh/node_modules')
+    expect(portablePath(config.extraResources[1]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/dsh/node_modules')
+    expect(config.extraResources[2]?.to).toBe('runtime')
+    expect(portablePath(config.extraResources[2]?.from ?? '')).toContain('/.desktop-build/targets/mac-arm64/runtime')
     expect(config.asarUnpack).toEqual(expect.arrayContaining([
-      'dsh/products/**/*',
       '**/*.{node,dylib,dll,so,exe}',
       '**/@vscode/ripgrep/bin/rg',
     ]))
@@ -62,7 +57,7 @@ describe('desktop macOS release signature', () => {
         identity: RELEASE_ENVIRONMENT.DSH_DESKTOP_MACOS_SIGNING_IDENTITY,
         forceCodeSigning: true,
         notarize: true,
-        signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '\\.pak$'],
+        signIgnore: ['/Contents/Resources/dsh(?:/|$)', '\\.pak$'],
       },
       dmg: {
         sign: true,
@@ -74,6 +69,7 @@ describe('desktop macOS release signature', () => {
       }],
     })
     expect(typeof config.artifactBuildCompleted).toBe('function')
+    expect(typeof config.afterPack).toBe('function')
   })
 
   it('seals PAK resources with their enclosing bundle while signing executable code', async () => {

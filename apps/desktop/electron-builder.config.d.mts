@@ -9,11 +9,13 @@ export interface DesktopElectronBuilderConfig {
     string,
     string,
     string,
-    { readonly from: string, readonly to: 'dsh', readonly filter: readonly ['**/*'] },
-    { readonly from: string, readonly to: 'dsh/node_modules', readonly filter: readonly ['**/*'] },
   ]
   readonly asarUnpack: readonly string[]
-  readonly extraResources: readonly [{ readonly from: string, readonly to: 'runtime' }]
+  readonly extraResources: readonly [
+    { readonly from: string, readonly to: 'dsh' },
+    { readonly from: string, readonly to: 'dsh/node_modules' },
+    { readonly from: string, readonly to: 'runtime' },
+  ]
   readonly mac: {
     readonly identity: string | undefined
     readonly forceCodeSigning: boolean
@@ -28,6 +30,10 @@ export interface DesktopElectronBuilderConfig {
     readonly include: string
   }
   readonly artifactBuildCompleted: (artifact: { readonly file: string }) => Promise<void> | undefined
+  readonly afterPack: (context: {
+    readonly appOutDir: string
+    readonly packager: { getResourcesDir(appOutDir: string): string }
+  }) => void
   readonly publish: readonly [{ readonly provider: 'generic', readonly url: string }] | null
 }
 
