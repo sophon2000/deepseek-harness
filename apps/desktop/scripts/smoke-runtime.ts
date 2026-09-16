@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DesktopHostProcess } from '../src/host-process.ts'
+import { DesktopProductProcess } from '../src/product-process.ts'
 import { createPluginProfile } from '../src/project-manager.ts'
 import { linkDesktopHostPackages, validateDesktopPluginGraph } from '../src/profile-packages.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
@@ -17,8 +18,17 @@ import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 export async function smokeDesktopRuntime(root: string, node: string, runtime: DesktopRuntimeDescriptor): Promise<void> {
   const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
   const profile = join(home, 'profiles', 'desktop')
-  const host = new DesktopHostProcess(node, root, profile, undefined, { ...process.env, DSH_HOME: home })
+  const product = runtime.product?.service === undefined
+    ? undefined
+    : new DesktopProductProcess(node, root, runtime.product, join(home, 'product'), process.env)
+  let host: DesktopHostProcess | undefined
   try {
+    const productEnvironment = product === undefined ? {} : (await product.start()).environment
+    host = new DesktopHostProcess(node, root, profile, undefined, {
+      ...process.env,
+      DSH_HOME: home,
+      ...productEnvironment,
+    })
     createPluginProfile(profile, runtime.product?.profileBundles)
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(profile, 'node_modules', pluginName)
@@ -52,7 +62,8 @@ export function apply(ctx) {
       throw new Error('desktop runtime: packaged frontend smoke failed')
     }
   } finally {
-    await host.stop()
+    await host?.stop()
+    await product?.stop()
     rmSync(home, { recursive: true, force: true })
   }
 }
