@@ -10,6 +10,7 @@ import {
   rmSync,
   symlinkSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createDevelopmentProjectMetadata } from '../src/project-manager.ts'
@@ -18,6 +19,7 @@ import type { DesktopRelease } from '../src/release.ts'
 interface PackageManifest {
   readonly name?: string
   readonly version?: string
+  readonly dsh?: { readonly bundle?: unknown }
 }
 
 /** Inputs whose locations differ between the launcher and isolated tests. */
@@ -32,6 +34,10 @@ export interface DevelopmentProjectOptions {
   readonly dependencyDir: string
   /** Release identity written into the disposable project metadata. */
   readonly release: DesktopRelease
+  /** Built external packages linked into this disposable development profile. */
+  readonly profilePackageDirs?: readonly string[]
+  /** Additional system-trusted preset roots, accepted only by linked development hosts. */
+  readonly systemPresetRoots?: readonly string[]
 }
 
 function readManifest(path: string): PackageManifest {
@@ -107,6 +113,31 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
 
   removeOwnedPath(options.projectDir)
   createDevelopmentProjectMetadata(options.projectDir, options.release)
+  const profilePackages = (options.profilePackageDirs ?? []).map(packageDir => ({
+    packageDir: realpathSync(packageDir),
+    manifest: readManifest(join(packageDir, 'package.json')),
+  }))
+  const packageNames = profilePackages.map(({ manifest }) => manifest.name)
+  if (packageNames.some(name => typeof name !== 'string') || new Set(packageNames).size !== packageNames.length) {
+    throw new Error('desktop development: linked profile packages need unique package names')
+  }
+  for (const { packageDir, manifest } of profilePackages) {
+    if (typeof manifest.version !== 'string' || manifest.version === '') {
+      throw new Error(`desktop development: linked profile package ${packageDir} has no version`)
+    }
+  }
+  const systemPresetRoots = (options.systemPresetRoots ?? []).map(root => realpathSync(root))
+  const projectManifestPath = join(options.projectDir, 'package.json')
+  const projectManifest = JSON.parse(readFileSync(projectManifestPath, 'utf8')) as {
+    dependencies: Record<string, string>
+    dsh: { profile: { bundles: string[] }; desktop?: { systemPresetRoots?: string[] } }
+  }
+  for (const { manifest } of profilePackages) {
+    projectManifest.dependencies[manifest.name!] = manifest.version!
+    if (manifest.dsh?.bundle !== undefined) projectManifest.dsh.profile.bundles.push(manifest.name!)
+  }
+  if (systemPresetRoots.length > 0) projectManifest.dsh.desktop = { systemPresetRoots }
+  writeFileSync(projectManifestPath, `${JSON.stringify(projectManifest, undefined, 2)}\n`, { mode: 0o600 })
   const destinationModules = join(options.projectDir, 'node_modules')
   mkdirSync(destinationModules, { recursive: true })
   mirrorDependencyLinks(options.dependencyDir, destinationModules)
@@ -116,5 +147,10 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   const hostLink = join(destinationModules, '@deepseek-ai', 'dsh-desktop-host')
   removeOwnedPath(hostLink)
   linkDirectory(options.hostDir, hostLink)
+  for (const { packageDir, manifest } of profilePackages) {
+    const packageLink = join(destinationModules, ...manifest.name!.split('/'))
+    removeOwnedPath(packageLink)
+    linkDirectory(packageDir, packageLink)
+  }
   return options.projectDir
 }

@@ -1,11 +1,12 @@
 /** Exercise filtered Desktop native and HTML dependencies under its bundled Node. */
 
 import assert from 'node:assert/strict'
-import { closeSync, mkdtempSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const runtime = process.argv[2]
 assert.ok(runtime, 'Pass the filtered resources/dsh directory')
@@ -64,20 +65,19 @@ async function checkPty() {
   }
 }
 
-/** fs-ext implements seek on Windows through SetFilePointerEx and on POSIX through lseek. */
-function checkFsExt() {
-  const fsExt = requireRuntime('fs-ext')
-  const file = join(scratch, 'seek.txt')
-  writeFileSync(file, 'abcdef', { flag: 'wx', mode: 0o600 })
-  const fd = openSync(file, 'r')
+/** Exercise the packaged POSIX write-lock addon; Windows uses the Koffi semaphore path below. */
+async function checkPosixFlock() {
+  if (process.platform === 'win32') return false
+  const modulePath = requireRuntime.resolve('@deepseek-ai/node-addon-system/flock')
+  const { tryLockExclusive } = await import(pathToFileURL(modulePath).href)
+  const file = join(scratch, 'session.lock')
+  const fd = openSync(file, 'w', 0o600)
   try {
-    assert.equal(fsExt.seekSync(fd, 2, fsExt.constants.SEEK_SET), 2)
-    const bytes = Buffer.alloc(4)
-    assert.equal(readSync(fd, bytes, 0, bytes.length, null), 4)
-    assert.equal(bytes.toString(), 'cdef')
+    await tryLockExclusive(fd)
   } finally {
     closeSync(fd)
   }
+  return true
 }
 
 /** Resolve one system function through Koffi's packaged native module. */
@@ -120,8 +120,9 @@ function checkHtml() {
   assert.match(markdown, /\| x\s+\| 7\s+\|/u)
 }
 
+let posixFlock = false
 try {
-  checkFsExt()
+  posixFlock = await checkPosixFlock()
   checkKoffi()
   await checkSharp()
   checkHtml()
@@ -134,5 +135,5 @@ try {
 // Natural event-loop drain includes node-pty's worker and console-list helper teardown.
 process.once('beforeExit', () => {
   console.log(JSON.stringify({ node: process.versions.node, platform: process.platform, arch: process.arch,
-    fsExt: true, koffi: true, sharp: true, html: true, pty: true }))
+    posixFlock, koffi: true, sharp: true, html: true, pty: true }))
 })

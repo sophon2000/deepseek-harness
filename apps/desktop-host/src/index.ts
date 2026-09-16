@@ -149,6 +149,47 @@ function isProjectPath(projectDir: string, target: string): boolean {
   return path === root || path.startsWith(root + sep)
 }
 
+/**
+ * Read explicitly configured preset roots for an unpackaged linked profile.
+ * @param projectDir - disposable or managed Desktop npm project.
+ * @param allowLinkedPackages - whether the Host was launched in linked development mode.
+ * @returns canonical roots that may be appended with system trust.
+ */
+export function developmentSystemPresetRoots(projectDir: string, allowLinkedPackages: boolean): string[] {
+  const rawProjectManifest: unknown = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8'))
+  const projectDsh = isRecord(rawProjectManifest) && isRecord(rawProjectManifest.dsh)
+    ? rawProjectManifest.dsh
+    : undefined
+  const desktop = isRecord(projectDsh?.desktop) ? projectDsh.desktop : undefined
+  const configuredRoots = desktop?.systemPresetRoots
+  if (configuredRoots === undefined) return []
+  if (!allowLinkedPackages || !Array.isArray(configuredRoots)
+    || !configuredRoots.every(root => typeof root === 'string' && root !== '')) {
+    throw new Error('dsh desktop: development system preset roots require a linked development profile')
+  }
+  return configuredRoots.map(root => realpathSync(root))
+}
+
+/** Read system-trusted preset roots carried inside a signed Desktop runtime. */
+export function packagedSystemPresetRoots(runtimeDir: string): string[] {
+  const descriptorPath = join(runtimeDir, 'desktop-runtime.json')
+  if (!existsSync(descriptorPath)) return []
+  const descriptor: unknown = JSON.parse(readFileSync(descriptorPath, 'utf8'))
+  const product = isRecord(descriptor) && isRecord(descriptor.product) ? descriptor.product : undefined
+  if (product === undefined) return []
+  const roots = product.systemPresetRoots
+  if (!Array.isArray(roots) || !roots.every(root => typeof root === 'string' && root !== ''
+    && !root.includes('\\') && !root.includes(':')
+    && root.split('/').every(part => part !== '' && part !== '.' && part !== '..'))) {
+    throw new Error('dsh desktop: packaged product preset roots are invalid')
+  }
+  return roots.map((root) => {
+    const path = realpathSync(join(runtimeDir, ...root.split('/')))
+    if (!isProjectPath(runtimeDir, path)) throw new Error('dsh desktop: packaged product preset root escapes the runtime')
+    return path
+  })
+}
+
 function desktopPatches(runtimeDir: string, projectDir: string, allowLinkedPackages: boolean): PatchOptions[] {
   const dshRoot = dirname(packageManifestPath(runtimeDir, '@deepseek-ai/dsh'))
   const profile = loadProfileDirectory('dsh desktop', projectDir, join(dshRoot, 'package.json'))
@@ -165,11 +206,21 @@ function desktopPatches(runtimeDir: string, projectDir: string, allowLinkedPacka
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
   const agentPresets = rows.get('agent-presets')
   if (agentPresets !== undefined) {
+    const configuredRoots = [
+      ...packagedSystemPresetRoots(runtimeDir),
+      ...developmentSystemPresetRoots(projectDir, allowLinkedPackages),
+    ].map(root => ({
+      path: root,
+      trust: 'system' as const,
+    }))
     layers.push([{
       id: 'agent-presets',
       config: {
         ...(agentPresets.config ?? {}) as Record<string, unknown>,
-        roots: [{ path: join(dshRoot, 'config', 'agent-presets'), trust: 'system' }],
+        roots: [
+          { path: join(dshRoot, 'config', 'agent-presets'), trust: 'system' },
+          ...configuredRoots,
+        ],
       },
     }])
   }

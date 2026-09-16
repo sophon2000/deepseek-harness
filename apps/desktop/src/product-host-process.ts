@@ -1,0 +1,66 @@
+/** One backend boundary that starts product services before the DSH Host. */
+
+import { join } from 'node:path'
+import { DesktopHostProcess, type DesktopHostReady } from './host-process.ts'
+import { DesktopProductProcess } from './product-process.ts'
+import type { DesktopRuntimeProduct } from './desktop-product.ts'
+
+/** DSH Host plus an optional product service under one ordered lifecycle. */
+export class DesktopProductHostProcess {
+  private productProcess: DesktopProductProcess | undefined
+  private hostProcess: DesktopHostProcess | undefined
+
+  constructor(
+    private readonly node: string,
+    private readonly runtimeDir: string,
+    private readonly projectDir: string,
+    private readonly productsDataRoot: string,
+    private readonly product: DesktopRuntimeProduct | undefined,
+    private readonly inspectPort?: number,
+    private readonly environment: NodeJS.ProcessEnv = process.env,
+    private readonly onFailure?: (error: Error) => void,
+  ) {}
+
+  /** Start the product service first so the Host receives its ready environment. */
+  async start(): Promise<DesktopHostReady> {
+    let hostEnvironment = this.environment
+    if (this.product?.service !== undefined) {
+      const productProcess = new DesktopProductProcess(
+        this.node, this.runtimeDir, this.product, join(this.productsDataRoot, this.product.id),
+        this.environment, this.onFailure,
+      )
+      this.productProcess = productProcess
+      const ready = await productProcess.start()
+      hostEnvironment = { ...this.environment, ...ready.environment }
+    }
+    const host = new DesktopHostProcess(
+      this.node, this.runtimeDir, this.projectDir, this.inspectPort, hostEnvironment, this.onFailure,
+    )
+    this.hostProcess = host
+    try {
+      return await host.start()
+    } catch (error) {
+      await this.stop()
+      throw error
+    }
+  }
+
+  /** Forward an application request to the sole Host. */
+  fetch(request: Request): Promise<Response> {
+    const host = this.hostProcess
+    if (host === undefined) return Promise.reject(new Error('dsh desktop host is unavailable'))
+    return host.fetch(request)
+  }
+
+  /** Stop the Host before the product service it depends on. */
+  async stop(): Promise<void> {
+    const results = await Promise.allSettled([this.hostProcess?.stop()])
+    const productResult = await Promise.allSettled([this.productProcess?.stop()])
+    this.hostProcess = undefined
+    this.productProcess = undefined
+    const failures = [...results, ...productResult]
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map(result => result.reason)
+    if (failures.length > 0) throw new AggregateError(failures, 'desktop product backend cleanup failed')
+  }
+}

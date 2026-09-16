@@ -24,6 +24,7 @@ import {
 import { capture } from '../../../scripts/release/process.ts'
 import { tarballFiles } from '../../../scripts/release/tarball.ts'
 import { resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { readDesktopProductPayload } from '../src/desktop-product.ts'
 
 const DSH_PACKAGE = '@deepseek-ai/dsh'
 const ROOT_PACKAGES = [DSH_PACKAGE, DESKTOP_HOST_PACKAGE] as const
@@ -55,6 +56,7 @@ function dependencyNames(manifest: Readonly<Record<string, unknown>>, section: s
  */
 export function selectDesktopPackageClosure(
   available: ReadonlyMap<string, PackedDesktopPackage>,
+  roots: readonly string[] = ROOT_PACKAGES,
 ): PackedDesktopPackage[] {
   const selected = new Map<string, PackedDesktopPackage>()
   const visit = (name: string): void => {
@@ -74,7 +76,7 @@ export function selectDesktopPackageClosure(
       if (available.has(dependency)) visit(dependency)
     }
   }
-  for (const name of ROOT_PACKAGES) {
+  for (const name of roots) {
     if (!available.has(name)) throw new Error(`desktop package set: packed inputs omit ${name}`)
     visit(name)
   }
@@ -122,8 +124,8 @@ export function assertDesktopHostPackageFiles(files: readonly string[]): void {
 }
 
 /** Prepare a package set from release tarball directories. */
-export function prepareDesktopPackageSet(inputs: readonly string[], output: string): void {
-  const selected = selectDesktopPackageClosure(packedPackages(inputs))
+export function prepareDesktopPackageSet(inputs: readonly string[], output: string, roots: readonly string[] = ROOT_PACKAGES): void {
+  const selected = selectDesktopPackageClosure(packedPackages(inputs), roots)
   const host = selected.find(packed => packed.manifest.name === DESKTOP_HOST_PACKAGE)
   if (host === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_HOST_PACKAGE}`)
   assertDesktopHostPackageFiles(tarballFiles(host.tarball))
@@ -159,13 +161,19 @@ function main(): void {
     buildPaths.packedVendor,
     buildPaths.packedLandlock,
   ]
+  const productRoot = process.env.DSH_DESKTOP_PRODUCT_ROOT
+  const resolvedProductRoot = productRoot === undefined ? undefined : resolve(productRoot)
+  const product = resolvedProductRoot === undefined ? undefined : readDesktopProductPayload(resolvedProductRoot)
+  if (product !== undefined && resolvedProductRoot !== undefined) {
+    defaultInputs.push(join(resolvedProductRoot, product.packagesDirectory))
+  }
   const { values } = parseArgs({
     options: { from: { type: 'string', multiple: true }, out: { type: 'string' } },
     allowPositionals: false,
   })
   const inputs = (values.from ?? defaultInputs).map(path => resolve(REPOSITORY_ROOT, path))
   const output = values.out === undefined ? buildPaths.packageSet : resolve(REPOSITORY_ROOT, values.out)
-  prepareDesktopPackageSet(inputs, output)
+  prepareDesktopPackageSet(inputs, output, [...ROOT_PACKAGES, ...(product?.packageRoots ?? [])])
   console.log(`desktop package set: prepared ${output}`)
 }
 

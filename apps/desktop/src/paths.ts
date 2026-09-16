@@ -8,6 +8,7 @@ export interface DesktopPaths {
   readonly root: string
   readonly profile: string
   readonly lock: string
+  readonly products: string
   readonly pnpm: {
     readonly root: string
     readonly store: string
@@ -30,6 +31,7 @@ export function resolveDesktopPaths(dshHome: string = resolveDshHome()): Desktop
     root,
     profile: join(dshHome, 'profiles', 'desktop'),
     lock: join(dshHome, 'profiles', 'desktop', 'lock'),
+    products: join(root, 'products'),
     pnpm: {
       root: pnpm,
       store: join(pnpm, 'store'),

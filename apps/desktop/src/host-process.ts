@@ -117,6 +117,7 @@ export class DesktopHostProcess {
       env: Object.fromEntries(Object.entries(this.environment).filter(([name]) => (
         name !== 'NODE_OPTIONS' && name !== 'NODE_PATH' && !/^DSH_DESKTOP_/u.test(name) && !/^(?:npm|pnpm|corepack)_/iu.test(name)
       ))),
+      windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe', 'ipc'],
     })
     const requestPipe = child.stdio[DESKTOP_REQUEST_PIPE_FD]
