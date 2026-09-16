@@ -1289,8 +1289,8 @@ describe('desktop main startup', () => {
     expect(harness.applyRelease).toHaveBeenCalledTimes(1)
     expect(harness.hosts[0]).toMatchObject({
       node: process.execPath,
-      runtime: join(harness.app.getAppPath(), 'dsh'),
-      productRuntime: join(process.resourcesPath, 'app.asar.unpacked', 'dsh'),
+      runtime: join(process.resourcesPath, 'dsh'),
+      productRuntime: join(process.resourcesPath, 'dsh'),
       primaryRuntime: join('desktop-test-resources', 'runtime', 'primary-runtime'),
       profileResolution: 'runtime',
       profile: 'desktop-test-profile',

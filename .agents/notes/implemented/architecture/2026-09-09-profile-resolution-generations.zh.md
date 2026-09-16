@@ -78,7 +78,7 @@ link、dual 与 runtime 模式使用同一种 generation schema 和依赖选择�
 
 runtime 模式要求受支持的 Node Internal loader 接口，并且不会创建、更新或退休 fallback 链接。dual 模式保留链接写入，并在 Node 的磁盘结果与 generation 不同时失败。可写 profile 状态和包管理器事务不属于 resolver。
 
-pkg 与 Electron 载体强制使用 runtime 解析。Electron Host 通过设置 `ELECTRON_RUN_AS_NODE=1` 的 Electron 可执行文件运行；打包构建从 ASAR 读取 dsh 依赖树，并把 ASAR 中的可执行条目映射到 electron-builder 的 unpacked 目录。它们的运行时解析器不会创建、更新或删除旧解析链接。
+pkg 与打包 Electron 载体强制使用 runtime 解析。Electron Host 通过设置 `ELECTRON_RUN_AS_NODE=1` 的 Electron 可执行文件运行，并从 `Resources/dsh` 读取完整 dsh 依赖树；Host 与可选产品服务均作为子进程运行，因此 electron-builder 把这棵依赖树完整放在 ASAR 之外。两种载体都不会创建、更新或删除旧解析链接。
 
 ### 性能与验证
 
@@ -106,7 +106,7 @@ generation 构造发生在启动或显式更新阶段，不属于单次 resolve�
 
 - 一次 eager 计算同时供应保留的磁盘 materializer 和运行时 generation。
 - link-only、dual 和 runtime-only 测试消费同一个 generation；runtime 启动既不写入也不退休模块解析数据。
-- pkg 与 Electron 载体选择 runtime 解析；Electron 以 Node 模式从 ASAR 承载的 dsh 依赖树执行 Host，原生可执行条目保持 unpacked。
+- pkg 与 Electron 载体选择 runtime 解析；Electron 以 Node 模式从完整的外部 `Resources/dsh` 依赖树执行 Host。
 - ESM 与 CommonJS 适配器共享同一个路由器，并把最终解析委托给 Node，不使用 `module.registerHooks` 或替换 `_findPath`。
 - 生产 package metadata 查询不记录 Loader import 结果，也不包装 Entry、registry、tree 或 HMR 方法。
 - Node 兼容矩阵会在受支持的 loader 接口上运行主线程 resolver 规格；service 和 bootstrap 规格覆盖 Worker environment data 与安装接口，但不会启动构建后的 Worker。

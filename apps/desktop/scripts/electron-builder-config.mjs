@@ -25,6 +25,7 @@ import {
   verifyMacOSAppUpdateConfig,
   writeMacOSAppUpdateConfig,
 } from './macos-app-update-config.mjs'
+import { verifyPackagedDesktopRuntime } from './verify-packaged-runtime.mjs'
 
 /**
  * Create electron-builder configuration from one release environment.
@@ -104,18 +105,18 @@ export function createElectronBuilderConfig(
       'lib/preload-update-dialog.cjs',
       'renderer/**/*',
       'package.json',
-      { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
-      // electron-builder excludes a source directory's root node_modules.
-      { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
     ],
     asarUnpack: [
-      'dsh/products/**/*',
       '**/*.{node,dylib,dll,so,exe}',
       '**/*.so.*',
       '**/spawn-helper',
       '**/@vscode/ripgrep/bin/rg',
     ],
     extraResources: [
+      // Host and optional product services are child processes, so the full dependency tree stays outside ASAR.
+      { from: buildPaths.dsh, to: 'dsh' },
+      // electron-builder excludes a source directory's root node_modules.
+      { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules' },
       { from: buildPaths.runtime, to: 'runtime' },
       { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
     ],
@@ -125,8 +126,8 @@ export function createElectronBuilderConfig(
       identity: macOSSigning?.signingIdentity,
       forceCodeSigning: true,
       hardenedRuntime: true,
-      // ASAR-unpacked native runtime files are pre-signed; PAK resources are sealed by their enclosing bundle.
-      signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
+      // External runtime files are pre-signed; PAK resources are sealed by their enclosing bundle.
+      signIgnore: ['/Contents/Resources/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
       notarize: true,
       target: ['dmg', 'zip'],
     },
@@ -156,6 +157,7 @@ export function createElectronBuilderConfig(
       }
       await verifyDesktopRuntime(buildPaths.dsh,
         context.packager.appInfo.version, { platform: resolvedPlatform, arch: resolvedArch })
+      verifyPackagedDesktopRuntime(context)
     },
     afterSign: async context => {
       if (context.electronPlatformName !== 'darwin') return
