@@ -199,6 +199,7 @@ interface DesktopPackageInvocation {
   readonly check: boolean
   /** Build identifier to publish under, when this build does not publish the product version. */
   readonly requestedBuildVersion: string | undefined
+  readonly productRoot?: string
 }
 
 function hostTargetName(platform: NodeJS.Platform, arch: string): DesktopPackageTargetName {
@@ -230,6 +231,7 @@ export function parseDesktopPackageInvocation(
       unsigned: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
       'build-version': { type: 'string' },
+      'product-root': { type: 'string' },
     },
   })
   if (positionals.length > 1) throw new Error('desktop package: expected at most one target')
@@ -247,6 +249,7 @@ export function parseDesktopPackageInvocation(
     unsigned: values.unsigned,
     check: values.check,
     requestedBuildVersion,
+    ...(values['product-root'] === undefined ? {} : { productRoot: resolve(values['product-root']) }),
   }
 }
 
@@ -412,6 +415,7 @@ export async function packageTarget(
     ...buildEnv,
     DSH_DESKTOP_TARGET_PLATFORM: target.platform,
     DSH_DESKTOP_TARGET_ARCH: target.arch,
+    ...(invocation.productRoot === undefined ? {} : { DSH_DESKTOP_PRODUCT_ROOT: invocation.productRoot }),
   }
   const downloadEnv = macOSDownloadEnvironment(targetEnv, mac?.downloadProxy)
   const electronBuilderEnv = desktopElectronBuilderEnvironment(downloadEnv, invocation.unsigned)

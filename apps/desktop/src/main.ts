@@ -22,8 +22,9 @@ import {
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
-import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
+import { DesktopHostFatalError, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
+import { DesktopProductHostProcess } from './product-host-process.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { DesktopBackendController } from './backend-controller.ts'
@@ -379,10 +380,10 @@ async function main(): Promise<void> {
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US')
   const backend = new DesktopBackendController((onFailure) => {
     const hostInspectPort = developmentHostInspectPort(development)
-    const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
+    const host = new DesktopProductHostProcess(resources.node, resources.dsh, activeProject,
+      paths.products, development ? undefined : readDesktopRuntime(resources.dsh).product,
       hostInspectPort, process.env, onFailure,
-      primaryRuntime,
-      resources, (next) => { platformView.setSession(next) })
+      primaryRuntime, resources, (next) => { platformView.setSession(next) })
     return {
       start: async () => {
         const ready = await host.start()
