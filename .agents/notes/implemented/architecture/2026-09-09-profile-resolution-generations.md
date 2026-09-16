@@ -113,7 +113,7 @@ Changing or removing an existing runtime package mapping, or removing a recorded
 
 The resolver does not create, update, or remove fallback symlinks and proxy packages. Runtime resolution entries occupy their package names at `$DSH_HOME/profiles/node_modules`; every other name sees that directory as an ordinary ancestor. Construction records links to directories outside the shared profiles tree and the active profile itself, including targets without their own manifest. Installation-scope package directories stay outside linked interception even when a broader linked root contains them. Eligible linked importers retain native ancestor order and per-position peer mappings. The [lookup-order Note](2026-09-19-profile-resolution-lookup-order.md) records precedence and scope. Writable profile state and package-manager transactions remain outside the resolver.
 
-Runtime resolution requires a supported Node Internal loader interface. The Electron Host runs through the Electron executable with `ELECTRON_RUN_AS_NODE=1`; packaged builds read the dsh tree from ASAR and map executable ASAR entries to electron-builder's unpacked tree. Pkg and Electron use the same runtime resolution mechanism as ordinary Node launches.
+Runtime resolution requires a supported Node Internal loader interface. The Electron Host runs through the Electron executable with `ELECTRON_RUN_AS_NODE=1`; packaged builds read the complete dsh tree from external `Resources/dsh`. Pkg and Electron use the same runtime resolution mechanism as ordinary Node launches.
 
 ### Performance and verification
 
@@ -144,7 +144,7 @@ Behavior tests exercise root order, transitive and peer dependencies, local and 
 - One eager computation supplies the runtime resolution; startup neither writes nor retires module-resolution data.
 - [Generation tests](../../../../packages/boot/app-boot/tests/profile-resolution.spec.ts) cover installation and selected-bundle graphs with ordinary directories and recursive symlinks, including different dependency versions beside logical and real anchors. They also cover linked-root removal, same-target restoration, overlapping roots, native misses, new requests from loaded modules, and relink rejection after removal.
 - [Source-launch tests](../../../../apps/cli/tests/source-launch.compat.spec.ts) and [built-bin tests](../../../../apps/cli/tests/built-bin.e2e.ts) run both profile layouts through the real CLI. They assert ESM/CJS versions, loaded paths, per-format dependency identity, and consistent Tools/AgentLoop module instances with an accessible scheduler key.
-- Pkg and Electron carriers select runtime resolution; Electron executes its Host in Node mode from the ASAR-backed dsh tree while native executable entries remain unpacked.
+- Pkg and Electron carriers select runtime resolution; Electron executes its Host in Node mode from the complete external `Resources/dsh` tree.
 - ESM and CommonJS adapters share one router and delegate final resolution to Node without `module.registerHooks` or `_findPath` replacement.
 - Production metadata lookup does not record Loader import results or wrap Entry, registry, tree, or HMR methods.
 - The Node compatibility matrix runs main-thread resolver specifications across supported loader interfaces; service and bootstrap specifications cover Worker environment-data and installation interfaces without launching a built Worker.
