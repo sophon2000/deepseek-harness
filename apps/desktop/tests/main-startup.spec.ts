@@ -140,7 +140,7 @@ const harness = await vi.hoisted(async () => {
       return this.exited.promise
     })
     constructor(
-      readonly node: string, readonly runtime: string, readonly profile: string,
+      readonly node: string, readonly runtime: string, readonly productRuntime: string, readonly profile: string,
       readonly productsDataRoot: string, readonly product?: unknown,
       readonly inspectPort?: number, readonly environment?: NodeJS.ProcessEnv, readonly onFailure?: (error: Error) => void,
       readonly primaryRuntime?: string,
@@ -2066,6 +2066,7 @@ describe('desktop main startup', () => {
     expect(harness.hosts[0]).toMatchObject({
       node: process.execPath,
       runtime: join(harness.app.getAppPath(), 'dsh'),
+      productRuntime: join(process.resourcesPath, 'app.asar.unpacked', 'dsh'),
       primaryRuntime: join('desktop-test-resources', 'runtime', 'primary-runtime'),
       profile: 'desktop-test-profile',
     })
