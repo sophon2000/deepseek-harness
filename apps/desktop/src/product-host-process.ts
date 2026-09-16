@@ -13,6 +13,7 @@ export class DesktopProductHostProcess {
   constructor(
     private readonly node: string,
     private readonly runtimeDir: string,
+    private readonly productRuntimeDir: string,
     private readonly projectDir: string,
     private readonly productsDataRoot: string,
     private readonly product: DesktopRuntimeProduct | undefined,
@@ -26,22 +27,22 @@ export class DesktopProductHostProcess {
 
   /** Start the product service first so the Host receives its ready environment. */
   async start(): Promise<DesktopHostReady> {
-    let hostEnvironment = this.environment
-    if (this.product?.service !== undefined) {
-      const productProcess = new DesktopProductProcess(
-        this.node, this.runtimeDir, this.product, join(this.productsDataRoot, this.product.id),
-        this.environment, this.onFailure,
-      )
-      this.productProcess = productProcess
-      const ready = await productProcess.start()
-      hostEnvironment = { ...this.environment, ...ready.environment }
-    }
-    const host = new DesktopHostProcess(
-      this.node, this.runtimeDir, this.projectDir, this.inspectPort, hostEnvironment, this.onFailure,
-      this.primaryRuntime, this.profileResolution, this.packageManager,
-    )
-    this.hostProcess = host
     try {
+      let hostEnvironment = this.environment
+      if (this.product?.service !== undefined) {
+        const productProcess = new DesktopProductProcess(
+          this.node, this.productRuntimeDir, this.product, join(this.productsDataRoot, this.product.id),
+          this.environment, this.onFailure,
+        )
+        this.productProcess = productProcess
+        const ready = await productProcess.start()
+        hostEnvironment = { ...this.environment, ...ready.environment }
+      }
+      const host = new DesktopHostProcess(
+        this.node, this.runtimeDir, this.projectDir, this.inspectPort, hostEnvironment, this.onFailure,
+        this.primaryRuntime, this.profileResolution, this.packageManager,
+      )
+      this.hostProcess = host
       return await host.start()
     } catch (error) {
       await this.stop()

@@ -109,6 +109,7 @@ export function createElectronBuilderConfig(
       { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
     ],
     asarUnpack: [
+      'dsh/products/**/*',
       '**/*.{node,dylib,dll,so,exe}',
       '**/*.so.*',
       '**/spawn-helper',

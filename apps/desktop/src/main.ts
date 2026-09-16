@@ -85,6 +85,7 @@ interface RuntimeResources {
   readonly node: string
   readonly pnpm: string
   readonly dsh: string
+  readonly productRuntime: string
 }
 
 function runtimeResources(): RuntimeResources {
@@ -96,7 +97,10 @@ function runtimeResources(): RuntimeResources {
       : join(process.resourcesPath, 'runtime', 'pnpm', 'bin', 'pnpm.mjs'))
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
     ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
-  return { node, nodeBin, pnpm, dsh }
+  const productRuntime = development
+    ? dsh
+    : join(process.resourcesPath, 'app.asar.unpacked', 'dsh')
+  return { node, nodeBin, pnpm, dsh, productRuntime }
 }
 
 function developmentHostInspectPort(enabled: boolean): number | undefined {
@@ -251,6 +255,7 @@ async function main(): Promise<void> {
     const host = new DesktopProductHostProcess(
       resources.node,
       resources.dsh,
+      resources.productRuntime,
       activeProject,
       paths.products,
       development ? undefined : readDesktopRuntime(resources.dsh).product,
