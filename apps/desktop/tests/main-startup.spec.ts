@@ -55,7 +55,12 @@ const harness = await vi.hoisted(async () => {
       this.ready.reject(new Error('child stopped'))
       return this.exited.promise
     })
-    constructor(readonly node: string, readonly runtime: string, readonly profile: string) { hosts.push(this) }
+    constructor(
+      readonly node: string,
+      readonly runtime: string,
+      readonly productRuntime: string,
+      readonly profile: string,
+    ) { hosts.push(this) }
   }
   const app = Object.assign(new EventEmitter(), {
     isPackaged: true,
@@ -304,6 +309,7 @@ describe('desktop main startup', () => {
     expect(harness.hosts[0]).toMatchObject({
       node: process.execPath,
       runtime: join(harness.app.getAppPath(), 'dsh'),
+      productRuntime: join(process.resourcesPath, 'app.asar.unpacked', 'dsh'),
       profile: 'desktop-test-profile',
     })
     expect(harness.managerRuntimes[0]).toMatchObject({ profileResolution: 'runtime' })

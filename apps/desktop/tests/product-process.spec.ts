@@ -32,6 +32,7 @@ async function fixture(source: string): Promise<{ root: string; data: string; pr
 describe('Desktop product process', () => {
   it('accepts the exact declared environment and shuts down cooperatively', async () => {
     const setup = await fixture(`
+      if (process.env.ELECTRON_RUN_AS_NODE !== '1') process.exit(41)
       process.send({ type: 'ready', environment: { FIXTURE_URL: 'http://127.0.0.1:1234' } })
       process.on('message', message => { if (message?.type === 'shutdown') process.exit(0) })
       setInterval(() => {}, 1000)
@@ -51,5 +52,14 @@ describe('Desktop product process', () => {
     const processHandle = new DesktopProductProcess(process.execPath, setup.root, setup.product, setup.data)
     await expect(processHandle.start()).rejects.toThrow('invalid IPC event')
     await processHandle.stop()
+  })
+
+  it('terminates a product service that never reports ready', async () => {
+    const setup = await fixture('setInterval(() => {}, 1000)')
+    const processHandle = new DesktopProductProcess(
+      process.execPath, setup.root, setup.product, setup.data, process.env, undefined, 50,
+    )
+    await expect(processHandle.start()).rejects.toThrow('did not become ready within 50 ms')
+    await expect(processHandle.stop()).resolves.toBeUndefined()
   })
 })
