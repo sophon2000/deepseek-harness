@@ -58,20 +58,20 @@ export function packagedSystemPresetRoots(runtimeDir: string): string[] {
 /** Append immutable deployment roots without discarding product or user-layer preset settings. */
 export function appendSystemPresetRoots(patches: PatchOptions[], roots: readonly string[]): PatchOptions[] {
   if (roots.length === 0) return patches
-  const rows = new Map(composeEntries(patches).flatMap(row => (
+  const rows = new Map(composeEntries([patches]).flatMap(row => (
     typeof row.id === 'string' ? [[row.id, row] as const] : []
   )))
   const presets = rows.get('agent-presets')
   if (presets === undefined) return patches
   const config = isRecord(presets.config) ? presets.config : {}
   const configured = Array.isArray(config.roots) ? config.roots : []
-  return [...patches, [{
+  return [...patches, {
     id: 'agent-presets',
     config: {
       ...config,
       roots: [...configured, ...roots.map(path => ({ path, trust: 'system' as const }))],
     },
-  }]]
+  }]
 }
 
 async function main(): Promise<void> {

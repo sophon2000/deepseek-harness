@@ -177,15 +177,10 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       })
 
       const invalidResult = await client.remote.goals.create(rootAgent.id, { objective: 1 })
-      let clientUnknownRejected = false
-      try {
-        await client.remote.goals.create(rootAgent.id, {
-          objective: 'forged client goal',
-          projectId: 'project-forged',
-        })
-      } catch {
-        clientUnknownRejected = true
-      }
+      const clientUnknownResult = await client.remote.goals.create(rootAgent.id, {
+        objective: 'forged client goal',
+        projectId: 'project-forged',
+      })
       const forgedHostResponse = await fetch(origin + '/api/goals/create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -218,7 +213,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       const scopedResult = await agentContext.remote.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
       const result = {
         invalidResult,
-        clientUnknownRejected,
+        clientUnknownResult,
         hostUnknownRejected,
         rejectedGoalAbsent,
         rejectedEventCount,
@@ -244,7 +239,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     expect(result.exitCode, `stderr:\n${result.stderr}`).toBe(0)
     const output = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}') as {
       invalidResult: { ok: boolean; error?: { code: string } }
-      clientUnknownRejected: boolean
+      clientUnknownResult: { ok: boolean; error?: { code: string } }
       hostUnknownRejected: boolean
       rejectedGoalAbsent: boolean
       rejectedEventCount: number
@@ -258,7 +253,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     }
     expect(output).toMatchObject({
       invalidResult: { ok: false, error: { code: 'gateway/input-invalid' } },
-      clientUnknownRejected: true,
+      clientUnknownResult: { ok: false, error: { code: 'gateway/input-invalid' } },
       hostUnknownRejected: true,
       rejectedGoalAbsent: true,
       rejectedEventCount: 0,

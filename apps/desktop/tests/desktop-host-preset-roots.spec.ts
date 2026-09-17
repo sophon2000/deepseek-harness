@@ -70,20 +70,24 @@ describe('desktop host packaged preset roots', () => {
 describe('desktop host preset composition', () => {
   it('appends product roots without replacing effective deployment settings', () => {
     expect(appendSystemPresetRoots([{
-      id: 'agent-presets',
-      name: '@deepseek-ai/dsh-agent-presets',
-      config: { default: 'video', includeUserRoot: false, roots: [{ path: '/existing', trust: 'user' }] },
+      insert: [{
+        id: 'agent-presets',
+        name: '@deepseek-ai/dsh-agent-presets',
+        config: { default: 'video', includeUserRoot: false, roots: [{ path: '/existing', trust: 'user' }] },
+      }],
     }], ['/product'])).toEqual([{
-      id: 'agent-presets',
-      name: '@deepseek-ai/dsh-agent-presets',
-      config: { default: 'video', includeUserRoot: false, roots: [{ path: '/existing', trust: 'user' }] },
-    }, [{
+      insert: [{
+        id: 'agent-presets',
+        name: '@deepseek-ai/dsh-agent-presets',
+        config: { default: 'video', includeUserRoot: false, roots: [{ path: '/existing', trust: 'user' }] },
+      }],
+    }, {
       id: 'agent-presets',
       config: {
         default: 'video',
         includeUserRoot: false,
         roots: [{ path: '/existing', trust: 'user' }, { path: '/product', trust: 'system' }],
       },
-    }]])
+    }])
   })
 })
