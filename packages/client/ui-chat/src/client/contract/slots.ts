@@ -107,8 +107,8 @@ export type QuotaNoticeHostProps =
   & PropsRenderSlots<'shell.quota-notice'>
   & InjectFace<QuotaNoticeInjected>
 
-/** Optional prose file-mention provider consumed by Chat. */
-export interface ChatFileMentions {
+/** One effect-scoped prose file-mention vocabulary contributed to Chat. */
+export interface ChatFileMentionProvider {
   /**
    * Resolve prose links for one closing Turn.
    * @param owner - closing-Turn identity and file opener.
@@ -118,9 +118,20 @@ export interface ChatFileMentions {
   forClosing(owner: TurnTailOwnerProps, sessionId: SessionId): MarkdownFileMentions | undefined
 }
 
+/** Chat-owned registry that composes independent prose file-mention vocabularies. */
+export interface ChatFileMentions extends ChatFileMentionProvider {
+  /**
+   * Register one vocabulary until the returned disposer runs.
+   * @param id - Stable, non-empty provider identity.
+   * @param provider - Turn-scoped resolver factory.
+   * @returns An idempotent disposer for this exact registration.
+   */
+  register(id: string, provider: ChatFileMentionProvider): () => void
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** Optional prose file-mention provider. */
+    /** Composable prose file-mention registry owned by Chat. */
     chatFileMentions: ChatFileMentions
   }
 }

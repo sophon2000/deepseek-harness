@@ -22,7 +22,7 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
-import type { ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { ChatFileMentionProvider, ChatFileMentions, TurnTailOwnerProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { makeTranslate, stubConfigForm } from '@deepseek-ai/dsh-client-test-runtime'
 import { Deliverables, DeliverablesTail, selectDeliverables, type DeliverablesInjected } from '../src/client/Deliverables.tsx'
 import type { ReviewInjected } from '../src/client/ReviewTab.tsx'
@@ -769,6 +769,15 @@ describe('plugin registration', () => {
     } as never)
     ctx.provide('remote.session', session as never)
     ctx.provide('configForms', { developerTools: { enabled: createSnapshotStore(true) }, get: () => stubConfigForm().scope } as never)
+    let mentionProvider: ChatFileMentionProvider | undefined
+    const mentionService: ChatFileMentions = {
+      register: (_id, provider) => {
+        mentionProvider = provider
+        return () => { if (mentionProvider === provider) mentionProvider = undefined }
+      },
+      forClosing: (owner, sessionId) => mentionProvider?.forClosing(owner, sessionId),
+    }
+    ctx.provide('chatFileMentions', mentionService)
     await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
 
     const fiber = ctx.plugin({ inject: [...inject], apply })
@@ -789,8 +798,7 @@ describe('plugin registration', () => {
       3,
       (path) => { opened.push(path) },
     )
-    const service = (ctx as { get(name: string): ChatFileMentions | undefined }).get('chatFileMentions')
-    const mentions = service?.forClosing(owner, SessionId('viewed-session'))
+    const mentions = mentionService.forClosing(owner, SessionId('viewed-session'))
     expect(mentions?.resolve('report.html')?.label).toBe('Open site/report.html in sidebar')
     mentions?.resolve('report.html')?.open()
     expect(opened).toEqual(['site/report.html'])
@@ -799,7 +807,7 @@ describe('plugin registration', () => {
     const preview = vi.fn<(path: string) => void>()
     for (const produced of [[], [{ path: 'out/report.docx', seq: 1 }]]) {
       const delivered = tailOwner({ produced, presented: [{ path: 'out/report.docx', seq: 2, index: 0 }] }, 3, preview)
-      const mentions = service?.forClosing(delivered, SessionId('child-session'))
+      const mentions = mentionService.forClosing(delivered, SessionId('child-session'))
       for (const text of ['report.docx', 'out/report.docx']) {
         const mention = mentions?.resolve(text)
         expect(mention?.label).toBe('Open out/report.docx in sidebar')
@@ -847,7 +855,7 @@ describe('plugin registration', () => {
     ctx.emit('connection/reset')
     expect(tabFace.hooks.changesDiff.getSnapshot()).toEqual({})
     // A turn that produced nothing yields no vocabulary at all.
-    expect(service?.forClosing(tailOwner(undefined, 2), SessionId('viewed-session'))).toBeUndefined()
+    expect(mentionService.forClosing(tailOwner(undefined, 2), SessionId('viewed-session'))).toBeUndefined()
 
     fetcher.mockResolvedValueOnce(Response.json({ name: 'last-host', available: true, fileManager: 'finder' }))
     await face.reloadPresentedHost()
@@ -861,8 +869,8 @@ describe('plugin registration', () => {
     expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
     expect(ctx.slots.entries('sidebar.right.pane.tab')).toHaveLength(0)
     expect(registered).toBeUndefined()
-    // Fiber teardown retracts the service: the consumer's ctx.get sees the off state.
-    expect((ctx as { get(name: string): unknown }).get('chatFileMentions')).toBeUndefined()
+    // Fiber teardown unregisters only this package's vocabulary; Chat keeps owning the service.
+    expect(mentionService.forClosing(owner, SessionId('viewed-session'))).toBeUndefined()
   })
 })
 
