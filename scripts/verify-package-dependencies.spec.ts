@@ -50,6 +50,7 @@ function policy(fields: Partial<PackageDependencyPolicy> = {}): PackageDependenc
     clientFaceExclude: [],
     hostPackages: [],
     configurationOnlyDevDependencies: {},
+    publishedDeclarationDependencies: {},
     safeHostDependencyExports: {},
     peerRequiredHostExports: {},
     ...fields,
@@ -86,6 +87,7 @@ function facts(manifest: PackageDependencyManifest): PackageDependencyFacts {
     }],
     peerRequiredHostDependencies: new Set(),
     configurationOnlyDevDependencies: new Set(),
+    publishedDeclarationDependencies: new Set(),
     clientInject: new Set(),
   }
 }
@@ -175,6 +177,7 @@ function hostRuntimeFixture(): {
     }],
     peerRequiredHostDependencies: new Set(),
     configurationOnlyDevDependencies: new Set(),
+    publishedDeclarationDependencies: new Set(),
     clientInject: new Set(),
   }
   return { provider, workspaceNames, consumerFacts }
@@ -201,6 +204,9 @@ describe('package dependency scope', () => {
       '@deepseek-ai/dsh-client-ui-subagent': ['@deepseek-ai/dsh-client-ui-input-trigger'],
       '@deepseek-ai/dsh-client-ui-theme': ['@deepseek-ai/dsh-api-remotes'],
       '@deepseek-ai/dsh-client-ui-tool': ['@deepseek-ai/dsh-api-remotes'],
+    })
+    expect(PACKAGE_DEPENDENCY_POLICY.publishedDeclarationDependencies).toEqual({
+      '@deepseek-ai/dsh-session': ['@deepseek-ai/dsh-typert-protocol'],
     })
     expect(PACKAGE_DEPENDENCY_POLICY.duplicateSafePackages).toEqual([
       '@deepseek-ai/dsh-brand',
@@ -575,10 +581,16 @@ describe('face-aware source classification', () => {
       CORDIS, '@f/runtime', '@f/types', '@f/nested', '@f/hidden', '@f/browser', '@f/injected',
     ]), policy({
       configurationOnlyDevDependencies: { '@f/dual': ['@f/injected'] },
+      publishedDeclarationDependencies: { '@f/dual': ['@f/types'] },
     }))
 
     expect([...found.hostRuntimeSourceUses.keys()].sort()).toEqual(['@f/nested', '@f/runtime'])
     expect([...found.configurationOnlyDevDependencies]).toEqual(['@f/injected'])
+    expect([...found.publishedDeclarationDependencies]).toEqual(['@f/types'])
+    expect(expectedPackageDependencies(found).get('@f/types')).toEqual({
+      section: 'dependencies',
+      origins: ['packages/g/dual/src/index.ts', 'published declaration import'],
+    })
     expect(found.hostRuntimeExportUses).toEqual([
       {
         packageName: '@f/nested',
