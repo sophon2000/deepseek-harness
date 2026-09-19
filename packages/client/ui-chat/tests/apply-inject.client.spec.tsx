@@ -15,7 +15,7 @@ import {
   type GroupKey,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
-  apply as applyChat, inject as injectChat, type ChatViewInjected,
+  apply as applyChat, inject as injectChat, type ChatFileMentions, type ChatViewInjected,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceId } from '@deepseek-ai/dsh-workspace/types'
@@ -395,9 +395,19 @@ describe('Chat inject API', () => {
     expect(injected.fileMentions(owner)).toBeUndefined()
     const mentions = { resolve: vi.fn() } as never
     const forClosing = vi.fn(() => mentions)
-    b.runtime.ctx.provide('chatFileMentions', { forClosing } as never)
-    expect(injected.fileMentions(owner)).toBe(mentions)
+    const registry = b.runtime.ctx.get('chatFileMentions') as ChatFileMentions
+    const disposeFirst = registry.register('test:first', { forClosing })
+    expect(injected.fileMentions(owner)?.resolve).toEqual(expect.any(Function))
     expect(forClosing).toHaveBeenCalledWith(owner, ROOT)
+
+    const second = { resolve: vi.fn(() => ({ open: vi.fn(), label: 'second', title: 'second' })) }
+    const disposeSecond = registry.register('test:second', { forClosing: () => second })
+    ;(mentions as { resolve: ReturnType<typeof vi.fn> }).resolve.mockReturnValue({ open: vi.fn(), label: 'first', title: 'first' })
+    expect(injected.fileMentions(owner)?.resolve('ambiguous')).toBeUndefined()
+    disposeSecond()
+    expect(injected.fileMentions(owner)?.resolve('unique')?.label).toBe('first')
+    disposeFirst()
+    expect(injected.fileMentions(owner)).toBeUndefined()
 
     expect(injected.chatScroll.read()).toBeNull()
     const position = { anchorKey: 'node-1', anchorTop: 4, scrollTop: 12 }

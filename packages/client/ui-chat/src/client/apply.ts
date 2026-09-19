@@ -42,6 +42,7 @@ import { PerformanceUsageRow, type PerformanceUsageRowInjected } from './setting
 import { PerformanceUsagePolicy } from './performance-usage.ts'
 import { useTurnDataValue } from './chat/use-turn-data.ts'
 import { bindDisclosure } from './chat/use-disclosure.ts'
+import { ChatFileMentionRegistry } from './file-mentions.ts'
 
 const CHAT_NODE_INJECT: ChatNodeInjected = {
   hooks: {
@@ -63,6 +64,8 @@ export const inject = [
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
+  const fileMentions = new ChatFileMentionRegistry()
+  ctx.provide('chatFileMentions', fileMentions)
   const chatSources = new WeakMap<SessionBinding, ObservableSnapshot<ChatSnapshot>>()
   const chatSource = (binding: SessionBinding): ObservableSnapshot<ChatSnapshot> => {
     let source = chatSources.get(binding)
@@ -168,7 +171,7 @@ export function apply(ctx: Context): void {
             chatNodeProcess: key => chat.getSnapshot().nodes.processSource(key),
             chatGroup: key => conversation.snapshot.getSnapshot().views.grouped('chat')?.groupSource(key as GroupKey),
           },
-          fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner, sessionId),
+          fileMentions: (owner: TurnTailOwnerProps) => fileMentions.forClosing(owner, sessionId),
           // Files open in the right Sidebar, not in a desktop application: the
           // content stays in the product, beside the conversation that produced
           // it. A relative path, or an absolute one inside the session's

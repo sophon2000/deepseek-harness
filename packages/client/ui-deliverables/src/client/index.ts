@@ -2,7 +2,7 @@
  * Deliverables plugin, browser half: registers the changed-files card and
  * delivery cards into the chat view's turn-tail list, the `changes-review`
  * right-Sidebar tab type that reviews one turn's changed files one comparison
- * at a time, and provides the `chatFileMentions` service that links
+ * at a time, and registers with the `chatFileMentions` service to link
  * inline-code mentions of produced or delivered files in the closing prose.
  * All policy lives here — the supported mutation calls, mention matching, row
  * cap, and copy — so composing this plugin out of cordis.yml removes every
@@ -12,7 +12,7 @@ import './file-actions.ts'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-connection/client'
-import type { ChatFileMentions } from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { ChatFileMentionProvider } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -40,7 +40,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Required services for the tail-slot and tab-type registrations and their dictionaries. */
-export const inject = ['slots', 'locale', 'uiConversation', 'remote', 'remote.session', 'sidebarRightTabs', 'sidebarRight', 'configForms']
+export const inject = ['slots', 'locale', 'uiConversation', 'remote', 'remote.session', 'sidebarRightTabs', 'sidebarRight', 'configForms', 'chatFileMentions']
 
 /**
  * Client plugin body: register the dictionaries, the turn-tail entry, and the comparison tab type.
@@ -100,7 +100,7 @@ export function apply(ctx: ClientContext): void {
   )), 'ui-deliverables: changes-review body')
   // The prose side of the same vocabulary: the chat view reaches this face
   // via ctx.get, so its absence — this plugin composed out — is the off state.
-  const mentions: ChatFileMentions = {
+  const mentions: ChatFileMentionProvider = {
     forClosing(owner) {
       const paths = selectProducedFiles(owner)
       const presented = presentedForClosing(owner)
@@ -109,5 +109,8 @@ export function apply(ctx: ClientContext): void {
         path => t('presented.previewButton', { name: path }))
     },
   }
-  ctx.provide('chatFileMentions', mentions)
+  ctx.effect(
+    () => ctx.chatFileMentions.register('@deepseek-ai/dsh-client-ui-deliverables', mentions),
+    'ui-deliverables: prose file mentions',
+  )
 }
