@@ -793,7 +793,7 @@ describe('TypertGatewayService', () => {
       namespace: 'goals',
       method: 'strictOnly',
       args: { request: { title: 'ship', projectId: 'project-forged' } },
-    }), 'input-invalid')
+    }), 'gateway/input-invalid')
     await expectCode(ctx.typertGateway.invoke({
       namespace: 'goals',
       method: 'strictOnly',
@@ -803,7 +803,7 @@ describe('TypertGatewayService', () => {
           options: { priority: 1, tenantId: 'tenant-forged' },
         },
       },
-    }), 'input-invalid')
+    }), 'gateway/input-invalid')
     expect(service.calls).toEqual([])
   })
 
