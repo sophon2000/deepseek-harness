@@ -82,9 +82,11 @@ export class DesktopProjectManager {
    * @returns Backup path after the locked profile write, or undefined if the patch was absent.
    */
   async disableAllPlugins(): Promise<string | undefined> {
-    const descriptor = readDesktopRuntime(this.runtime.dsh)
+    // Recovery must remain usable when the runtime descriptor itself is missing or damaged.
+    let productBundles: readonly string[] = []
+    try { productBundles = readDesktopRuntime(this.runtime.dsh).product?.profileBundles ?? [] } catch { /* recovery fallback */ }
     return this.withLock(() => sanitizeProfile(
-      'dsh', this.paths.profile, desktopProfileBundles(descriptor.product?.profileBundles),
+      'dsh', this.paths.profile, desktopProfileBundles(productBundles),
     ))
   }
 
