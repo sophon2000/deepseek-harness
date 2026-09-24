@@ -29,7 +29,7 @@ export interface DesktopRuntimeFile {
 
 /** One signed application's production dependency tree. */
 export interface DesktopRuntimeDescriptor {
-  readonly schemaVersion: 1
+  readonly schemaVersion: number
   readonly release: DesktopRelease
   readonly platform: NodeJS.Platform
   readonly arch: string
@@ -181,7 +181,7 @@ export function readDesktopRuntime(root: string): DesktopRuntimeDescriptor {
   if (product !== undefined && !product.profileBundles.every(name => sharedPackages.some(entry => entry.name === name))) {
     throw new Error('desktop runtime: product profile bundle is not a shared package')
   }
-  return { schemaVersion: value.schemaVersion as 1, release, platform: value.platform as NodeJS.Platform,
+  return { schemaVersion: value.schemaVersion as number, release, platform: value.platform as NodeJS.Platform,
     arch: value.arch, sharedPackages, files, ...(product === undefined ? {} : { product }) }
 }
 

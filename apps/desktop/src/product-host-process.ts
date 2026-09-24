@@ -59,15 +59,15 @@ export class DesktopProductHostProcess {
     this.productProcess = undefined
     const failures = [...results, ...productResult]
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-      .map(result => result.reason)
+      .map((result): unknown => result.reason)
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'desktop product backend cleanup failed')
   }
 
   /** Forward update task inspection and admission control to the DSH Host. */
-  updateTasks(action: 'inspect' | 'lock' | 'unlock'): Promise<boolean> {
+  async updateTasks(action: 'inspect' | 'lock' | 'unlock'): Promise<boolean> {
     const host = this.hostProcess
     if (host === undefined) return Promise.reject(new Error('dsh desktop host is unavailable'))
-    return host.updateTasks(action)
+    return await host.updateTasks(action)
   }
 }

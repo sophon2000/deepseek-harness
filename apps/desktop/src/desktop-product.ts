@@ -50,7 +50,7 @@ function packageNames(value: unknown, label: string): string[] {
     || !value.every(name => typeof name === 'string' && PACKAGE_NAME.test(name))) {
     throw new Error(`desktop product: invalid ${label}`)
   }
-  const names = [...value] as string[]
+  const names = Array.from(value as string[])
   if (new Set(names).size !== names.length) throw new Error(`desktop product: duplicate ${label}`)
   return names
 }
@@ -63,7 +63,7 @@ function productService(value: unknown, label: string): DesktopProductService | 
       && ENVIRONMENT_NAME.test(name) && !forbiddenEnvironment.test(name))) {
     throw new Error(`desktop product: invalid ${label}`)
   }
-  const exportedEnvironment = [...value.exportedEnvironment] as string[]
+  const exportedEnvironment = Array.from(value.exportedEnvironment as string[])
   if (new Set(exportedEnvironment).size !== exportedEnvironment.length) {
     throw new Error(`desktop product: duplicate ${label} environment name`)
   }

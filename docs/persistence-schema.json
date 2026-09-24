@@ -36275,7 +36275,7 @@
         "packages/core/tools/src/index.ts#ToolRestriction"
       ],
       "sources": [
-        "packages/core/tools/src/index.ts:699"
+        "packages/core/tools/src/index.ts:729"
       ]
     },
     {
@@ -63863,7 +63863,7 @@
       },
       "names": [],
       "sources": [
-        "packages/core/tools/src/index.ts:34"
+        "packages/core/tools/src/index.ts:35"
       ]
     },
     {

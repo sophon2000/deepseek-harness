@@ -7752,16 +7752,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface WorkspaceRenameRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly title: string;\n}',
   },
   {
+    name: 'WorkspaceSessionInspection',
+    declaration: 'export interface WorkspaceSessionInspection {\n    readonly workspace: Workspace;\n    readonly validation: \'valid\' | \'cwd-unavailable\' | \'cwd-mismatch\';\n}',
+  },
+  {
     name: 'WorkspaceUnarchiveSessionRequest',
     declaration: 'export interface WorkspaceUnarchiveSessionRequest {\n    readonly sessionId: SessionId;\n}',
   },
   {
     name: 'WorkspaceUnpinSessionRequest',
     declaration: 'export interface WorkspaceUnpinSessionRequest {\n    readonly sessionId: SessionId;\n}',
-  },
-  {
-    name: 'WorkspaceSessionInspection',
-    declaration: 'export interface WorkspaceSessionInspection {\n    readonly workspace: Workspace;\n    readonly validation: \'valid\' | \'cwd-unavailable\' | \'cwd-mismatch\';\n}',
   },
   {
     name: 'WorkspaceValue',
