@@ -925,10 +925,7 @@ describe('header-validated membership projection', () => {
     const result = await harness({ sessions: [header('inspection-diverged', dir)] })
     const workspace = await result.registry.create(dir)
     await workspace.attachSession(SessionId('inspection-diverged'))
-    const internals = result.registry as unknown as {
-      table: { delete(id: WorkspaceId): Promise<boolean> }
-    }
-    await internals.table.delete(workspace.id)
+    result.pool.media.get('workspace')?.tables.get('workspaces')?.delete(workspace.id)
     expect(() => result.registry.inspectSessionWorkspace(SessionId('inspection-diverged')))
       .toThrow(/entity references missing workspace/)
   })

@@ -694,7 +694,7 @@ importers:
         specifier: workspace:~
         version: link:../../vendor/cordis
       '@deepseek-ai/cordis-plugin-include':
-        specifier: workspace:^
+        specifier: workspace:~
         version: link:../../vendor/include
       '@deepseek-ai/dsh':
         specifier: workspace:*
@@ -730,7 +730,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/skill/tool-workspace-dependencies
       '@deepseek-ai/dsh-tools':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../../packages/core/tools
       '@deepseek-ai/dsh-workspace':
         specifier: workspace:*

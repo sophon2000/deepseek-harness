@@ -63,7 +63,7 @@ export class DesktopProductHostProcess {
     this.productProcess = undefined
     const failures = [...results, ...productResult]
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-      .map(result => result.reason as unknown)
+      .map(result => result.reason instanceof Error ? result.reason : new Error(String(result.reason)))
     if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'desktop product backend cleanup failed')
   }
