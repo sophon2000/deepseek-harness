@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-26-workspace-session-account-inspection.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-26-workspace-session-account-inspection.md
-2026-08-26-workspace-session-account-inspection.md: 0e8bfbeb61372916c63f5493ff9eb6e903aa29df
-2026-08-26-workspace-session-account-inspection.zh.md: f0e6de32fadba98d4e6b1849f920d4008de1579a
+/agent-note-inspect-durable-workspace-session-accounts:
+  en: c2fd9d5db7a23880
+  zh: 2f00b405d9db9afe
+/agent-note-inspect-durable-workspace-session-accounts/problem:
+  en: 4a655fd5d26df08b
+  zh: 520fd1a2adf32f43
+/agent-note-inspect-durable-workspace-session-accounts/decision:
+  en: 5aa29eefd95bc671
+  zh: 567e5b5a0f14b618
+/agent-note-inspect-durable-workspace-session-accounts/external-host-integration:
+  en: a77f4ab284f6f503
+  zh: c886c71c4884f66b
+/agent-note-inspect-durable-workspace-session-accounts/alternatives-considered:
+  en: d35ec27ecd8ab138
+  zh: 73e7625e30f4bac6
+/agent-note-inspect-durable-workspace-session-accounts/verification:
+  en: d3e72d6389ba902c
+  zh: 9d6ddef44de29ec4
+/agent-note-inspect-durable-workspace-session-accounts/consequences:
+  en: 385d865a30b20961
+  zh: f18284fac86f13b5

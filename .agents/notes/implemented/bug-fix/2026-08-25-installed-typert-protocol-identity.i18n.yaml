@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-25-installed-typert-protocol-identity.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-25-installed-typert-protocol-identity.md
-2026-08-25-installed-typert-protocol-identity.md: 245ed2f5505a6a8593c0a56f938b3c5282c3eb4a
-2026-08-25-installed-typert-protocol-identity.zh.md: 5d94493ea092d2aaf59665a8a2dd473c2d792159
+/agent-note-recognize-installed-typert-protocol-metadata-by-package-identity:
+  en: 50790b67b4dd612c
+  zh: b9db5057cc3e6923
+/agent-note-recognize-installed-typert-protocol-metadata-by-package-identity/problem:
+  en: 618d6639a07f78d2
+  zh: b917f57e7df0f4cd
+/agent-note-recognize-installed-typert-protocol-metadata-by-package-identity/decision:
+  en: 41e36436b8815883
+  zh: f08079ac79de6209
+/agent-note-recognize-installed-typert-protocol-metadata-by-package-identity/alternatives-considered:
+  en: 3b552b1a2e8b85ab
+  zh: 3c7877bbd7c3d75e
+/agent-note-recognize-installed-typert-protocol-metadata-by-package-identity/verification:
+  en: bce88d917e3bd562
+  zh: a46ae5232afa1d09
+/agent-note-recognize-installed-typert-protocol-metadata-by-package-identity/consequences:
+  en: c4470fb70ab4707f
+  zh: a8b51cc5a86bab8c

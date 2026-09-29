@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-26-installed-public-remote-types.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-26-installed-public-remote-types.md
-2026-08-26-installed-public-remote-types.md: 22328eb369c59f8d2ae6655d134daf66c9a14832
-2026-08-26-installed-public-remote-types.zh.md: bcba8147a3c3c81c37f95e281e26c330fd35efb1
+/agent-note-resolve-installed-remote-types-through-public-subpaths:
+  en: 6f11b75383ae0a47
+  zh: f7a9ffcbe0d509ca
+/agent-note-resolve-installed-remote-types-through-public-subpaths/problem:
+  en: 6482b279aebbbf15
+  zh: 48856a44c39b1c31
+/agent-note-resolve-installed-remote-types-through-public-subpaths/decision:
+  en: 48d06052f9d97e84
+  zh: 74c3465df5b47cc0
+/agent-note-resolve-installed-remote-types-through-public-subpaths/alternatives-considered:
+  en: 790c9b101ad67c94
+  zh: b35f451a914fb54c
+/agent-note-resolve-installed-remote-types-through-public-subpaths/verification:
+  en: 1ea0400f528e7d1e
+  zh: 712d0f4e911a6ef8
+/agent-note-resolve-installed-remote-types-through-public-subpaths/consequences:
+  en: f1d09904e0bf811e
+  zh: 6141609d0573f6b2
