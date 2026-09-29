@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { useDisclosure } from '@deepseek-ai/dsh-client-ui-chat/src/client/chat/use-disclosure.ts'
 import type { StartedToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { makeTranslate, sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { en } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { en as common } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { GenericToolCard } from '../src/client/tool/toolviews/GenericToolCard.tsx'
@@ -24,12 +25,15 @@ afterEach(cleanup)
 type Props = Parameters<typeof TodoRow>[0] & Parameters<typeof ReadImageRow>[0]
 
 function preparation(name: string): Props {
-  const props: Props = {
+  const snapshot = sessionSnapshot(SessionId('session'))
+  const loadImage: Props['loadImage'] = () => Promise.reject(new Error('not used'))
+  const useSession: Props['useSession'] = selector => selector(snapshot)
+  const props = {
     phase: 'preparing', callId: 'call', toolName: name,
     block: { phase: 'preparing', callId: 'call', name, turn: 1, step: 1, time: 1, subCalls: [] },
-    t: makeTranslate(en, common), useDisclosure, useToolCallArgumentsPartial: vi.fn(() => ''), openFile: vi.fn(), loadImage: vi.fn(),
-    useTodoHistory: vi.fn(), useSession: vi.fn(() => false), renderSlot: vi.fn(() => null), renderImages: vi.fn(() => null),
-  }
+    t: makeTranslate(en, common), useDisclosure, useToolCallArgumentsPartial: vi.fn(() => ''), openFile: vi.fn(), loadImage,
+    useTodoHistory: vi.fn(), useSession, renderImages: vi.fn(() => null),
+  } as Props
   return props
 }
 
