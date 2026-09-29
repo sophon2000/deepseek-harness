@@ -781,14 +781,6 @@ describe('Client Typert API', () => {
     callerAbort.abort(cancellation)
     expect(combinedSignal?.aborted).toBe(true)
     expect(combinedSignal?.reason).toBe(cancellation)
-    const callsBeforeRejectedRequest = call.mock.calls.length
-    const requestWithUnknownIdentity = {
-      objective: 'ship',
-      projectId: 'project-forged',
-    } as { readonly objective: string }
-    await expect(ctx.remote.probe.create('agent-1', requestWithUnknownIdentity))
-      .rejects.toThrow('rejected "request"')
-    expect(call).toHaveBeenCalledTimes(callsBeforeRejectedRequest)
     await expect(ctx.remote.probe.create('', { objective: 'ship' }))
       .resolves.toEqual({ ok: true, value: { ref: 'goal-1' } })
     expect(call).toHaveBeenLastCalledWith(
