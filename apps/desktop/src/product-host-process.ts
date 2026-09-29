@@ -1,7 +1,11 @@
 /** One backend boundary that starts product services before the DSH Host. */
 
 import { join } from 'node:path'
-import { DesktopHostProcess, type DesktopHostReady } from './host-process.ts'
+import {
+  DesktopHostProcess,
+  type DesktopHostReady,
+  type DesktopQuitInspection,
+} from './host-process.ts'
 import { DesktopProductProcess } from './product-process.ts'
 import type { DesktopRuntimeProduct } from './desktop-product.ts'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
@@ -69,5 +73,12 @@ export class DesktopProductHostProcess {
     const host = this.hostProcess
     if (host === undefined) return Promise.reject(new Error('dsh desktop host is unavailable'))
     return host.updateTasks(action)
+  }
+
+  /** Forward quit-safety inspection to the DSH Host. */
+  inspectQuit(): Promise<DesktopQuitInspection> {
+    const host = this.hostProcess
+    if (host === undefined) return Promise.reject(new Error('dsh desktop host is unavailable'))
+    return host.inspectQuit()
   }
 }
