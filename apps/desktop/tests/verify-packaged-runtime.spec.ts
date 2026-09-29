@@ -29,12 +29,12 @@ describe('packaged Desktop runtime verification', () => {
   it('accepts the official Desktop runtime without a product service', () => {
     const { root, context } = fixture()
     writeFileSync(join(root, 'resources', 'dsh', 'desktop-runtime.json'), JSON.stringify({ schemaVersion: 1 }))
-    expect(() => verifyPackagedDesktopRuntime(context)).not.toThrow()
+    expect(() => { verifyPackagedDesktopRuntime(context) }).not.toThrow()
   })
 
   it('accepts complete Host and product child-process entrypoints', () => {
     const { context } = fixture()
-    expect(() => verifyPackagedDesktopRuntime(context)).not.toThrow()
+    expect(() => { verifyPackagedDesktopRuntime(context) }).not.toThrow()
   })
 
   it('rejects a product service left inside ASAR', () => {
@@ -45,6 +45,6 @@ describe('packaged Desktop runtime verification', () => {
         service: { entrypoint: 'control/missing.mjs' },
       },
     }))
-    expect(() => verifyPackagedDesktopRuntime(context)).toThrow(/missing child-process entrypoint/u)
+    expect(() => { verifyPackagedDesktopRuntime(context) }).toThrow(/missing child-process entrypoint/u)
   })
 })

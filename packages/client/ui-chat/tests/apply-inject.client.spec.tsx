@@ -416,7 +416,7 @@ describe('Chat inject API', () => {
     const forClosing = vi.fn(() => mentions)
     const registry = b.runtime.ctx.get('chatFileMentions') as ChatFileMentions
     const disposeFirst = registry.register('test:first', { forClosing })
-    expect(injected.fileMentions(owner)?.resolve).toEqual(expect.any(Function))
+    expect(typeof injected.fileMentions(owner)?.resolve).toBe('function')
     expect(forClosing).toHaveBeenCalledWith(owner, ROOT)
 
     const second = { resolve: vi.fn(() => ({ open: vi.fn(), label: 'second', title: 'second' })) }
