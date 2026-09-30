@@ -122,20 +122,33 @@ def pep440_version(version: str) -> str:
     A release candidate is `0.0.1-rc.1` in the repository and `0.0.1rc1` under
     PEP 440. Build backends normalize to the latter, so the wheel filename and
     metadata carry it: comparing them against the repository spelling would
-    reject every prerelease build.
+    reject every prerelease build. Video Harness revisions retain their fork
+    identity as local versions: `0.2.0-rc.2.vh.1` becomes `0.2.0rc2+vh.1`, and
+    `0.2.0-vh.1` becomes `0.2.0+vh.1`. Local wheels are for direct or private
+    distribution; public PyPI does not accept local versions. Unknown suffixes
+    and noncanonical fork revision numbers are rejected rather than discarded.
     """
     stable, separator, prerelease = version.partition("-")
     if not separator:
         return stable
-    match = re.fullmatch(r"(a|b|c|rc|alpha|beta|pre|preview)\.?(\d+)", prerelease)
+    fork = re.fullmatch(r"vh\.(0|[1-9][0-9]*)", prerelease)
+    if fork is not None:
+        return f"{stable}+vh.{fork.group(1)}"
+    match = re.fullmatch(
+        r"(a|b|c|rc|alpha|beta|pre|preview)\.?(\d+)(?:\.vh\.(0|[1-9][0-9]*))?",
+        prerelease,
+    )
     if match is None:
         raise ValueError(
-            f"prerelease segment {prerelease!r} has no PEP 440 spelling; use rc.N, alpha.N, or beta.N"
+            f"prerelease segment {prerelease!r} has no PEP 440 spelling; "
+            "use rc.N, alpha.N, or beta.N, optionally followed by .vh.N, or vh.N; "
+            "fork revision N must be a non-negative integer without leading zeros"
         )
     identifier = {"alpha": "a", "beta": "b", "c": "rc", "pre": "rc", "preview": "rc"}.get(
         match.group(1), match.group(1)
     )
-    return f"{stable}{identifier}{match.group(2)}"
+    suffix = "" if match.group(3) is None else f"+vh.{match.group(3)}"
+    return f"{stable}{identifier}{match.group(2)}{suffix}"
 
 
 def validate_release_tag(tag: str | None, version: str) -> None:

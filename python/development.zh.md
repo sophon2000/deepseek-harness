@@ -85,6 +85,8 @@ pip install \
 
 运行时分发包仅提供 wheel 包。发布流水线会连同纯 SDK wheel 包一起发布五个平台 wheel 包：Linux x64、Linux arm64、macOS 14 或更高版本的 arm64 与 x64，以及 Windows x64（`win_amd64`）。只有与仓库版本匹配时，才接受 `python-v<repository-version>` 标签；`0.0.1-rc.1` 之类的仓库预发布版本在 wheel 包文件名和元数据中使用规范化的 PEP 440 写法，例如 `0.0.1rc1`。
 
+Video Harness fork 修订版将 `.vh.N` 后缀保留为 PEP 440 本地版本：`0.2.0-rc.2.vh.1` 转换为 `0.2.0rc2+vh.1`，`0.2.0-vh.1` 转换为 `0.2.0+vh.1`。wheel 元数据和 SDK 的精确运行时版本 pin 都包含本地标签，将每个 fork 修订版与上游版本及其他修订版区分开。这些 wheel 支持直接安装或私有索引；[公共 PyPI 不接受本地版本](https://packaging.python.org/en/latest/specifications/version-specifiers/#local-version-identifiers)。未知后缀和含前导零的 fork 修订号会被拒绝。
+
 ## 验证候选发行版
 
 手动运行 GitHub 的 `Release (Python)` 工作流并设置 `publish=false`，即可构建全部六个 wheel 包，在 Python 3.10 和 3.14 上安装 Linux 发行集合，检查精确文件名和元数据，执行 PyPI 默认单文件大小限制，并保留一份带 SHA-256 哈希的汇总产物。该运行没有注册表凭据，dry-run 运行无法进入任何发布作业。
