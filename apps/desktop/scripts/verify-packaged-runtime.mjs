@@ -28,7 +28,8 @@ export function verifyPackagedDesktopRuntime(context) {
     throw new Error(`desktop package: missing runtime descriptor ${descriptorPath}: ${String(error)}`)
   }
   if (!record(descriptor)) throw new Error('desktop package: runtime descriptor is invalid')
-  const host = join(runtime, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'index.js')
+  const hostEntries = ['index.js', 'cli.js'].map(file =>
+    join(runtime, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', file))
   const product = record(descriptor.product) ? descriptor.product : undefined
   const resources = product === undefined
     ? undefined
@@ -36,7 +37,7 @@ export function verifyPackagedDesktopRuntime(context) {
   const service = resources !== undefined && record(product?.service)
     ? portablePath(resources, product.service.entrypoint, 'product service entrypoint')
     : undefined
-  for (const path of [host, service]) {
+  for (const path of [...hostEntries, service]) {
     if (path !== undefined && !existsSync(path)) throw new Error(`desktop package: missing child-process entrypoint ${path}`)
   }
 }

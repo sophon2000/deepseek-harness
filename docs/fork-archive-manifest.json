@@ -1,0 +1,147 @@
+{
+  "repository": "https://github.com/sophon2000/deepseek-harness",
+  "captured_at": "2026-09-30T11:24:36.050113+00:00",
+  "original_master": "4878cdabd87d4041bdaff61d04c966883b9fd07a",
+  "stable_video_harness": "fb3f63dcb21239ded5bc3b8bed210c0429bd46a6",
+  "upstream_rc2": "639ed015397290b3745d163aafe02ffee4aa3f84",
+  "archive_status": "blocked: no connector create-tag capability; git push has no authentication",
+  "branches_deleted": [],
+  "archive_candidates": [
+    {
+      "branch": "dev/video-harness-rc2",
+      "sha": "c6b2660d8a8260d2d404e53c17ec94cb53aada21",
+      "proposed_archive_tag": "archive/2026-09-30/dev/video-harness-rc2",
+      "remote_verified_sha": "c6b2660d8a8260d2d404e53c17ec94cb53aada21",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "feat/video-harness-desktop-desk0",
+      "sha": "c9a86633630825a337ac386b0850876296ccd6f3",
+      "proposed_archive_tag": "archive/2026-09-30/feat/video-harness-desktop-desk0",
+      "remote_verified_sha": "c9a86633630825a337ac386b0850876296ccd6f3",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "feat/workspace-session-inspection-alpha1",
+      "sha": "1bdfa4870dce69a056ffb58452bdbe57efd9a99b",
+      "proposed_archive_tag": "archive/2026-09-30/feat/workspace-session-inspection-alpha1",
+      "remote_verified_sha": "1bdfa4870dce69a056ffb58452bdbe57efd9a99b",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "fix/typert-external-public-wire-types-alpha1",
+      "sha": "1a5e51d8e8222995ffc85012711827dee556da36",
+      "proposed_archive_tag": "archive/2026-09-30/fix/typert-external-public-wire-types-alpha1",
+      "remote_verified_sha": "1a5e51d8e8222995ffc85012711827dee556da36",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "fix/typert-strict-object-codecs",
+      "sha": "ffe052378cf818d52ff1bf899816e778e18cac97",
+      "proposed_archive_tag": "archive/2026-09-30/fix/typert-strict-object-codecs",
+      "remote_verified_sha": "ffe052378cf818d52ff1bf899816e778e18cac97",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "fix/typert-strict-object-codecs-alpha1",
+      "sha": "0f7483791e0d171ed3092be2c790a730572224fc",
+      "proposed_archive_tag": "archive/2026-09-30/fix/typert-strict-object-codecs-alpha1",
+      "remote_verified_sha": "0f7483791e0d171ed3092be2c790a730572224fc",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-alpha132-sidebar",
+      "sha": "63e477e36051d50283ad8e129f9d07e54b42b858",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-alpha132-sidebar",
+      "remote_verified_sha": "63e477e36051d50283ad8e129f9d07e54b42b858",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-rc1",
+      "sha": "3c7fc050aa3131938ae4c4be82482948990f22ef",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-rc1",
+      "remote_verified_sha": "3c7fc050aa3131938ae4c4be82482948990f22ef",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-rc2",
+      "sha": "03d7082dd3c2bc006dbc524ed0ec3917d5f25dc8",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-rc2",
+      "remote_verified_sha": "03d7082dd3c2bc006dbc524ed0ec3917d5f25dc8",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-v0.1.2-alpha.1",
+      "sha": "b46b495a697ae53bb68028a3a056dddc61995fd2",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-v0.1.2-alpha.1",
+      "remote_verified_sha": "b46b495a697ae53bb68028a3a056dddc61995fd2",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-v0.1.2-alpha.3",
+      "sha": "fe2d0c8a8b9120387a1dc1830e41c85e283753e9",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-v0.1.2-alpha.3",
+      "remote_verified_sha": "fe2d0c8a8b9120387a1dc1830e41c85e283753e9",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-v0.1.2-alpha.4",
+      "sha": "91fc44e83746c34cfe986bc12a5e1df51bf92255",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-v0.1.2-alpha.4",
+      "remote_verified_sha": "91fc44e83746c34cfe986bc12a5e1df51bf92255",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-v0.1.2-alpha.5",
+      "sha": "37f4544928c96ffede9a8ad0fe7dc9f80783c62e",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-v0.1.2-alpha.5",
+      "remote_verified_sha": "37f4544928c96ffede9a8ad0fe7dc9f80783c62e",
+      "remote_tag_created": false
+    },
+    {
+      "branch": "upgrade/video-harness-dsh-v0.1.3-alpha.1",
+      "sha": "5b6632e5d2cdf71598b5ef621ea998e359c10ae2",
+      "proposed_archive_tag": "archive/2026-09-30/upgrade/video-harness-dsh-v0.1.3-alpha.1",
+      "remote_verified_sha": "5b6632e5d2cdf71598b5ef621ea998e359c10ae2",
+      "remote_tag_created": false
+    }
+  ],
+  "remote_refs": {
+    "HEAD": "639ed015397290b3745d163aafe02ffee4aa3f84",
+    "refs/heads/dev/video-harness-rc2": "c6b2660d8a8260d2d404e53c17ec94cb53aada21",
+    "refs/heads/feat/video-harness-desktop-desk0": "c9a86633630825a337ac386b0850876296ccd6f3",
+    "refs/heads/feat/workspace-session-inspection": "ea824a584f203a6349bfb6ed311c31fb8f0b2584",
+    "refs/heads/feat/workspace-session-inspection-alpha1": "1bdfa4870dce69a056ffb58452bdbe57efd9a99b",
+    "refs/heads/fix/typert-external-protocol-identity": "7804432c031fa07d75531ce65e6fb4cced66a32e",
+    "refs/heads/fix/typert-external-protocol-identity-alpha1": "16eb74a97173ad53ff10ab923f51baf7dc51a98b",
+    "refs/heads/fix/typert-external-public-wire-types": "1e53fdbf9d610bfb31dd7e14ab12a67fe23b0c4f",
+    "refs/heads/fix/typert-external-public-wire-types-alpha1": "1a5e51d8e8222995ffc85012711827dee556da36",
+    "refs/heads/fix/typert-strict-object-codecs": "ffe052378cf818d52ff1bf899816e778e18cac97",
+    "refs/heads/fix/typert-strict-object-codecs-alpha1": "0f7483791e0d171ed3092be2c790a730572224fc",
+    "refs/heads/master": "639ed015397290b3745d163aafe02ffee4aa3f84",
+    "refs/heads/pre/video-harness-dsh-v0.1.6-alpha.2": "570f92e780b1a17e0533d39b33c7f904803dfd03",
+    "refs/heads/upgrade/video-harness-dsh-alpha132-sidebar": "63e477e36051d50283ad8e129f9d07e54b42b858",
+    "refs/heads/upgrade/video-harness-dsh-master-20260912": "64bc450ed7f7d51e8ac4900ea755f2a938a95e60",
+    "refs/heads/upgrade/video-harness-dsh-rc1": "3c7fc050aa3131938ae4c4be82482948990f22ef",
+    "refs/heads/upgrade/video-harness-dsh-rc2": "03d7082dd3c2bc006dbc524ed0ec3917d5f25dc8",
+    "refs/heads/upgrade/video-harness-dsh-v0.1.2-alpha.1": "b46b495a697ae53bb68028a3a056dddc61995fd2",
+    "refs/heads/upgrade/video-harness-dsh-v0.1.2-alpha.3": "fe2d0c8a8b9120387a1dc1830e41c85e283753e9",
+    "refs/heads/upgrade/video-harness-dsh-v0.1.2-alpha.4": "91fc44e83746c34cfe986bc12a5e1df51bf92255",
+    "refs/heads/upgrade/video-harness-dsh-v0.1.2-alpha.5": "37f4544928c96ffede9a8ad0fe7dc9f80783c62e",
+    "refs/heads/upgrade/video-harness-dsh-v0.1.3-alpha.1": "5b6632e5d2cdf71598b5ef621ea998e359c10ae2",
+    "refs/heads/upgrade/video-harness-dsh-v0.1.6-alpha.1": "0d0d038c5c2a511b4f0c256e3e9083560122be24",
+    "refs/heads/upgrade/video-harness-dsh-v0.1.7-rc.1": "2052adbfda59f2ad87955280539440335715fae3",
+    "refs/heads/upgrade/video-harness-dsh-v0.2.0-rc.1": "fb3f63dcb21239ded5bc3b8bed210c0429bd46a6",
+    "refs/heads/video-harness": "fb3f63dcb21239ded5bc3b8bed210c0429bd46a6",
+    "refs/tags/dsh-v0.1.6-alpha.1.vh.2": "d95ed6ec58719ab6ba92cc798ce4a0d9f87e9ef4",
+    "refs/tags/dsh-v0.1.6-alpha.1.vh.3": "0d0d038c5c2a511b4f0c256e3e9083560122be24",
+    "refs/tags/dsh-v0.1.6-alpha.2.vh.1": "570f92e780b1a17e0533d39b33c7f904803dfd03",
+    "refs/tags/dsh-v0.1.7-rc.1.vh.2": "857a896013ee00e98c427fbd22978763165a59d3",
+    "refs/tags/dsh-v0.1.7-rc.1.vh.2^{}": "2052adbfda59f2ad87955280539440335715fae3",
+    "refs/tags/dsh-v0.2.0-rc.1.vh.1": "fdbef5990808064aca6cc521e15e4e61fb288934",
+    "refs/tags/dsh-v0.2.0-rc.1.vh.1^{}": "fb3f63dcb21239ded5bc3b8bed210c0429bd46a6"
+  },
+  "status_note": "Archive tags are proposed, not created: the available GitHub connector cannot create tags and Git HTTPS push is unauthenticated. Existing branches and published tags remain intact. No deletion is authorized.",
+  "master_fast_forwarded_to": "639ed015397290b3745d163aafe02ffee4aa3f84",
+  "archive_candidates_count": 14
+}
