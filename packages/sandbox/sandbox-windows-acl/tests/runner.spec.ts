@@ -543,26 +543,103 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     grant.add(granted, true)
     try {
       const probe = `
-$ErrorActionPreference='SilentlyContinue'
+$ErrorActionPreference='Stop'
 Add-Type -Namespace P -Name F -MemberDefinition @'
 [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode, EntryPoint="CreateFileW")]
-public static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint d, uint f, IntPtr t);
+private static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint d, uint f, IntPtr t);
 [DllImport("kernel32.dll", SetLastError=true)]
-public static extern bool CloseHandle(IntPtr h);
-'@ | Out-Null
-function TryOpen([string]$label, [string]$path) {
-  $h = [P.F]::CreateFileW($path, 0x10000000, 7, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
-  if ($h -eq [IntPtr]::new(-1)) { "$($label): DENIED" } else { [void][P.F]::CloseHandle($h); "$($label): OK" }
+private static extern bool CloseHandle(IntPtr h);
+[DllImport("kernel32.dll")]
+private static extern IntPtr GetCurrentProcess();
+[DllImport("advapi32.dll", SetLastError=true)]
+private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+[DllImport("advapi32.dll", SetLastError=true)]
+private static extern bool GetTokenInformation(IntPtr token, int kind, IntPtr data, int size, out int needed);
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+private static extern bool LookupPrivilegeValueW(string system, string name, out long luid);
+
+public static string OpenFullControl(string path) {
+  IntPtr handle = CreateFileW(path, 0x10000000, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+  if (handle == new IntPtr(-1)) {
+    int error = Marshal.GetLastWin32Error();
+    if (error != 5) throw new System.ComponentModel.Win32Exception(error, "CreateFileW: " + path);
+    return "DENIED WIN32=5";
+  }
+  if (handle == IntPtr.Zero) throw new InvalidOperationException("CreateFileW returned a null handle: " + path);
+  if (!CloseHandle(handle)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "CloseHandle: " + path);
+  return "OK HANDLE=0x" + handle.ToInt64().ToString("X");
 }
-TryOpen 'FILE' '${join(granted, 'file.txt')}'
-TryOpen 'NESTED-FILE' '${join(child, 'deep.txt')}'
-TryOpen 'DIRECTORY' '${child}'
+
+// Query this PowerShell process's token; never enable or remove privileges.
+public static string[] BackupPrivilegeStates() {
+  IntPtr token;
+  if (!OpenProcessToken(GetCurrentProcess(), 0x0008, out token))
+    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken(TOKEN_QUERY)");
+  try {
+    int needed;
+    bool sized = GetTokenInformation(token, 3, IntPtr.Zero, 0, out needed);
+    int error = Marshal.GetLastWin32Error();
+    if (sized || error != 122 || needed < 4)
+      throw new InvalidOperationException("TokenPrivileges size query: " + error + ", bytes=" + needed);
+    IntPtr data = Marshal.AllocHGlobal(needed);
+    try {
+      int returned;
+      if (!GetTokenInformation(token, 3, data, needed, out returned))
+        throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "GetTokenInformation(TokenPrivileges)");
+      int count = Marshal.ReadInt32(data);
+      if (returned < 4 || returned > needed || count < 0 || count > (returned - 4) / 12)
+        throw new InvalidOperationException("Invalid TOKEN_PRIVILEGES length");
+      string[] names = { "SeBackupPrivilege", "SeRestorePrivilege" };
+      string[] states = new string[names.Length];
+      for (int n = 0; n < names.Length; n++) {
+        long luid;
+        if (!LookupPrivilegeValueW(null, names[n], out luid))
+          throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "LookupPrivilegeValueW: " + names[n]);
+        states[n] = names[n] + "=ABSENT";
+        for (int i = 0; i < count; i++) {
+          int offset = 4 + i * 12;
+          if (Marshal.ReadInt64(data, offset) != luid) continue;
+          int attributes = Marshal.ReadInt32(data, offset + 8);
+          states[n] = names[n] + ((attributes & 2) != 0 ? "=ENABLED" : "=DISABLED") + " ATTRIBUTES=0x" + attributes.ToString("X");
+          break;
+        }
+      }
+      return states;
+    } finally { Marshal.FreeHGlobal(data); }
+  } finally {
+    if (!CloseHandle(token)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "CloseHandle(token)");
+  }
+}
+'@ | Out-Null
+$unexpected = $true
+try {
+  $file = [P.F]::OpenFullControl('${join(granted, 'file.txt')}')
+  "FILE: $file"
+  $nestedFile = [P.F]::OpenFullControl('${join(child, 'deep.txt')}')
+  "NESTED-FILE: $nestedFile"
+  $directory = [P.F]::OpenFullControl('${child}')
+  "DIRECTORY: $directory"
+  $unexpected = -not ($file.StartsWith('OK HANDLE=') -and $nestedFile.StartsWith('OK HANDLE=') -and $directory -eq 'DENIED WIN32=5')
+} finally {
+  if ($unexpected) {
+    try { [P.F]::BackupPrivilegeStates() } catch { "PRIVILEGE-DIAGNOSTIC-ERROR: $_" }
+    foreach ($path in @('${granted}', '${child}')) {
+      try {
+        $acl = Get-Acl -LiteralPath $path
+        "ACL PATH=$path PROTECTED=$($acl.AreAccessRulesProtected) ORDERED-SDDL=$($acl.Sddl)"
+      } catch { "ACL-DIAGNOSTIC-ERROR: $path $_" }
+    }
+  }
+}
 `
       const result = spawnSync('pwsh', ['-NoLogo', '-NonInteractive', '-NoProfile', '-Command', probe], { encoding: 'utf8', timeout: 60_000 })
-      expect(result.status, `stderr: ${result.stderr}`).toBe(0)
-      expect(result.stdout).toContain('FILE: OK')
-      expect(result.stdout).toContain('NESTED-FILE: OK')
-      expect(result.stdout).toContain('DIRECTORY: DENIED')
+      const diagnostics = `stdout: ${result.stdout}\nstderr: ${result.stderr}`
+      expect(result.error, diagnostics).toBeUndefined()
+      expect(result.signal, diagnostics).toBeNull()
+      expect(result.status, diagnostics).toBe(0)
+      expect(result.stdout, diagnostics).toMatch(/^FILE: OK HANDLE=0x[0-9A-F]+\r?$/mu)
+      expect(result.stdout, diagnostics).toMatch(/^NESTED-FILE: OK HANDLE=0x[0-9A-F]+\r?$/mu)
+      expect(result.stdout, diagnostics).toMatch(/^DIRECTORY: DENIED WIN32=5\r?$/mu)
     } finally {
       grant.dispose()
       rmSync(granted, { recursive: true, force: true })
