@@ -2,8 +2,8 @@
  * Deliverables plugin, browser half: registers the changed-files card and
  * delivery cards into the chat view's turn-tail list, the `changes-review`
  * right-Sidebar tab type that reviews one turn's changed files one comparison
- * at a time, and registers with the `chatFileMentions` service to link
- * inline-code mentions of produced or delivered files in the closing prose.
+ * at a time, and optionally registers with the `chatFileMentions` service to
+ * link inline-code mentions of produced or delivered files in closing prose.
  * All policy lives here — the supported mutation calls, mention matching, row
  * cap, and copy — so composing this plugin out of cordis.yml removes every
  * surface; the owning view renders an empty list and inert prose at zero cost.
@@ -40,10 +40,11 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Required services for the tail-slot and tab-type registrations and their dictionaries. */
-export const inject = ['slots', 'locale', 'uiConversation', 'remote', 'remote.session', 'sidebarRightTabs', 'sidebarRight', 'configForms', 'chatFileMentions']
+export const inject = ['slots', 'locale', 'uiConversation', 'remote', 'remote.session', 'sidebarRightTabs', 'sidebarRight', 'configForms']
 
 /**
- * Client plugin body: register the dictionaries, the turn-tail entry, and the comparison tab type.
+ * Register dictionaries, the turn-tail entry, and the comparison tab type without requiring Chat.
+ * Prose mentions follow the Chat service lifetime independently of the other contributions.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -98,8 +99,6 @@ export function apply(ctx: ClientContext): void {
     },
     ReviewTab,
   )), 'ui-deliverables: changes-review body')
-  // The prose side of the same vocabulary: the chat view reaches this face
-  // via ctx.get, so its absence — this plugin composed out — is the off state.
   const mentions: ChatFileMentionProvider = {
     forClosing(owner) {
       const paths = selectProducedFiles(owner)
@@ -109,8 +108,10 @@ export function apply(ctx: ClientContext): void {
         path => t('presented.previewButton', { name: path }))
     },
   }
-  ctx.effect(
-    () => ctx.chatFileMentions.register('@deepseek-ai/dsh-client-ui-deliverables', mentions),
-    'ui-deliverables: prose file mentions',
-  )
+  ctx.inject(['chatFileMentions'], (scope) => {
+    scope.effect(
+      () => scope.chatFileMentions.register('@deepseek-ai/dsh-client-ui-deliverables', mentions),
+      'ui-deliverables: prose file mentions',
+    )
+  })
 }
