@@ -2,6 +2,12 @@
 export const name = 'structured-denial-fixture'
 export const inject = ['tools']
 export function apply(ctx) {
+  ctx.on('tools/execute', (exec, next) => {
+    if (exec.name === 'bash' && exec.arguments.command === 'echo AUTO_DENIED') {
+      throw new Error('Denied fixture reached tool execution')
+    }
+    return next()
+  })
   ctx.on('tools/pre-execute', (exec, next) => {
     if (exec.name !== 'bash' || exec.arguments.command !== 'echo AUTO_DENIED') return next()
     return {
