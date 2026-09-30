@@ -55,7 +55,7 @@ export class DesktopProductHostProcess {
     }
   }
 
-  /** Stop the Host before the product service it depends on. */
+  /** Stop the Host before its product service; preserve one Error or aggregate multiple failures. */
   async stop(requireGraceful = false): Promise<void> {
     const results = await Promise.allSettled([this.hostProcess?.stop(requireGraceful)])
     const productResult = await Promise.allSettled([this.productProcess?.stop()])
@@ -64,8 +64,9 @@ export class DesktopProductHostProcess {
     const failures = [...results, ...productResult]
       .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
       .map(result => result.reason instanceof Error ? result.reason : new Error(String(result.reason)))
-    if (failures.length === 1) throw failures[0]
     if (failures.length > 1) throw new AggregateError(failures, 'desktop product backend cleanup failed')
+    const [failure] = failures
+    if (failure !== undefined) throw failure
   }
 
   /** Forward update task inspection and admission control to the DSH Host. */
