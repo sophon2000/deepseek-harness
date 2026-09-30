@@ -104,11 +104,12 @@ describe('coverage partition count', () => {
 })
 
 describe('lane test budget', () => {
-  it('applies one configured budget to tests, hooks, and expect.poll', () => {
-    expect(coverageTestTimeoutOptions('30000')).toEqual({
-      testTimeout: 30000,
-      hookTimeout: 30000,
-      expect: { poll: { timeout: 30000 } },
+  it.each([30_000, 90_000])('applies a configured %i ms budget to tests, hooks, and expect.poll', (timeout) => {
+    expect(parseCoverageTestTimeout(String(timeout))).toBe(timeout)
+    expect(coverageTestTimeoutOptions(String(timeout))).toEqual({
+      testTimeout: timeout,
+      hookTimeout: timeout,
+      expect: { poll: { timeout } },
     })
   })
 
