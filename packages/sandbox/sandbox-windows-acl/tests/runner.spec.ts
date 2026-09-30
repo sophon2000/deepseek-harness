@@ -525,20 +525,70 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
       for (const dir of [ownWork, ownTemp, ...Object.values(branches)]) mkdirSync(dir)
       for (const victim of peerVictims) writeFileSync(victim.path, 'peer victim')
       for (const mode of modes) writeFileSync(join(ownWork, `${mode}.txt`), 'own victim')
+      const fixtureSecurity = `
+Add-Type -Namespace Peer -Name FixtureSecurity -MemberDefinition @'
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
+private static extern uint GetNamedSecurityInfoW(string path, int kind, uint info, out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
+private static extern uint SetNamedSecurityInfoW(string path, int kind, uint info, IntPtr owner, IntPtr group, byte[] dacl, IntPtr sacl);
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
+private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(IntPtr descriptor, uint revision, uint info, out IntPtr text, out uint length);
+[DllImport("kernel32.dll", SetLastError=true)]
+private static extern IntPtr LocalFree(IntPtr memory);
+public static void SetDacl(string path, byte[] dacl) {
+  if (dacl == null || dacl.Length < 8) throw new ArgumentException("A real DACL is required");
+  uint result = SetNamedSecurityInfoW(path, 1, 0x4, IntPtr.Zero, IntPtr.Zero, dacl, IntPtr.Zero);
+  if (result != 0) throw new System.ComponentModel.Win32Exception((int)result, "Set fixture DACL: " + path);
+}
+public static string ReadLabel(string path) { return ReadSections(path, 0x10); }
+public static string ReadIdentityAndLabel(string path) { return ReadSections(path, 0x13); }
+private static string ReadSections(string path, uint info) {
+  IntPtr owner, group, dacl, sacl, descriptor;
+  uint result = GetNamedSecurityInfoW(path, 1, info, out owner, out group, out dacl, out sacl, out descriptor);
+  if (result != 0) throw new System.ComponentModel.Win32Exception((int)result, "Read security sections: " + path);
+  try {
+    IntPtr text;
+    uint length;
+    if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, 1, info, out text, out length))
+      throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Format security sections: " + path);
+    try { return Marshal.PtrToStringUni(text); }
+    finally { if (LocalFree(text) != IntPtr.Zero) throw new InvalidOperationException("LocalFree(security text)"); }
+  } finally { if (LocalFree(descriptor) != IntPtr.Zero) throw new InvalidOperationException("LocalFree(security descriptor)"); }
+}
+'@ | Out-Null
+`
       // All victims predate the grant. Only the explicit branch receives a
       // direct user allow; the sibling is an inherited-only denial control.
+      // Set-Acl can copy the SACL too, so write only DACL_SECURITY_INFORMATION.
       const setupScript = `
 $ErrorActionPreference='Stop'
+${fixtureSecurity}
 foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
   & icacls.exe $path /reset
   if ($LASTEXITCODE -ne 0) { throw "icacls /reset failed for $path with exit $LASTEXITCODE" }
+}
+$unchangedSections = @{}
+foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
+  $sections = [Peer.FixtureSecurity]::ReadIdentityAndLabel($path)
+  "BEFORE-EXPLICIT-ACE PATH=$path IDENTITY-LABEL=$sections"
+  if ($sections -match 'S:[^(]*P') { throw "Peer fixture already has a protected SACL: $path" }
+  $unchangedSections[$path] = $sections
 }
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $explicit = ${quote(branches.explicit)}
 $acl = Get-Acl -LiteralPath $explicit
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($user, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')
 $acl.AddAccessRule($rule)
-Set-Acl -LiteralPath $explicit -AclObject $acl
+$dacl = [System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl).DiscretionaryAcl
+if ($null -eq $dacl) { throw 'Explicit peer fixture must have a DACL' }
+$daclBytes = [byte[]]::new($dacl.BinaryLength)
+$dacl.GetBinaryForm($daclBytes, 0)
+[Peer.FixtureSecurity]::SetDacl($explicit, $daclBytes)
+foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
+  $sections = [Peer.FixtureSecurity]::ReadIdentityAndLabel($path)
+  "AFTER-EXPLICIT-ACE PATH=$path IDENTITY-LABEL=$sections"
+  if ($sections -cne $unchangedSections[$path]) { throw "DACL-only fixture edit changed owner, group, or label inheritance: $path" }
+}
 foreach ($path in @(${quote(branches.inherited)}, ${quote(branches.explicit)})) {
   $acl = Get-Acl -LiteralPath $path
   $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
@@ -563,31 +613,11 @@ foreach ($path in @(${quote(branches.inherited)}, ${quote(branches.explicit)})) 
       }
       const inspectScript = `
 $ErrorActionPreference='Stop'
-Add-Type -Namespace Peer -Name Label -MemberDefinition @'
-[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
-private static extern uint GetNamedSecurityInfoW(string path, int kind, uint info, out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);
-[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
-private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(IntPtr descriptor, uint revision, uint info, out IntPtr text, out uint length);
-[DllImport("kernel32.dll", SetLastError=true)]
-private static extern IntPtr LocalFree(IntPtr memory);
-public static string Read(string path) {
-  IntPtr owner, group, dacl, sacl, descriptor;
-  uint result = GetNamedSecurityInfoW(path, 1, 0x10, out owner, out group, out dacl, out sacl, out descriptor);
-  if (result != 0) throw new System.ComponentModel.Win32Exception((int)result, "Read mandatory label: " + path);
-  try {
-    IntPtr text;
-    uint length;
-    if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, 1, 0x10, out text, out length))
-      throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Format mandatory label: " + path);
-    try { return Marshal.PtrToStringUni(text); }
-    finally { if (LocalFree(text) != IntPtr.Zero) throw new InvalidOperationException("LocalFree(label text)"); }
-  } finally { if (LocalFree(descriptor) != IntPtr.Zero) throw new InvalidOperationException("LocalFree(label descriptor)"); }
-}
-'@ | Out-Null
+${fixtureSecurity}
 $userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
   $acl = Get-Acl -LiteralPath $path
-  $label = [Peer.Label]::Read($path)
+  $label = [Peer.FixtureSecurity]::ReadLabel($path)
   "POST-GRANT PATH=$path ORDERED-SDDL=$($acl.Sddl) LABEL=$label"
   if ($label -notmatch '\\(ML;[^;]*;NW;;;LW\\)') { throw "Peer object is not Low/no-write-up: $path" }
   $aces = @([System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl).DiscretionaryAcl)
