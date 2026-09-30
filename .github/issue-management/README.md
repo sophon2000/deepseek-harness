@@ -10,6 +10,8 @@ English | [中文](README.zh.md)
 
 Contributors can link Issues as context without coupling pull-request validation to Project availability. Resolving references additionally enforce Project Priority. The required `Issue policy` job and the separate lifecycle workflow use trusted default-branch code.
 
+The Issue policy and Issue lifecycle jobs run only when both `github.repository` and `github.event.repository.full_name` equal the configured operational repository, `deepseek-harness/deepseek-harness`. Forks and public source repositories do not automatically opt into the App and Project integration.
+
 ## Table of Contents
 
 - [Pull-request policy](#pull-request-policy)
