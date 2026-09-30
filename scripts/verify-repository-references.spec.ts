@@ -1,11 +1,24 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it, type TestContext } from 'vitest'
-import { findRepositoryReferences, scanRepositoryReferences } from './verify-repository-references.ts'
+import { findRepositoryReferences, forkArchiveManifestPath, scanRepositoryReferences } from './verify-repository-references.ts'
 
 const organizationUrl = `https://${['github.com', ['deepseek', 'harness'].join('-')].join('/')}`
+const forkArchiveManifestSource = readFileSync(resolve(import.meta.dirname, '..', forkArchiveManifestPath), 'utf8')
+
+interface ForkSnapshot {
+  upstream_rc2: string
+  archive_candidates: { sha: string; remote_verified_sha: string; remote_tag_created: boolean }[]
+  archive_candidates_count: number
+  remote_refs: Record<string, string>
+  archive_status: string
+}
+
+function forkSnapshot(): ForkSnapshot {
+  return JSON.parse(forkArchiveManifestSource) as ForkSnapshot
+}
 
 function repository(test: TestContext) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-repository-references-'))
@@ -36,7 +49,8 @@ function repository(test: TestContext) {
   }
   git(['init', '--quiet'])
   write('tracked.md', 'release tags\n')
-  git(['add', 'tracked.md'])
+  write(forkArchiveManifestPath, forkArchiveManifestSource)
+  git(['add', 'tracked.md', forkArchiveManifestPath])
   const tree = git(['write-tree'])
   const commit = git(['commit-tree', tree, '-m', 'fixture'])
   git(['update-ref', 'HEAD', commit])
@@ -44,6 +58,82 @@ function repository(test: TestContext) {
 }
 
 describe('maintained repository reference policy', () => {
+  it('admits the original 14-candidate, 33-ref historical snapshot at its exact sealed path', (test) => {
+    const snapshot = forkSnapshot()
+    expect(snapshot.archive_candidates).toHaveLength(14)
+    expect(snapshot.archive_candidates_count).toBe(14)
+    expect(Object.keys(snapshot.remote_refs)).toHaveLength(33)
+    expect(snapshot.archive_candidates.every(candidate => candidate.sha === candidate.remote_verified_sha)).toBe(true)
+    expect(findRepositoryReferences(forkArchiveManifestPath, forkArchiveManifestSource, new Set([snapshot.upstream_rc2])))
+      .toEqual([])
+    expect(scanRepositoryReferences(repository(test).root)).toEqual([])
+  })
+
+  it.for([
+    ['missing candidate', (snapshot: ForkSnapshot) => { snapshot.archive_candidates.pop() }],
+    ['changed candidate SHA', (snapshot: ForkSnapshot) => { snapshot.archive_candidates[0]!.sha = '0'.repeat(40) }],
+    ['changed verification SHA', (snapshot: ForkSnapshot) => { snapshot.archive_candidates[0]!.remote_verified_sha = '0'.repeat(40) }],
+    ['changed tag status', (snapshot: ForkSnapshot) => { snapshot.archive_candidates[0]!.remote_tag_created = true }],
+    ['changed candidate count', (snapshot: ForkSnapshot) => { snapshot.archive_candidates_count = 13 }],
+    ['missing remote ref', (snapshot: ForkSnapshot) => { snapshot.remote_refs = Object.fromEntries(Object.entries(snapshot.remote_refs).slice(1)) }],
+    ['changed remote ref', (snapshot: ForkSnapshot) => { snapshot.remote_refs[Object.keys(snapshot.remote_refs)[0]!] = '0'.repeat(40) }],
+    ['changed historical status', (snapshot: ForkSnapshot) => { snapshot.archive_status = 'complete' }],
+  ] as const)('rejects snapshot corruption without needing the historical Git objects: %s', ([_name, mutate], test) => {
+    const fixture = repository(test)
+    const snapshot = forkSnapshot()
+    mutate(snapshot)
+    fixture.write(forkArchiveManifestPath, `${JSON.stringify(snapshot, null, 2)}\n`)
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: forkArchiveManifestPath, line: 1, kind: 'historical-manifest-integrity' },
+    ])
+  })
+
+  it.each(['', '{}\n', '{invalid\n', `${forkArchiveManifestSource}\n`, `${forkArchiveManifestSource}\nextra content\n`])(
+    'rejects empty, malformed, replaced, or appended snapshot bytes', (source) => {
+      expect(findRepositoryReferences(forkArchiveManifestPath, source, new Set())).toContainEqual(
+        { file: forkArchiveManifestPath, line: 1, kind: 'historical-manifest-integrity' },
+      )
+    },
+  )
+
+  it('rejects a deleted snapshot even though ordinary deleted files are skipped', (test) => {
+    const fixture = repository(test)
+    unlinkSync(join(fixture.root, forkArchiveManifestPath))
+    fixture.git(['rm', '--cached', forkArchiveManifestPath])
+    expect(scanRepositoryReferences(fixture.root)).toEqual([
+      { file: forkArchiveManifestPath, line: 1, kind: 'historical-manifest-integrity' },
+    ])
+  })
+
+  it('does not exempt adjacent files, copied evidence, or the former snapshot path', () => {
+    const commits = new Set([forkSnapshot().upstream_rc2])
+    for (const file of ['docs/fork-archive-manifest.json', `${forkArchiveManifestPath}.copy`, 'docs/history/other.json', 'docs/history/current.md']) {
+      expect(findRepositoryReferences(file, forkArchiveManifestSource, commits)).toContainEqual(
+        { file, line: 6, kind: 'commit-hash' },
+      )
+    }
+  })
+
+  it('revokes the commit exception after alteration and retains organization URL checking', (test) => {
+    const fixture = repository(test)
+    fixture.write(forkArchiveManifestPath, `${forkArchiveManifestSource}${fixture.commit}\n${organizationUrl}\n`)
+    expect(scanRepositoryReferences(fixture.root)).toEqual(expect.arrayContaining([
+      { file: forkArchiveManifestPath, line: 1, kind: 'historical-manifest-integrity' },
+      { file: forkArchiveManifestPath, line: 149, kind: 'organization-url' },
+      { file: forkArchiveManifestPath, line: 148, kind: 'commit-hash' },
+    ]))
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a symlink replacing the snapshot with an identical external file', (test) => {
+    const fixture = repository(test)
+    fixture.write('outside.json', forkArchiveManifestSource)
+    unlinkSync(join(fixture.root, forkArchiveManifestPath))
+    symlinkSync(join(fixture.root, 'outside.json'), join(fixture.root, forkArchiveManifestPath))
+    expect(scanRepositoryReferences(fixture.root)).toContainEqual(
+      { file: forkArchiveManifestPath, line: 1, kind: 'historical-manifest-integrity' },
+    )
+  })
+
   it('permits only the independent kit repository and its source URLs', () => {
     for (const suffix of ['', '.git', '/tree/main/packages/entry']) {
       expect(findRepositoryReferences('package.json', `${organizationUrl}/libreoffice-kit${suffix}`, new Set())).toEqual([])
