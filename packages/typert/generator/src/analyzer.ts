@@ -1963,18 +1963,11 @@ class FaceAnalyzer {
       if ((subpath === '.' && !PUBLIC_REMOTE_TYPE_ROOTS.has(registration.name))
         || subpath === './package.json' || subpath === './typert'
         || subpath === './client/typert' || subpath === './remote' || target.includes('*')) continue
-      const sourceFile = this.sourceFiles.get(realPath(sourcePathForExport(registration.root, target)))
-      if (sourceFile === undefined) continue
-      const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
-      if (moduleSymbol === undefined) continue
-      for (const exported of this.checker.getExportsOfModule(moduleSymbol)) {
-        if (this.resolveSymbol(exported) !== symbol) continue
-        candidates.push({
-          symbol: this.symbolId(symbol),
-          specifier: packageExportSpecifier(registration.name, subpath),
-          name: exported.name,
-        })
-      }
+      candidates.push(...this.remoteTypeExportCandidates(
+        symbol,
+        packageExportSpecifier(registration.name, subpath),
+        realPath(sourcePathForExport(registration.root, target)),
+      ))
     }
     const selected = candidates.sort((left, right) =>
       left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name))[0]
@@ -1995,21 +1988,27 @@ class FaceAnalyzer {
         || subpath === './client/typert' || subpath === './remote' || target.includes('*')) continue
       const targetPath = realPath(resolve(registration.root, target))
       if (!isWithin(targetPath, registration.root)) continue
-      const sourceFile = this.sourceFiles.get(targetPath)
-      if (sourceFile === undefined) continue
-      const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
-      if (moduleSymbol === undefined) continue
-      for (const exported of this.checker.getExportsOfModule(moduleSymbol)) {
-        if (this.resolveSymbol(exported) !== symbol) continue
-        candidates.push({
-          symbol: this.symbolId(symbol),
-          specifier: packageExportSpecifier(registration.name, subpath),
-          name: exported.name,
-        })
-      }
+      candidates.push(...this.remoteTypeExportCandidates(
+        symbol, packageExportSpecifier(registration.name, subpath), targetPath,
+      ))
     }
     return candidates.sort((left, right) =>
       left.specifier.localeCompare(right.specifier) || left.name.localeCompare(right.name))[0]
+  }
+
+  /** Collect symbol aliases from an eligible public export at a caller-resolved source path. */
+  private remoteTypeExportCandidates(
+    symbol: ts.Symbol,
+    specifier: string,
+    sourcePath: string,
+  ): RemoteTypeImportModel[] {
+    const sourceFile = this.sourceFiles.get(sourcePath)
+    if (sourceFile === undefined) return []
+    const moduleSymbol = this.checker.getSymbolAtLocation(sourceFile)
+    if (moduleSymbol === undefined) return []
+    return this.checker.getExportsOfModule(moduleSymbol)
+      .filter(exported => this.resolveSymbol(exported) === symbol)
+      .map(exported => ({ symbol: this.symbolId(symbol), specifier, name: exported.name }))
   }
 
   private isWorkspaceClass(symbol: ts.Symbol): boolean {
