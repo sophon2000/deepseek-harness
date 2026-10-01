@@ -344,6 +344,81 @@ void binaryTree
     assertGeneratedRemoteDtsTypechecks(artifact?.remote?.dts, root)
   })
 
+  it.each(['workspace', 'installed'] as const)('selects %s wire exports by specifier and resolved alias name', (ownership) => {
+    const root = copyFixture()
+    if (ownership === 'installed') useInstalledAgentLookupPackages(root)
+    const packageRoot = ownership === 'workspace' ? 'packages/domain' : 'node_modules/@fixture/session'
+    const packageName = ownership === 'workspace' ? '@fixture/domain' : '@fixture/session'
+    const sourceDirectory = ownership === 'workspace' ? 'src' : 'lib/types'
+    const extension = ownership === 'workspace' ? 'ts' : 'd.ts'
+    const importExtension = ownership === 'workspace' ? 'ts' : 'js'
+    writeFileSync(join(root, packageRoot, sourceDirectory, `public.${extension}`), `
+export type { AgentId as ZuluId, AgentId as AlphaId } from './types.${importExtension}'
+export interface AgentId { readonly unrelated: boolean }
+`)
+    editFile(root, `${packageRoot}/${sourceDirectory}/index.${extension}`, source =>
+      `${source}\nexport type { ZuluId, AlphaId } from './public.${importExtension}'\n`)
+    editFile(root, `${packageRoot}/package.json`, (source) => {
+      const manifest = JSON.parse(source) as { exports: Record<string, unknown> }
+      manifest.exports['./z-types'] = { types: './lib/types/public.d.ts' }
+      manifest.exports['./a-types'] = { types: './lib/types/public.d.ts' }
+      return `${JSON.stringify(manifest, null, 2)}\n`
+    })
+
+    const model = remotePackage(root)
+    expect(model.invocations[0]?.parameters[0]?.boundary).toMatchObject({
+      typeSymbol: `${packageName}/a-types#AlphaId`,
+      imports: [{ specifier: `${packageName}/a-types`, name: 'AlphaId' }],
+    })
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    expect(artifact?.remote?.dts).toContain(`import type { AlphaId } from '${packageName}/a-types'`)
+    expect(artifact?.remote?.dts).not.toContain(`from '${packageName}/z-types'`)
+    if (ownership === 'installed') assertGeneratedRemoteDtsTypechecks(artifact?.remote?.dts, root)
+  })
+
+  it.each([
+    ['@fixture/domain', false],
+    ['@deepseek-ai/dsh-util-values', true],
+  ] as const)('allows a workspace root wire export only for the explicit root exception: %s', (name, allowed) => {
+    const root = copyFixture()
+    editFile(root, 'packages/domain/package.json', (source) => {
+      const manifest = JSON.parse(source) as { name: string; exports: Record<string, unknown> }
+      manifest.name = name
+      delete manifest.exports['./types']
+      return `${JSON.stringify(manifest, null, 2)}\n`
+    })
+
+    if (allowed) {
+      expect(remotePackage(root).invocations[0]?.parameters[0]?.boundary).toMatchObject({
+        typeSymbol: `${name}#AgentId`,
+        imports: [{ specifier: name, name: 'AgentId' }],
+      })
+    } else {
+      expect(() => remotePackage(root)).toThrow(
+        'Remote boundary type AgentId must be exported from a public non-root type subpath',
+      )
+    }
+  })
+
+  it('rejects an installed wire export that resolves outside its package root', () => {
+    const root = copyFixture()
+    useInstalledAgentLookupPackages(root, { publicTypeSubpath: false })
+    const siblingRoot = join(root, 'node_modules/@fixture/session-shadow')
+    mkdirSync(siblingRoot)
+    writeFileSync(join(siblingRoot, 'types.d.ts'), "export type { AgentId } from '../session/lib/types/types.js'\n")
+    editFile(root, 'node_modules/@fixture/session/lib/types/index.d.ts', source =>
+      `${source}export type { AgentId as OutsideId } from '../../../session-shadow/types.js'\n`)
+    editFile(root, 'node_modules/@fixture/session/package.json', (source) => {
+      const manifest = JSON.parse(source) as { exports: Record<string, unknown> }
+      manifest.exports['./types'] = { types: '../session-shadow/types.d.ts' }
+      return `${JSON.stringify(manifest, null, 2)}\n`
+    })
+
+    expect(() => remotePackage(root)).toThrow(
+      'Remote boundary type AgentId must be exported from a public non-root type subpath',
+    )
+  })
+
   it('rejects an installed lookup wire type that has no public non-root type export', () => {
     const root = copyFixture()
     useInstalledAgentLookupPackages(root, { publicTypeSubpath: false })

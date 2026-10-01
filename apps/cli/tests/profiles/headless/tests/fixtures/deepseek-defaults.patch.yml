@@ -10,7 +10,9 @@
     baseURL: !!js process.env.DSH_SNAPSHOT_BASE_URL
     thinking: enabled
     reasoningEffort: low
-    streamIdleTimeoutMs: 150
+    # Cross-process heartbeats allow shared-runner scheduling; response data still
+    # arrives after this deadline, so missing comment activity triggers a retry.
+    streamIdleTimeoutMs: 1000
 
 - id: agent-loop
   config:

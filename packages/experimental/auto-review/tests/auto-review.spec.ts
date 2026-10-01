@@ -714,19 +714,68 @@ describe('native review request', () => {
     expect(probe.runs()).toBe(1)
   })
 
-  it('reconstructs empty and non-JSON native argument text exactly as the agent loop does', async () => {
+  it('rejects invalid native arguments before review or user approval', async () => {
+    const { ctx, adapter } = await harness([])
+    const probe = registerProbe(ctx)
+    const approval = vi.fn(() => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    ctx.on('approval/request', approval)
+    const { session, agent } = autoSession(ctx, 'native-invalid-arguments')
+    appendHeader(session, [{ name: 'probe', description: 'probe', parameters: { type: 'object' } }])
+    const callId = ToolCallId('invalid-json-arguments')
+    appendAssistant(session, [{ type: 'tool-call', id: callId, name: 'probe', arguments: 'not-json' }])
+    appendNativeCall(session, callId, 'probe', 'not-json')
+
+    const result = await ctx.tools.execute({
+      signal: new AbortController().signal,
+      callId,
+      name: 'probe',
+      arguments: 'not-json',
+      agent,
+    })
+
+    expect(result).toMatchObject({
+      isError: true,
+      error: { info: { name: 'ToolArgsError', code: 'INVALID_ARGS' } },
+    })
+    expect(adapter.requests).toHaveLength(0)
+    expect(approval).not.toHaveBeenCalled()
+    expect(probe.runs()).toBe(0)
+  })
+
+  it('reconstructs accepted empty and non-JSON native argument text exactly as the agent loop does', async () => {
     const { ctx, adapter } = await harness([
       decisionChunks('{"risk":"low","decision":"allow"}'),
       decisionChunks('{"risk":"medium","decision":"allow"}'),
     ])
-    registerProbe(ctx)
+    const probe = registerProbe(ctx)
+    const rawSchema: ToolSchema = {
+      name: 'raw-text', description: 'accept raw text', parameters: { type: 'string' },
+    }
+    const rawArguments: unknown[] = []
+    ctx.tools.register({
+      ...rawSchema,
+      validateArgs(args) {
+        if (typeof args !== 'string') throw new TypeError('expected raw text')
+      },
+      output: {
+        schema: { type: 'string' },
+        render: () => [{ type: 'text', text: 'ran' }],
+      },
+      async execute(args) {
+        rawArguments.push(args)
+        return 'ran'
+      },
+    })
     const { session, agent } = autoSession(ctx, 'native-raw-arguments')
-    appendHeader(session, [{ name: 'probe', description: 'probe', parameters: { type: 'object' } }])
+    appendHeader(session, [
+      { name: 'probe', description: 'probe', parameters: { type: 'object' } },
+      rawSchema,
+    ])
 
     const emptyId = ToolCallId('empty-arguments')
     appendAssistant(session, [{ type: 'tool-call', id: emptyId, name: 'probe', arguments: '' }])
     appendNativeCall(session, emptyId, 'probe', '')
-    await ctx.tools.execute({
+    const emptyResult = await ctx.tools.execute({
       signal: new AbortController().signal,
       callId: emptyId,
       name: 'probe',
@@ -734,20 +783,27 @@ describe('native review request', () => {
       agent,
     })
 
-    const invalidId = ToolCallId('invalid-json-arguments')
+    const rawId = ToolCallId('raw-text-arguments')
     session.append('step/end', { turn: 1, step: 1 })
-    appendAssistant(session, [{ type: 'tool-call', id: invalidId, name: 'probe', arguments: 'not-json' }], 1, 2)
-    appendNativeCall(session, invalidId, 'probe', 'not-json', 1, 2)
-    await ctx.tools.execute({
+    appendAssistant(session, [{ type: 'tool-call', id: rawId, name: 'raw-text', arguments: 'not-json' }], 1, 2)
+    appendNativeCall(session, rawId, 'raw-text', 'not-json', 1, 2)
+    const rawResult = await ctx.tools.execute({
       signal: new AbortController().signal,
-      callId: invalidId,
-      name: 'probe',
+      callId: rawId,
+      name: 'raw-text',
       arguments: 'not-json',
       agent,
     })
 
+    expect(emptyResult.isError).toBe(false)
+    expect(rawResult.isError).toBe(false)
+    expect(probe.runs()).toBe(1)
+    expect(rawArguments).toEqual(['not-json'])
+    expect(adapter.requests).toHaveLength(2)
     expect(requestSections(adapter.requests[0]!).PENDING_ACTION).toMatchObject({ arguments: {} })
-    expect(requestSections(adapter.requests[1]!).PENDING_ACTION).toMatchObject({ arguments: 'not-json' })
+    expect(requestSections(adapter.requests[1]!).PENDING_ACTION).toMatchObject({
+      ...rawSchema, arguments: 'not-json',
+    })
   })
 
   it('accepts only the six legal risk and decision forms without exposing risk', async () => {

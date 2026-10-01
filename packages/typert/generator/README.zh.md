@@ -22,7 +22,7 @@ kind: "package-library"
 
 从已安装的 `@deepseek-ai/dsh-typert-protocol` 包导入的元数据声明会通过精确的外部包身份来识别。其类型仍作为 workspace 类型图之外的外部类型处理；其他依赖即使导出同名声明，也不会因此成为 Typert 标记。
 
-只有当 `package.json#exports` 中具体的公共非根子路径暴露已解析符号时，已安装的 NPM 依赖才可以提供具名 Remote 边界类型。生成的声明会导入该规范符号、在源码使用别名时保留其身份，并为导入名称冲突分配不同的本地名称；只有根导出或模式导出的类型会失败，不会削弱[公开类型要求](../../../.agents/notes/implemented/bug-fix/2026-08-26-installed-public-remote-types.zh.md)。
+只有当 `package.json#exports` 中具体的公共非根子路径暴露已解析符号，且其目标仍位于包根目录内时，已安装的 NPM 依赖才可以提供具名 Remote 边界类型。对于工作区类型和已安装类型，分析器先按导入说明符、再按导出名称，从符合条件的条目中选择。生成的声明会导入该规范符号、在源码使用别名时保留其身份，并为导入名称冲突分配不同的本地名称；只有根导出或模式导出的类型会失败，不会削弱[公开类型要求](../../../.agents/notes/implemented/bug-fix/2026-08-26-installed-public-remote-types.zh.md)。
 
 -----
 

@@ -9,6 +9,10 @@ function evaluateRunsOn(selector: unknown, context: Record<string, unknown>): un
   return runInNewContext(selector.trim().slice(3, -2), context, { timeout: 1000 })
 }
 
+const operationalRepository = 'deepseek-harness/deepseek-harness'
+const operationalRepositoryGuard = "github.repository == 'deepseek-harness/deepseek-harness' && "
+  + "github.event.repository.full_name == 'deepseek-harness/deepseek-harness'"
+const publicUpstream = { repository: 'deepseek-ai/deepseek-harness', repository_id: '1333065091' }
 const root = resolve(import.meta.dirname, '..')
 const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
@@ -188,7 +192,7 @@ describe('CI workflow', () => {
       expect(job['runs-on']).toContain('dsh-win-ci')
       expect(job['runs-on']).toContain('dsh-windows-2025-16core')
       const cores = jobName === 'windows-native-tests' ? 2 : 16
-      expect(evaluateRunsOn(job['runs-on'], { vars: { DSH_CI_FAILOVER_WINDOWS: 'blacksmith' } }))
+      expect(evaluateRunsOn(job['runs-on'], { github: publicUpstream, vars: { DSH_CI_FAILOVER_WINDOWS: 'blacksmith' } }))
         .toBe(`blacksmith-${cores}vcpu-windows-2025`)
       expect(job.if).toBe("github.event_name == 'pull_request'")
     }
@@ -349,7 +353,7 @@ describe('CI workflow', () => {
       expect(job['runs-on'], `${jobName} runs-on must use the Linux failover switch`).toContain('DSH_CI_FAILOVER_LINUX')
       expect(job['runs-on'], `${jobName} runs-on must not use the Windows failover switch`).not.toContain('DSH_CI_FAILOVER_WINDOWS')
       expect(job['runs-on']).toContain('vm-backup')
-      expect(evaluateRunsOn(job['runs-on'], { vars: { DSH_CI_FAILOVER_LINUX: 'blacksmith' } }))
+      expect(evaluateRunsOn(job['runs-on'], { github: publicUpstream, vars: { DSH_CI_FAILOVER_LINUX: 'blacksmith' } }))
         .toBe(`blacksmith-${jobName === 'node-24' ? 8 : 16}vcpu-ubuntu-2404`)
     }
     expect(aggregate['runs-on']).toContain('DSH_CI_FAILOVER_LINUX')
@@ -369,7 +373,7 @@ describe('CI workflow', () => {
       return evaluateRunsOn(expression, {
         vars,
         fromJSON: JSON.parse,
-        github: { event: { pull_request: { user: { login } } } },
+        github: { ...publicUpstream, event: { pull_request: { user: { login } } } },
       })
     }
     for (const [name, selector, variable, pool, hosted] of [
@@ -405,6 +409,24 @@ describe('CI workflow', () => {
     // and exists to collect as much Windows-native evidence per run as
     // possible, so the first failure must not truncate the rest.
     expect(observational?.env).toMatchObject({ DSH_GATE_FAIL_FAST: '' })
+  })
+
+  it('runs the darwin unit parity inventory at the coverage lanes\' test budget', () => {
+    const coverage = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-coverage')
+    if (!isRecord(coverage.env) || typeof coverage.env.DSH_COVERAGE_TEST_TIMEOUT_MS !== 'string') {
+      throw new TypeError('node-24-coverage must grant DSH_COVERAGE_TEST_TIMEOUT_MS')
+    }
+    const unitDarwin = workflowJob(loadWorkflow('.github/workflows/sandbox.yml'), 'unit-darwin')
+    if (!Array.isArray(unitDarwin.steps)) throw new TypeError('unit-darwin job must define steps')
+    const unit = unitDarwin.steps.filter(isRecord).find(step => step.name === 'Unit tests (darwin parity)')
+    // The whole unit inventory on a shared macos-latest runner pays the same
+    // scheduling delay the coverage lanes absorb; the ci-unit aggregate is the
+    // `pnpm run test` path that consumes the variable, and the value is the
+    // coverage lane's so the two budget classes cannot drift apart.
+    expect(unit).toMatchObject({
+      run: 'pnpm run check:ci:unit',
+      env: { DSH_COVERAGE_TEST_TIMEOUT_MS: coverage.env.DSH_COVERAGE_TEST_TIMEOUT_MS },
+    })
   })
 
   it('gates standalone keyless blacksmith jobs and benchmark tiers on the failover variables', () => {
@@ -612,6 +634,54 @@ describe('CI workflow', () => {
 
     expect(config).not.toContain("pool: process.platform === 'win32' ? 'threads' : 'forks'")
     expect(config.match(/pool: 'forks'/g)).toHaveLength(2)
+  })
+
+  it('applies the lane test budget inside every Vitest project', () => {
+    // Each inline project spreads coverageTestTimeoutOptions, the only route
+    // for DSH_COVERAGE_TEST_TIMEOUT_MS into projects; the behavior itself is
+    // pinned by scripts/lane-test-budget.spec.ts.
+    const config = readFileSync(resolve(root, 'vitest.config.ts'), 'utf8')
+
+    expect(config).toContain('const laneTestBudget = coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV])')
+    expect(config.match(/^ {10}\.\.\.laneTestBudget,$/gm)).toHaveLength(2)
+  })
+})
+
+describe('Fork CI runner routing', () => {
+  it.each([
+    ['node-24', 'DSH_CI_FAILOVER_LINUX', 'ubuntu-24.04', 'blacksmith-8vcpu-ubuntu-2404', 'dsh-ubuntu-24-04-16core', ['self-hosted', 'linux', 'x64', 'vm-backup']],
+    ['node-24-coverage', 'DSH_CI_FAILOVER_LINUX', 'ubuntu-24.04', 'blacksmith-16vcpu-ubuntu-2404', 'dsh-ubuntu-24-04-16core', ['self-hosted', 'linux', 'x64', 'vm-backup']],
+    ['node-24-consumers', 'DSH_CI_FAILOVER_LINUX', 'ubuntu-24.04', 'blacksmith-16vcpu-ubuntu-2404', 'dsh-ubuntu-24-04-16core', ['self-hosted', 'linux', 'x64', 'vm-backup']],
+    ['windows-build', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'blacksmith-16vcpu-windows-2025', 'dsh-windows-2025-16core', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['windows-coverage', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'blacksmith-16vcpu-windows-2025', 'dsh-windows-2025-16core', ['self-hosted', 'dsh-win-ci', 'windows']],
+    ['windows-native-tests', 'DSH_CI_FAILOVER_WINDOWS', 'windows-2025', 'blacksmith-2vcpu-windows-2025', 'dsh-windows-2025-16core', ['self-hosted', 'dsh-win-ci', 'windows']],
+  ] as const)('%s uses standard hosted runners only for the exact fork identity', (jobName, variable, forkRunner, blacksmith, hosted, selfhosted) => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), jobName)
+    const identities = [
+      { repository: 'sophon2000/deepseek-harness', repository_id: '1345608419', fork: true },
+      { ...publicUpstream, fork: false },
+      { repository: operationalRepository, repository_id: '0', fork: false },
+      { repository: 'another-owner/deepseek-harness', repository_id: '1', fork: false },
+      { repository: 'sophon2000/deepseek-harness', repository_id: '1', fork: false },
+      { repository: 'another-owner/deepseek-harness', repository_id: '1345608419', fork: false },
+      { repository: 'sophon2000/deepseek-harness', repository_id: '', fork: false },
+      { repository: '', repository_id: '1345608419', fork: false },
+    ]
+    for (const { repository, repository_id, fork } of identities) {
+      for (const mode of ['', 'hosted', 'unexpected', 'blacksmith', 'selfhosted']) {
+        for (const login of ['maintainer', 'dependabot[bot]']) {
+          const selected = evaluateRunsOn(job['runs-on'], {
+            github: { repository, repository_id, event: { pull_request: { user: { login } } } },
+            vars: { DSH_CI_FAILOVER_LINUX: mode, DSH_CI_FAILOVER_WINDOWS: mode },
+            fromJSON: JSON.parse,
+          })
+          const fallback = mode === 'blacksmith' ? blacksmith
+            : mode === 'selfhosted' && login !== 'dependabot[bot]' ? selfhosted : hosted
+          expect(selected, `${repository} id=${repository_id} ${variable}=${mode} author=${login}`)
+            .toEqual(fork ? forkRunner : fallback)
+        }
+      }
+    }
   })
 })
 
@@ -968,7 +1038,7 @@ describe('Weighted approval workflow', () => {
       'cancel-in-progress': false,
     })
     expect(job).toMatchObject({
-      if: "(github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
+      if: operationalRepositoryGuard + " && (github.event_name != 'pull_request_target' || github.event.pull_request.state == 'open') && "
         + "(github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && "
         + "(github.event_name != 'issue_comment' || (github.event.issue.pull_request && github.event.issue.state == 'open' &&\n"
         + "  (contains(github.event.comment.body, '/delegate') || contains(github.event.changes.body.from, '/delegate'))))",
@@ -1012,7 +1082,7 @@ describe('Weighted approval workflow', () => {
       run: 'node .github/review-ownership/check-approval.mjs',
     })
     expect(recordJob).toMatchObject({
-      if: "github.event.pull_request.state == 'open'",
+      if: operationalRepositoryGuard + " && github.event.pull_request.state == 'open'",
       name: 'record weighted approval review event',
       'runs-on': 'ubuntu-latest',
       'timeout-minutes': 2,
@@ -1036,6 +1106,9 @@ describe('Issue lifecycle workflow', () => {
 
     expect(lifecycle.on).toHaveProperty('pull_request')
     expect(lifecycle.on).toHaveProperty('pull_request_review')
+    expect(lifecycleJob.if).toBe(operationalRepositoryGuard
+      + " && (github.event_name != 'pull_request_review' || github.event.review.state == 'changes_requested') && "
+      + "(github.event_name != 'pull_request' || github.event.action != 'edited' || github.event.changes.body != null)")
     expect(lifecycleJob.if).toContain("github.event.review.state == 'changes_requested'")
     expect(lifecycleJob.if).toContain('github.event.changes.body != null')
     // Keep the subscription-type gates: issue-lifecycle does not re-subscribe
@@ -1078,7 +1151,7 @@ describe('Issue lifecycle workflow', () => {
     expect(preflightStep?.run).toContain('if [ -f .github/issue-management/selective-preflight.json ]; then')
     expect(preflightStep?.run).toContain('node .github/issue-management/policy.mjs pr-preflight')
     expect(preflightStep?.if).toBeUndefined()
-    expect(policyJob.if).toBeUndefined()
+    expect(policyJob.if).toBe(operationalRepositoryGuard)
     expect(validateStep?.if).toBe("${{ steps.preflight.outputs.legacy-automated != 'true' }}")
 
     expect(tokenStep).toMatchObject({

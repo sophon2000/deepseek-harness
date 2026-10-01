@@ -85,6 +85,8 @@ pip install \
 
 The runtime distribution is wheel-only. The release pipeline publishes five platform wheels with the pure SDK wheel: Linux x64, Linux arm64, macOS 14 or newer on arm64 and x64, and Windows x64 (`win_amd64`). A `python-v<repository-version>` tag is accepted only when it matches the repository version; prerelease repository versions such as `0.0.1-rc.1` use their normalized PEP 440 spelling, such as `0.0.1rc1`, inside wheel filenames and metadata.
 
+Video Harness fork revisions retain their `.vh.N` suffix as a PEP 440 local version: `0.2.0-rc.2.vh.1` becomes `0.2.0rc2+vh.1`, and `0.2.0-vh.1` becomes `0.2.0+vh.1`. The wheel metadata and exact SDK runtime pin include the local label, distinguishing each fork revision from upstream and other revisions. These wheels support direct installation or private indexes; [public PyPI does not accept local versions](https://packaging.python.org/en/latest/specifications/version-specifiers/#local-version-identifiers). Unknown suffixes and fork revision numbers with leading zeros are rejected.
+
 ## Validate a release candidate
 
 Manually run the GitHub `Release (Python)` workflow with `publish=false` to build all six wheels, install the Linux release set on Python 3.10 and 3.14, check exact filenames and metadata, enforce PyPI's default per-file size limit, and retain one aggregate artifact with SHA-256 hashes. The run has no registry credentials; a dry run cannot enter either publication job.

@@ -13,10 +13,13 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 import { AclWriteGrant, tempWriteSid, workspaceWriteSid } from '../src/index.ts'
 
 const isWin32 = process.platform === 'win32'
 const runnerEntry = fileURLToPath(new URL('../src/runner.ts', import.meta.url))
+// These multi-process probes retain their local budget but use CI's validated lane budget.
+const nativeProbeTimeout = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 60_000
 
 // Functional probe, not where.exe: spawnSync never throws on a missing
 // binary (status null) and where.exe exits 1 without pwsh — only an actual
@@ -505,6 +508,196 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
     }
   }, 60_000)
 
+  it('cross-root delete regression: pre-existing peer temp descendants resist foreign deletes despite explicit user allows', () => {
+    const ownWork = join(scratchRoot, 'nested-own-work')
+    const ownTemp = join(scratchRoot, 'nested-own-temp')
+    const peerTemp = join(scratchRoot, 'nested-peer-temp')
+    const branches = { root: peerTemp, inherited: join(peerTemp, 'inherited'), explicit: join(peerTemp, 'explicit') }
+    const modes = ['workspace-write', 'read-only'] as const
+    const peerVictims = modes.flatMap(mode => Object.entries(branches).map(([label, dir]) => ({ mode, label, path: join(dir, `${mode}.txt`) })))
+    const peerPaths = [...Object.values(branches), ...peerVictims.map(victim => victim.path)]
+    const ownSid = workspaceWriteSid(ownWork)
+    const ownTempSid = tempWriteSid(ownTemp)
+    const peerSid = tempWriteSid(peerTemp)
+    const grants: AclWriteGrant[] = []
+    const quote = (path: string): string => `'${path.replaceAll("'", "''")}'`
+    try {
+      for (const dir of [ownWork, ownTemp, ...Object.values(branches)]) mkdirSync(dir)
+      for (const victim of peerVictims) writeFileSync(victim.path, 'peer victim')
+      for (const mode of modes) writeFileSync(join(ownWork, `${mode}.txt`), 'own victim')
+      const fixtureSecurity = `
+Add-Type -Namespace Peer -Name FixtureSecurity -MemberDefinition @'
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
+private static extern uint GetNamedSecurityInfoW(string path, int kind, uint info, out IntPtr owner, out IntPtr group, out IntPtr dacl, out IntPtr sacl, out IntPtr descriptor);
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
+private static extern uint SetNamedSecurityInfoW(string path, int kind, uint info, IntPtr owner, IntPtr group, byte[] dacl, IntPtr sacl);
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode, ExactSpelling=true)]
+private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(IntPtr descriptor, uint revision, uint info, out IntPtr text, out uint length);
+[DllImport("kernel32.dll", SetLastError=true)]
+private static extern IntPtr LocalFree(IntPtr memory);
+public static void SetDacl(string path, byte[] dacl) {
+  if (dacl == null || dacl.Length < 8) throw new ArgumentException("A real DACL is required");
+  uint result = SetNamedSecurityInfoW(path, 1, 0x4, IntPtr.Zero, IntPtr.Zero, dacl, IntPtr.Zero);
+  if (result != 0) throw new System.ComponentModel.Win32Exception((int)result, "Set fixture DACL: " + path);
+}
+public static string ReadLabel(string path) { return ReadSections(path, 0x10); }
+public static string ReadIdentityAndLabel(string path) { return ReadSections(path, 0x13); }
+private static string ReadSections(string path, uint info) {
+  IntPtr owner, group, dacl, sacl, descriptor;
+  uint result = GetNamedSecurityInfoW(path, 1, info, out owner, out group, out dacl, out sacl, out descriptor);
+  if (result != 0) throw new System.ComponentModel.Win32Exception((int)result, "Read security sections: " + path);
+  try {
+    IntPtr text;
+    uint length;
+    if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, 1, info, out text, out length))
+      throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Format security sections: " + path);
+    try { return Marshal.PtrToStringUni(text); }
+    finally { if (LocalFree(text) != IntPtr.Zero) throw new InvalidOperationException("LocalFree(security text)"); }
+  } finally { if (LocalFree(descriptor) != IntPtr.Zero) throw new InvalidOperationException("LocalFree(security descriptor)"); }
+}
+'@ | Out-Null
+`
+      // All victims predate the grant. Only the explicit branch receives a
+      // direct user allow; the sibling is an inherited-only denial control.
+      // Set-Acl can copy the SACL too, so write only DACL_SECURITY_INFORMATION.
+      const setupScript = `
+$ErrorActionPreference='Stop'
+${fixtureSecurity}
+foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
+  & icacls.exe $path /reset
+  if ($LASTEXITCODE -ne 0) { throw "icacls /reset failed for $path with exit $LASTEXITCODE" }
+}
+$unchangedSections = @{}
+foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
+  $sections = [Peer.FixtureSecurity]::ReadIdentityAndLabel($path)
+  "BEFORE-EXPLICIT-ACE PATH=$path IDENTITY-LABEL=$sections"
+  if ($sections -match 'S:[^(]*P') { throw "Peer fixture already has a protected SACL: $path" }
+  $unchangedSections[$path] = $sections
+}
+$user = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$explicit = ${quote(branches.explicit)}
+$acl = Get-Acl -LiteralPath $explicit
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($user, 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')
+$acl.AddAccessRule($rule)
+$dacl = [System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl).DiscretionaryAcl
+if ($null -eq $dacl) { throw 'Explicit peer fixture must have a DACL' }
+$daclBytes = [byte[]]::new($dacl.BinaryLength)
+$dacl.GetBinaryForm($daclBytes, 0)
+[Peer.FixtureSecurity]::SetDacl($explicit, $daclBytes)
+foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
+  $sections = [Peer.FixtureSecurity]::ReadIdentityAndLabel($path)
+  "AFTER-EXPLICIT-ACE PATH=$path IDENTITY-LABEL=$sections"
+  if ($sections -cne $unchangedSections[$path]) { throw "DACL-only fixture edit changed owner, group, or label inheritance: $path" }
+}
+foreach ($path in @(${quote(branches.inherited)}, ${quote(branches.explicit)})) {
+  $acl = Get-Acl -LiteralPath $path
+  $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+  "PRE-GRANT PATH=$path ORDERED-SDDL=$($acl.Sddl)"
+  if ($acl.AreAccessRulesProtected -or -not $acl.AreAccessRulesCanonical -or $rules.Count -eq 0) { throw "Invalid peer fixture DACL: $path" }
+  if ($path -eq $explicit) {
+    if (@($rules | Where-Object { -not $_.IsInherited -and $_.IdentityReference -eq $user -and $_.AccessControlType -eq 'Allow' -and ([int]$_.FileSystemRights -band 0x1f01ff) -eq 0x1f01ff }).Count -eq 0) { throw 'Missing explicit current-user FullControl fixture' }
+  } elseif (@($rules | Where-Object { -not $_.IsInherited }).Count -ne 0) { throw 'Inherited peer fixture has an explicit ACE' }
+}
+'PEER-FIXTURE: READY'
+`
+      const setup = spawnSync('pwsh', ['-NoLogo', '-NonInteractive', '-NoProfile', '-Command', setupScript], { encoding: 'utf8', timeout: 60_000 })
+      const setupDetails = `fixture stdout: ${setup.stdout}\nfixture stderr: ${setup.stderr}`
+      expect(setup.error, setupDetails).toBeUndefined()
+      expect(setup.signal, setupDetails).toBeNull()
+      expect(setup.status, setupDetails).toBe(0)
+      expect(setup.stdout, setupDetails).toMatch(/^PEER-FIXTURE: READY\r?$/mu)
+      for (const [path, sid] of [[ownWork, ownSid], [ownTemp, ownTempSid], [peerTemp, peerSid]] as const) {
+        const grant = AclWriteGrant.create(sid)
+        grants.push(grant)
+        grant.add(path)
+      }
+      const inspectScript = `
+$ErrorActionPreference='Stop'
+${fixtureSecurity}
+$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+foreach ($path in @(${peerPaths.map(quote).join(', ')})) {
+  $acl = Get-Acl -LiteralPath $path
+  $label = [Peer.FixtureSecurity]::ReadLabel($path)
+  "POST-GRANT PATH=$path ORDERED-SDDL=$($acl.Sddl) LABEL=$label"
+  if ($label -notmatch '\\(ML;[^;]*;NW;;;LW\\)') { throw "Peer object is not Low/no-write-up: $path" }
+  $aces = @([System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl).DiscretionaryAcl)
+  if (@($aces | Where-Object { $_.SecurityIdentifier.Value -in @('${ownSid}', '${ownTempSid}') }).Count -ne 0) { throw "Peer object carries an A capability: $path" }
+  if (@($aces | Where-Object { $_.AceType -eq 'AccessAllowed' -and $_.SecurityIdentifier.Value -eq '${peerSid}' -and $_.AccessMask -eq 0x110156 }).Count -eq 0) { throw "Peer object lacks its B capability: $path" }
+  if ($path -in @(${quote(branches.root)}, ${quote(branches.inherited)})) {
+    $denyIndex = -1
+    $firstAllow = $aces.Count
+    for ($index = 0; $index -lt $aces.Count; $index++) {
+      $ace = $aces[$index]
+      if ($path -eq ${quote(branches.inherited)} -and ([int]$ace.AceFlags -band 0x10) -eq 0) { throw "Inherited peer control gained an explicit ACE: $($acl.Sddl)" }
+      if ($ace.AceType -eq 'AccessAllowed' -and ([int]$ace.AceFlags -band 0x08) -eq 0) { $firstAllow = [Math]::Min($firstAllow, $index) }
+      if ($ace.AceType -eq 'AccessDenied' -and $ace.SecurityIdentifier.Value -eq 'S-1-1-0' -and ([int]$ace.AceFlags -band 0x08) -eq 0 -and $ace.AccessMask -eq 0x40) { $denyIndex = $index }
+    }
+    if ($denyIndex -lt 0 -or $denyIndex -ge $firstAllow) { throw "Peer denial control lacks an effective leading deny: $path $($acl.Sddl)" }
+  }
+  if ($path -eq ${quote(branches.explicit)}) {
+    $allowIndex = -1
+    $denyIndex = -1
+    for ($index = 0; $index -lt $aces.Count; $index++) {
+      $ace = $aces[$index]
+      if ($ace.AceType -eq 'AccessAllowed' -and $ace.SecurityIdentifier.Value -eq $userSid -and ([int]$ace.AceFlags -band 0x18) -eq 0 -and ($ace.AccessMask -band 0x1f01ff) -eq 0x1f01ff) { $allowIndex = $index }
+      if ($ace.AceType -eq 'AccessDenied' -and $ace.SecurityIdentifier.Value -eq 'S-1-1-0' -and ([int]$ace.AceFlags -band 0x18) -eq 0x10 -and $ace.AccessMask -eq 0x40) { $denyIndex = $index }
+    }
+    if ($allowIndex -lt 0 -or $denyIndex -le $allowIndex) { throw 'Explicit peer FullControl must precede the inherited Everyone delete-child deny' }
+  }
+}
+'PEER-ACL: VERIFIED'
+`
+      const inspection = spawnSync('pwsh', ['-NoLogo', '-NonInteractive', '-NoProfile', '-Command', inspectScript], { encoding: 'utf8', timeout: 60_000 })
+      const inspectionDetails = `${setupDetails}\ninspection stdout: ${inspection.stdout}\ninspection stderr: ${inspection.stderr}`
+      expect(inspection.error, inspectionDetails).toBeUndefined()
+      expect(inspection.signal, inspectionDetails).toBeNull()
+      expect(inspection.status, inspectionDetails).toBe(0)
+      expect(inspection.stdout, inspectionDetails).toMatch(/^PEER-ACL: VERIFIED\r?$/mu)
+      const probe = `
+const fs = require('node:fs');
+const results = JSON.parse(process.argv[1]).map(({ label, path }) => {
+  try { fs.unlinkSync(path); return { label, deleted: true }; }
+  catch (error) { return { label, deleted: false, code: error.code }; }
+});
+console.log(JSON.stringify(results));
+`
+      // Run both modes and every target before asserting, so a failure retains
+      // the root, inherited, explicit, and own-root controls together.
+      const observations = modes.map((mode) => {
+        const victims = [...peerVictims.filter(victim => victim.mode === mode), { label: 'own', path: join(ownWork, `${mode}.txt`) }]
+        const result = runRunner([
+          '--workspace', ownWork, '--temp', ownTemp, '--mode', mode,
+          ...(mode === 'workspace-write' ? ['--write-sid', ownSid, '--temp-write-sid', ownTempSid] : []),
+          '--', process.execPath, '-e', probe, JSON.stringify(victims),
+        ])
+        return { mode, victims, result }
+      })
+      const details = `${inspectionDetails}\n${observations.map(({ mode, result }) => `${mode} stdout: ${result.stdout}\nstderr: ${result.stderr}`).join('\n')}`
+      const deniedCode: unknown = expect.stringMatching(/^(?:EACCES|EPERM)$/u)
+      for (const { mode, victims, result } of observations) {
+        expect(result.error, details).toBeUndefined()
+        expect(result.signal, details).toBeNull()
+        expect(result.status, details).toBe(0)
+        expect(JSON.parse(result.stdout), details).toEqual(victims.map(({ label }) =>
+          label === 'own' && mode === 'workspace-write'
+            ? { label, deleted: true }
+            : { label, deleted: false, code: deniedCode }))
+        for (const { label, path } of victims) {
+          expect(existsSync(path), `${details}\n${mode}: ${path}`).toBe(label !== 'own' || mode === 'read-only')
+        }
+      }
+    } finally {
+      const failures: unknown[] = []
+      for (const grant of grants.reverse()) {
+        try { grant.dispose() } catch (error) { failures.push(error) }
+      }
+      for (const path of [ownWork, ownTemp, peerTemp]) {
+        try { rmSync(path, { recursive: true, force: true }) } catch (error) { failures.push(error) }
+      }
+      if (failures.length > 0) throw new AggregateError(failures, 'Nested cross-root fixture cleanup failed')
+    }
+  }, nativeProbeTimeout)
+
   it('NUL writes stay ambient under the Low token in BOTH modes', () => {
     // The device DACL grants Everyone write and carries no higher label, so
     // the documented `> NUL` redirection must survive the lowered token. The
@@ -530,44 +723,186 @@ describe.skipIf(!isWin32 || !pwshAvailable())('windows-acl runner', () => {
   it('a FullControl open inside a granted root still works for files (the deny inherits to containers only)', () => {
     // The ambient-delete deny is 0x40, a member of FILE_ALL_ACCESS: inheriting
     // it onto files would deny every GENERIC_ALL/FullControl open by the user,
-    // Administrators, SYSTEM, or the DSH host. Directories inside a granted
-    // root keep the deny (that is where FILE_DELETE_CHILD is evaluated), so a
-    // FullControl open of a DIRECTORY is the documented cost of the deny.
+    // Administrators, SYSTEM, or the DSH host. In this inherited-only fixture,
+    // directories keep the deny where FILE_DELETE_CHILD is evaluated, so a
+    // FullControl open of a DIRECTORY must fail.
     const granted = join(scratchRoot, 'fullcontrol-root')
     const child = join(granted, 'child')
+    const rootFile = join(granted, 'file.txt')
+    const nestedFile = join(child, 'deep.txt')
+    const fixturePaths = [granted, child, rootFile, nestedFile]
     mkdirSync(granted)
     mkdirSync(child)
-    writeFileSync(join(granted, 'file.txt'), 'x')
-    writeFileSync(join(child, 'deep.txt'), 'x')
+    writeFileSync(rootFile, 'x')
+    writeFileSync(nestedFile, 'x')
     const grant = AclWriteGrant.create(workspaceWriteSid(granted))
-    grant.add(granted, true)
     try {
+      // Explicit child allows outrank an inherited deny. This inheritance
+      // regression owns an inherited-only tree, including its existing files.
+      // Reset only these four objects before granting; never repair the result.
+      const fixtureSetup = `
+$ErrorActionPreference='Stop'
+foreach ($path in @(${fixturePaths.map(path => `'${path.replaceAll("'", "''")}'`).join(', ')})) {
+  $before = Get-Acl -LiteralPath $path
+  "BEFORE-RESET PATH=$path ORDERED-SDDL=$($before.Sddl)"
+  & icacls.exe $path /reset
+  if ($LASTEXITCODE -ne 0) { throw "icacls /reset failed for $path with exit $LASTEXITCODE" }
+  $acl = Get-Acl -LiteralPath $path
+  $rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+  "PRE-GRANT PATH=$path PROTECTED=$($acl.AreAccessRulesProtected) CANONICAL=$($acl.AreAccessRulesCanonical) ORDERED-SDDL=$($acl.Sddl)"
+  if ($acl.AreAccessRulesProtected -or -not $acl.AreAccessRulesCanonical -or $rules.Count -eq 0 -or @($rules | Where-Object { -not $_.IsInherited }).Count -ne 0) {
+    throw "Expected a nonempty, unprotected, canonical inherited-only DACL before grant: $path"
+  }
+}
+'INHERITED-FIXTURE: READY'
+`
+      const setup = spawnSync('pwsh', ['-NoLogo', '-NonInteractive', '-NoProfile', '-Command', fixtureSetup], { encoding: 'utf8', timeout: 60_000 })
+      const setupDiagnostics = `fixture stdout: ${setup.stdout}\nfixture stderr: ${setup.stderr}`
+      expect(setup.error, setupDiagnostics).toBeUndefined()
+      expect(setup.signal, setupDiagnostics).toBeNull()
+      expect(setup.status, setupDiagnostics).toBe(0)
+      expect(setup.stdout, setupDiagnostics).toMatch(/^INHERITED-FIXTURE: READY\r?$/mu)
+      grant.add(granted, true)
       const probe = `
-$ErrorActionPreference='SilentlyContinue'
+$ErrorActionPreference='Stop'
 Add-Type -Namespace P -Name F -MemberDefinition @'
 [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode, EntryPoint="CreateFileW")]
-public static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint d, uint f, IntPtr t);
+private static extern IntPtr CreateFileW(string n, uint a, uint s, IntPtr sa, uint d, uint f, IntPtr t);
 [DllImport("kernel32.dll", SetLastError=true)]
-public static extern bool CloseHandle(IntPtr h);
-'@ | Out-Null
-function TryOpen([string]$label, [string]$path) {
-  $h = [P.F]::CreateFileW($path, 0x10000000, 7, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
-  if ($h -eq [IntPtr]::new(-1)) { "$($label): DENIED" } else { [void][P.F]::CloseHandle($h); "$($label): OK" }
+private static extern bool CloseHandle(IntPtr h);
+[DllImport("kernel32.dll")]
+private static extern IntPtr GetCurrentProcess();
+[DllImport("advapi32.dll", SetLastError=true)]
+private static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+[DllImport("advapi32.dll", SetLastError=true)]
+private static extern bool GetTokenInformation(IntPtr token, int kind, IntPtr data, int size, out int needed);
+[DllImport("advapi32.dll", SetLastError=true, CharSet=CharSet.Unicode)]
+private static extern bool LookupPrivilegeValueW(string system, string name, out long luid);
+
+public static string OpenFullControl(string path) {
+  IntPtr handle = CreateFileW(path, 0x10000000, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+  if (handle == new IntPtr(-1)) {
+    int error = Marshal.GetLastWin32Error();
+    if (error != 5) throw new System.ComponentModel.Win32Exception(error, "CreateFileW: " + path);
+    return "DENIED WIN32=5";
+  }
+  if (handle == IntPtr.Zero) throw new InvalidOperationException("CreateFileW returned a null handle: " + path);
+  if (!CloseHandle(handle)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "CloseHandle: " + path);
+  return "OK HANDLE=0x" + handle.ToInt64().ToString("X");
 }
-TryOpen 'FILE' '${join(granted, 'file.txt')}'
-TryOpen 'NESTED-FILE' '${join(child, 'deep.txt')}'
-TryOpen 'DIRECTORY' '${child}'
+
+// Query this PowerShell process's token; never enable or remove privileges.
+public static string[] BackupPrivilegeStates() {
+  IntPtr token;
+  if (!OpenProcessToken(GetCurrentProcess(), 0x0008, out token))
+    throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "OpenProcessToken(TOKEN_QUERY)");
+  try {
+    int needed;
+    bool sized = GetTokenInformation(token, 3, IntPtr.Zero, 0, out needed);
+    int error = Marshal.GetLastWin32Error();
+    if (sized || error != 122 || needed < 4)
+      throw new InvalidOperationException("TokenPrivileges size query: " + error + ", bytes=" + needed);
+    IntPtr data = Marshal.AllocHGlobal(needed);
+    try {
+      int returned;
+      if (!GetTokenInformation(token, 3, data, needed, out returned))
+        throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "GetTokenInformation(TokenPrivileges)");
+      int count = Marshal.ReadInt32(data);
+      if (returned < 4 || returned > needed || count < 0 || count > (returned - 4) / 12)
+        throw new InvalidOperationException("Invalid TOKEN_PRIVILEGES length");
+      string[] names = { "SeBackupPrivilege", "SeRestorePrivilege" };
+      string[] states = new string[names.Length];
+      for (int n = 0; n < names.Length; n++) {
+        long luid;
+        if (!LookupPrivilegeValueW(null, names[n], out luid))
+          throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "LookupPrivilegeValueW: " + names[n]);
+        states[n] = names[n] + "=ABSENT";
+        for (int i = 0; i < count; i++) {
+          int offset = 4 + i * 12;
+          if (Marshal.ReadInt64(data, offset) != luid) continue;
+          int attributes = Marshal.ReadInt32(data, offset + 8);
+          states[n] = names[n] + ((attributes & 2) != 0 ? "=ENABLED" : "=DISABLED") + " ATTRIBUTES=0x" + attributes.ToString("X");
+          break;
+        }
+      }
+      return states;
+    } finally { Marshal.FreeHGlobal(data); }
+  } finally {
+    if (!CloseHandle(token)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "CloseHandle(token)");
+  }
+}
+'@ | Out-Null
+function AssertInheritedResult([string]$path, [bool]$directory) {
+  $acl = Get-Acl -LiteralPath $path
+  $raw = [System.Security.AccessControl.RawSecurityDescriptor]::new($acl.Sddl)
+  $aces = @($raw.DiscretionaryAcl)
+  if ($acl.AreAccessRulesProtected -or -not $acl.AreAccessRulesCanonical -or $aces.Count -eq 0) {
+    throw "Invalid inherited DACL after grant: $path $($acl.Sddl)"
+  }
+  $denyCount = 0
+  $denyIndex = -1
+  $firstAllow = $aces.Count
+  for ($index = 0; $index -lt $aces.Count; $index++) {
+    $ace = $aces[$index]
+    if (([int]$ace.AceFlags -band 0x10) -eq 0) {
+      throw "Grant introduced an explicit child ACE: $path $($acl.Sddl)"
+    }
+    if ($ace.AceType -eq [System.Security.AccessControl.AceType]::AccessAllowed -and ([int]$ace.AceFlags -band 0x08) -eq 0) {
+      $firstAllow = [Math]::Min($firstAllow, $index)
+    }
+    if ($ace.AceType -eq [System.Security.AccessControl.AceType]::AccessDenied -and $ace.SecurityIdentifier.Value -eq 'S-1-1-0' -and ($ace.AccessMask -band 0x40) -ne 0) {
+      $denyCount++
+      $denyIndex = $index
+      if ($directory -and ($ace.AccessMask -ne 0x40 -or [int]$ace.AceFlags -ne 0x12)) {
+        throw "Unexpected inherited directory deny: $path $($acl.Sddl)"
+      }
+    }
+  }
+  if ($directory) {
+    if ($denyCount -ne 1 -or $denyIndex -ge $firstAllow) {
+      throw "Expected the inherited directory deny before effective allows: $path $($acl.Sddl)"
+    }
+  } elseif ($denyCount -ne 0) {
+    throw "The directory-only deny reached a file: $path $($acl.Sddl)"
+  }
+}
+$unexpected = $true
+try {
+  AssertInheritedResult '${child}' $true
+  AssertInheritedResult '${rootFile}' $false
+  AssertInheritedResult '${nestedFile}' $false
+  $file = [P.F]::OpenFullControl('${rootFile}')
+  "FILE: $file"
+  $nestedFile = [P.F]::OpenFullControl('${nestedFile}')
+  "NESTED-FILE: $nestedFile"
+  $directory = [P.F]::OpenFullControl('${child}')
+  "DIRECTORY: $directory"
+  $unexpected = -not ($file.StartsWith('OK HANDLE=') -and $nestedFile.StartsWith('OK HANDLE=') -and $directory -eq 'DENIED WIN32=5')
+} finally {
+  if ($unexpected) {
+    try { [P.F]::BackupPrivilegeStates() } catch { "PRIVILEGE-DIAGNOSTIC-ERROR: $_" }
+    foreach ($path in @('${granted}', '${child}')) {
+      try {
+        $acl = Get-Acl -LiteralPath $path
+        "ACL PATH=$path PROTECTED=$($acl.AreAccessRulesProtected) ORDERED-SDDL=$($acl.Sddl)"
+      } catch { "ACL-DIAGNOSTIC-ERROR: $path $_" }
+    }
+  }
+}
 `
       const result = spawnSync('pwsh', ['-NoLogo', '-NonInteractive', '-NoProfile', '-Command', probe], { encoding: 'utf8', timeout: 60_000 })
-      expect(result.status, `stderr: ${result.stderr}`).toBe(0)
-      expect(result.stdout).toContain('FILE: OK')
-      expect(result.stdout).toContain('NESTED-FILE: OK')
-      expect(result.stdout).toContain('DIRECTORY: DENIED')
+      const diagnostics = `${setupDiagnostics}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+      expect(result.error, diagnostics).toBeUndefined()
+      expect(result.signal, diagnostics).toBeNull()
+      expect(result.status, diagnostics).toBe(0)
+      expect(result.stdout, diagnostics).toMatch(/^FILE: OK HANDLE=0x[0-9A-F]+\r?$/mu)
+      expect(result.stdout, diagnostics).toMatch(/^NESTED-FILE: OK HANDLE=0x[0-9A-F]+\r?$/mu)
+      expect(result.stdout, diagnostics).toMatch(/^DIRECTORY: DENIED WIN32=5\r?$/mu)
     } finally {
       grant.dispose()
       rmSync(granted, { recursive: true, force: true })
     }
-  }, 60_000)
+  }, nativeProbeTimeout)
 
   it('revoking one of two grants on a directory leaves the shared Low label usable', () => {
     // Two capabilities may target one directory; the revoke of the first must

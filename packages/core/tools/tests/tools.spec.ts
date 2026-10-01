@@ -1,3 +1,4 @@
+import { runInNewContext } from 'node:vm'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, ToolCallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
@@ -870,44 +871,110 @@ describe('ToolRuntime', () => {
       expect(approvalCalls).toBe(0)
     })
 
-    it('normalizes a raw provider validator before policy or approval observes the call', async () => {
-      const ctx = await approvalSetup()
-      let policyCalls = 0
-      let approvalCalls = 0
-      let bodyCalls = 0
-      ctx.tools.register({
-        ...echoTool,
-        name: 'raw-validator',
-        validateArgs() { throw new TypeError('provider contract rejected the payload') },
-        async execute() { bodyCalls += 1; return 'unreachable' },
-      })
-      ctx.on('approval/request', () => {
-        approvalCalls += 1
-        return Promise.resolve<ApprovalOutcome>('allowed-once')
-      })
-      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => {
-        policyCalls += 1
-        return { kind: 'ask' }
-      })
-
-      const result = await ctx.tools.execute({
-        signal: testToolSignal,
-        callId: ToolCallId('raw-invalid-before-approval'),
-        name: 'raw-validator',
-        arguments: { text: 'wrong for the provider' },
-        agent: fakeAgent(),
-      })
-
-      expect(result).toMatchObject({
-        isError: true,
-        error: {
-          message: 'invalid arguments: provider contract rejected the payload',
-          info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+    it.each<{ name: string; thrown: unknown; message: string }>([
+      {
+        name: 'ordinary provider error',
+        thrown: new TypeError('provider contract rejected the payload'),
+        message: 'provider contract rejected the payload',
+      },
+      {
+        name: 'canonical argument error',
+        thrown: new ToolArgsError(['missing provider field', 'unsupported provider value']),
+        message: 'missing provider field; unsupported provider value',
+      },
+      {
+        name: 'plain-object violations',
+        thrown: { violations: ['missing provider field', 'unsupported provider value'], message: 'ignored provider message' },
+        message: 'missing provider field; unsupported provider value',
+      },
+      {
+        name: 'foreign-realm violations',
+        thrown: runInNewContext(`Object.assign(new Error('ignored provider message'), {
+          name: 'ToolArgsError', violations: ['foreign required field', 'foreign invalid value'],
+        })`),
+        message: 'foreign required field; foreign invalid value',
+      },
+      {
+        name: 'non-array violations',
+        thrown: { violations: 'not an array', message: 'provider rejected the payload' },
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'mixed-type violations',
+        thrown: { violations: ['partial violation', 42], message: 'provider rejected the payload' },
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'throwing violations accessor',
+        thrown: {
+          get violations() { throw new Error('cannot inspect violations') },
+          message: 'provider rejected the payload',
         },
-      })
-      expect(policyCalls).toBe(0)
-      expect(approvalCalls).toBe(0)
-      expect(bodyCalls).toBe(0)
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'throwing violation entry',
+        thrown: {
+          violations: Object.defineProperty(['unreadable violation'], '0', {
+            get() { throw new Error('cannot inspect violation entry') },
+          }),
+          message: 'provider rejected the payload',
+        },
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'unprintable violations object',
+        thrown: {
+          get violations() { throw new Error('cannot inspect violations') },
+          get message() { throw new Error('cannot inspect message') },
+        },
+        message: '<unprintable thrown value>',
+      },
+      { name: 'null throw', thrown: null, message: 'null' },
+      { name: 'string throw', thrown: 'provider rejected the payload', message: 'provider rejected the payload' },
+    ])('normalizes $name before policy or approval observes the call', async ({ thrown, message }) => {
+      const ctx = await approvalSetup()
+      try {
+        let policyCalls = 0
+        let approvalCalls = 0
+        let bodyCalls = 0
+        ctx.tools.register({
+          ...echoTool,
+          name: 'raw-validator',
+          validateArgs() { throw thrown },
+          async execute() { bodyCalls += 1; return 'unreachable' },
+        })
+        ctx.on('approval/request', () => {
+          approvalCalls += 1
+          return Promise.resolve<ApprovalOutcome>('allowed-once')
+        })
+        ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => {
+          policyCalls += 1
+          return { kind: 'ask' }
+        })
+
+        const result = await ctx.tools.execute({
+          signal: testToolSignal,
+          callId: ToolCallId('raw-invalid-before-approval'),
+          name: 'raw-validator',
+          arguments: { text: 'wrong for the provider' },
+          agent: fakeAgent(),
+        })
+
+        expect(result).toEqual({
+          isError: true,
+          error: {
+            message: `invalid arguments: ${message}`,
+            info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+          },
+          content: [{ type: 'text', text: `Error: invalid arguments: ${message}` }],
+        })
+        expect(policyCalls).toBe(0)
+        expect(approvalCalls).toBe(0)
+        expect(bodyCalls).toBe(0)
+      } finally {
+        await ctx.fiber.dispose()
+      }
     })
 
     it('denies with the user-rejection reason on rejected', async () => {

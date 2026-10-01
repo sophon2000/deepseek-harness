@@ -84,7 +84,7 @@ async function expectHeadlessStream(normalized: string, expectedPath: string): P
 
 /** Serve one deterministic DeepSeek-compatible response while retaining its request body. */
 async function deepseekDefaultsServer(
-  options: { waitForTitleRequest?: boolean; piAiCompatibility?: true } = {},
+  options: { keepAliveCount?: number; waitForTitleRequest?: boolean; piAiCompatibility?: true } = {},
 ): Promise<DeepSeekDefaultsServer> {
   const requests: JsonObject[] = []
   const paths: string[] = []
@@ -96,7 +96,7 @@ async function deepseekDefaultsServer(
       requests.push(JSON.parse(body) as JsonObject)
       paths.push(request.url ?? '')
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      let keepAlives = 3
+      let keepAlives = options.keepAliveCount ?? 3
       const write = (): void => {
         // One-shot teardown may cancel background title work after the main response.
         if (keepAlives-- > 0
@@ -584,7 +584,8 @@ describe('headless stream-json snapshots', () => {
   }, LOADER_SMOKE_TEST_TIMEOUT_MS)
 
   it('keeps provider comments alive and sends DeepSeek defaults through the one-shot app', async () => {
-    const server = await deepseekDefaultsServer()
+    // Twenty comments at 60 ms span the fixture's 1,000 ms idle watchdog.
+    const server = await deepseekDefaultsServer({ keepAliveCount: 20, waitForTitleRequest: true })
     try {
       const result = await runLoaderSmoke({
         label: 'DeepSeek adapter defaults headless stream-json snapshot',
@@ -715,7 +716,7 @@ describe('headless stream-json snapshots', () => {
       expect(header?.config).toMatchInlineSnapshot(`
         {
           "maxTokens": 1024,
-          "model": "deepseek-v4-flash",
+          "model": "deepseek-flash",
           "provider": "deepseek",
           "reasoningEffort": "low",
         }

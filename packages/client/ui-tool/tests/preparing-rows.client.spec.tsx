@@ -22,19 +22,27 @@ import { toolRowModel } from '../src/client/tool/models/tool-call-model.ts'
 
 afterEach(cleanup)
 
-type Props = Parameters<typeof TodoRow>[0] & Parameters<typeof ReadImageRow>[0]
+type Props = Parameters<typeof TodoRow>[0] & Parameters<typeof ReadImageRow>[0] & Parameters<typeof AskQuestionRow>[0]
+
+function useEmptyProjection(_key: string): undefined
+function useEmptyProjection<Selected>(_key: string, select: (value: undefined) => Selected): Selected
+function useEmptyProjection<Selected>(_key: string, select?: (value: undefined) => Selected): Selected | undefined {
+  return select?.(undefined)
+}
 
 function preparation(name: string): Props {
   const snapshot = sessionSnapshot(SessionId('session'))
   const loadImage: Props['loadImage'] = () => Promise.reject(new Error('not used'))
   const useSession: Props['useSession'] = selector => selector(snapshot)
-  const props = {
+  const useProjection: Props['useProjection'] = useEmptyProjection
+  const props: Partial<Props> = {
     phase: 'preparing', callId: 'call', toolName: name,
     block: { phase: 'preparing', callId: 'call', name, turn: 1, step: 1, time: 1, subCalls: [] },
     t: makeTranslate(en, common), useDisclosure, useToolCallArgumentsPartial: vi.fn(() => ''), openFile: vi.fn(), loadImage,
     useTodoHistory: vi.fn(), useSession, renderImages: vi.fn(() => null),
-  } as Props
-  return props
+    useProjection, revealPanel: vi.fn(() => false), reviewPanel: vi.fn(() => false),
+  }
+  return props as Props
 }
 
 describe('argument-free tool preparation', () => {

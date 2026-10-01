@@ -117,7 +117,10 @@ class ShippedAutoAdapter extends LlmAdapter {
       yield* textChunks(AUTO_FINAL_TEXT)
       return
     }
-    const args = JSON.stringify({ command: `rm -- '${this.targetPath.replaceAll("'", "'\\''")}'` })
+    const args = JSON.stringify({
+      command: `rm -- '${this.targetPath.replaceAll("'", "'\\''")}'`,
+      description: 'Delete the pre-existing workspace file',
+    })
     yield { type: 'block-start', index: 0, blockType: 'tool-call' }
     yield {
       type: 'tool-call-delta',
@@ -741,9 +744,11 @@ it('routes one browser-authored Auto request through the same model and asks the
     'shipped Auto review same-route adapter',
   )
   const approvalReasons: Array<string | undefined> = []
-  ctx.effect(() => ctx.on('approval/request', (request) => {
+  const approvalTargetContents: string[] = []
+  ctx.effect(() => ctx.on('approval/request', async (request) => {
     approvalReasons.push(request.reason)
-    return Promise.resolve('rejected' as const)
+    approvalTargetContents.push(await readFile(targetPath, 'utf8'))
+    return 'rejected' as const
   }, { prepend: true }), 'shipped Auto rejecting user')
 
   const created = await remote<{ sessionId: string }>(scaffold, 'session/create', {
@@ -794,6 +799,7 @@ it('routes one browser-authored Auto request through the same model and asks the
   expect(reviewInput).toContain(requestId)
   expect(reviewInput).toContain(targetPath)
   expect(approvalReasons).toEqual([`Auto review denied tool "bash": ${AUTO_RAW_REASON}`])
+  expect(approvalTargetContents).toEqual(['PRE_EXISTING_MUST_REMAIN\n'])
   const finalModelInput = JSON.stringify(finalMain?.messages)
   expect(finalModelInput).toContain('the user rejected tool \\"bash\\"')
   expect(finalModelInput).not.toContain('direct user authorized inspection only')
@@ -811,6 +817,7 @@ it('routes one browser-authored Auto request through the same model and asks the
     event.type === 'tool/result'
       && event.data.message.toolCallId === AUTO_CALL_ID
   ))
+  expect(result?.data.message.isError).toBe(true)
   expect(result?.data.error).toBeUndefined()
   const durableModelResult = JSON.stringify(result?.data.message)
   expect(durableModelResult).toContain('the user rejected tool \\"bash\\"')

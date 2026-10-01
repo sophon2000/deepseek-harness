@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-30-fork-archive-evidence.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-30-fork-archive-evidence.md
+/agent-note-immutable-fork-archive-evidence:
+  en: 1860c9ff732e9d3e
+  zh: 414a219398bf1248
+/agent-note-immutable-fork-archive-evidence/problem:
+  en: 7d7ff856138da78e
+  zh: 7a66de64a31e7eff
+/agent-note-immutable-fork-archive-evidence/decision:
+  en: 072d860261124a86
+  zh: 0d5fde217645f261
+/agent-note-immutable-fork-archive-evidence/alternatives-considered:
+  en: 942a0f252fa3000b
+  zh: e5b4da38ac7e6785
+/agent-note-immutable-fork-archive-evidence/consequences:
+  en: af03b3d33f826b11
+  zh: d0242fd55fd9764a

@@ -10,7 +10,7 @@ Historical evidence needs recognizable release, PR, and measured-run identities.
 
 ## Decision
 
-Use release tags and PR, run, or job identifiers for historical evidence, and relative links for current repository files. The [reference gate](../../../../scripts/verify-repository-references.ts) scans tracked files and nonignored new files. Vendor sources and frozen Agent Notes retain their existing exclusions; active notes and historical release records remain checked.
+Use release tags and PR, run, or job identifiers for historical evidence, and relative links for current repository files. The [reference gate](../../../../scripts/verify-repository-references.ts) scans tracked files and nonignored new files. Vendor sources and frozen Agent Notes retain their existing exclusions; active notes and historical release records remain checked. The [immutable fork evidence policy](2026-09-30-fork-archive-evidence.md) admits historical commit identifiers only in one exact, content-sealed snapshot.
 
 The gate resolves hexadecimal candidates against the local Git object database and rejects only unambiguous commit identities. Pairing hashes that identify blobs, schema digests, unrelated hexadecimal values, and hexadecimal branch names that resolve to different object identities remain valid. Organization URL detection shares decoding and normalization with the existing repository-link policy.
 

@@ -116,6 +116,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
       if (routes.length !== 1 || routes[0].path !== '/api') {
         throw new Error('Connection did not register exactly one /api route')
       }
+      let goalCreateRequests = 0
       const server = createServer((request, response) => {
         if ((request.url ?? '/').startsWith('/?')) {
           if (host.connection.authorizeIndex(request, response)) {
@@ -124,6 +125,7 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
           }
           return
         }
+        if (request.method === 'POST' && request.url === '/api/goals/create') goalCreateRequests += 1
         void routes[0].handler(request, response)
       })
       await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
@@ -182,15 +184,21 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
         })
 
         const invalidResult = await client.remote.goals.create(rootAgent.id, { objective: 1 })
-        let clientUnknownRejected = false
-        try {
-          await client.remote.goals.create(rootAgent.id, {
-            objective: 'forged client goal',
-            projectId: 'project-forged',
-          })
-        } catch {
-          clientUnknownRejected = true
+        const forgedClientRequest = {
+          objective: 'forged client goal',
+          projectId: 'project-forged',
         }
+        const clientRequestCodec = client.typert.remotes.get('goals/create')
+          ?.parameters.find(parameter => parameter.wire === 'request')?.codec
+        if (clientRequestCodec?.mode !== 'strict') throw new Error('missing strict Client request codec')
+        const clientRequestSchema = clientRequestCodec.create()
+        const clientCodecAcceptsValid = clientRequestSchema.safeParse({ objective: 'valid goal' }).success
+        const clientCodecRejectsUnknown = !clientRequestSchema.safeParse(forgedClientRequest).success
+        // Client calls send typed values unchanged; Host validation returns a
+        // RemoteResult failure rather than rejecting the Client promise.
+        const beforeUnknownRequest = goalCreateRequests
+        const clientUnknownResult = await client.remote.goals.create(rootAgent.id, forgedClientRequest)
+        const clientUnknownHttpRequests = goalCreateRequests - beforeUnknownRequest
         const forgedHostResponse = await fetch(origin + '/api/goals/create', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -207,8 +215,6 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
           }),
         })
         const forgedHostBody = await forgedHostResponse.json()
-        const hostUnknownRejected = forgedHostResponse.status === 200
-          && forgedHostBody?.result?.ok === false
         const rejectedGoalAbsent = host.goals.get(rootAgent) === undefined
         const rejectedEventCount = rootAgent.session.snapshotEvents().length
         // Every generated method resolves to the RemoteResult envelope; the
@@ -223,8 +229,12 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
         const scopedResult = await agentContext.remote.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
         const result = {
           invalidResult,
-          clientUnknownRejected,
-          hostUnknownRejected,
+          clientCodecAcceptsValid,
+          clientCodecRejectsUnknown,
+          clientUnknownResult,
+          clientUnknownHttpRequests,
+          hostUnknownStatus: forgedHostResponse.status,
+          hostUnknownResult: forgedHostBody.result,
           rejectedGoalAbsent,
           rejectedEventCount,
           rootResult: rootResult.value,
@@ -254,8 +264,12 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     expect(result.exitCode, `stderr:\n${result.stderr}`).toBe(0)
     const output = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}') as {
       invalidResult: { ok: boolean; error?: { code: string } }
-      clientUnknownRejected: boolean
-      hostUnknownRejected: boolean
+      clientCodecAcceptsValid: boolean
+      clientCodecRejectsUnknown: boolean
+      clientUnknownResult: { ok: boolean; error?: { code: string } }
+      clientUnknownHttpRequests: number
+      hostUnknownStatus: number
+      hostUnknownResult: { ok: boolean; error?: { code: string } }
       rejectedGoalAbsent: boolean
       rejectedEventCount: number
       rootResult: { ref: { id: string; revision: number } }
@@ -268,8 +282,18 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     }
     expect(output).toMatchObject({
       invalidResult: { ok: false, error: { code: 'gateway/input-invalid' } },
-      clientUnknownRejected: true,
-      hostUnknownRejected: true,
+      clientCodecAcceptsValid: true,
+      clientCodecRejectsUnknown: true,
+      clientUnknownResult: {
+        ok: false,
+        error: { code: 'gateway/input-invalid', details: { endpoint: 'goals/create', field: 'request' } },
+      },
+      clientUnknownHttpRequests: 1,
+      hostUnknownStatus: 200,
+      hostUnknownResult: {
+        ok: false,
+        error: { code: 'gateway/input-invalid', details: { endpoint: 'goals/create', field: 'request' } },
+      },
       rejectedGoalAbsent: true,
       rejectedEventCount: 0,
       rootResult: { ref: { revision: 1 } },
