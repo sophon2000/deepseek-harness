@@ -116,7 +116,10 @@ class ShippedAutoAdapter extends LlmAdapter {
       yield* textChunks(AUTO_FINAL_TEXT)
       return
     }
-    const args = JSON.stringify({ command: `rm -- '${this.targetPath.replaceAll("'", "'\\''")}'` })
+    const args = JSON.stringify({
+      command: `rm -- '${this.targetPath.replaceAll("'", "'\\''")}'`,
+      description: 'Delete the pre-existing file',
+    })
     yield { type: 'block-start', index: 0, blockType: 'tool-call' }
     yield {
       type: 'tool-call-delta',

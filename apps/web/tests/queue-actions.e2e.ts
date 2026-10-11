@@ -435,7 +435,12 @@ describe('web e2e: queue row actions', () => {
     ] satisfies ReplayEntry[]))
 
     const sessionEvents: SessionEvent[] = []
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false })
+    // Only the final completed replay carries usage. Burst delivery can finish
+    // within one clock millisecond, correctly leaving durable decodeMs at zero
+    // and hiding throughput. Stream this fixture incrementally so its golden
+    // has a real positive decode interval; the Goal/Queue assertions stay exact.
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath,
+      compareReplaySession: false, paceMs: 1 })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -483,6 +488,7 @@ describe('web e2e: queue row actions', () => {
     expect(sessionEvents.some(event => event.type === 'agent/inbox/spliced' && event.data.target === 'next-turn'
       && event.data.outcome === 'canceled')).toBe(true)
     await expect.poll(() => stop.count(), { timeout: 10_000 }).toBe(0)
+    await page.getByRole('button', { name: /^3 turns 3 steps · [\d.]+ tok\/s$/u }).waitFor({ timeout: 10_000 })
     const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(GOAL_STOP_EXPECTED, snapshot, MODE)
     expect(tripwire.pageErrors).toEqual([])
