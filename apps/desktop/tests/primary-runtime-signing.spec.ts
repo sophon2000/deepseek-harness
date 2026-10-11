@@ -241,7 +241,9 @@ it('rejects a newly added unsigned dependency in the final artifact audit', asyn
 
 it('records signed dependency bytes before smoke and rejects changes after smoke', async () => {
   const root = await fixture(['dependency.node'])
-  runtimeFixture(root)
+  const product = { id: 'fixture', profileBundles: ['fixture-bundle'], resourcesRoot: 'products/fixture/resources',
+    service: { entrypoint: 'service.mjs', exportedEnvironment: ['FIXTURE_URL'] } }
+  runtimeFixture(root, '1.0.0', '24.17.0', product)
   let signed = false
   const options = { thumbprint, record: () => {},
     inspect: async () => signed ? valid : unsigned,
@@ -249,10 +251,11 @@ it('records signed dependency bytes before smoke and rejects changes after smoke
       await writeFile(path, Buffer.concat([await readFile(path), Buffer.from('signature')]))
       signed = true
     },
-    smoke: vi.fn(async () => { await verifyDesktopRuntime(root, '1.0.0') }),
+    smoke: vi.fn(async () => { expect((await verifyDesktopRuntime(root, '1.0.0')).product).toEqual(product) }),
   }
   await signWindowsDesktopRuntime(root, '1.0.0', options)
   expect(options.smoke).toHaveBeenCalledOnce()
+  expect((await verifyDesktopRuntime(root, '1.0.0')).product).toEqual(product)
   await expect(signWindowsDesktopRuntime(root, '1.0.0', { ...options,
     smoke: async () => { await writeFile(join(root, 'dependency.node'), 'mutated') },
   })).rejects.toThrow('integrity')

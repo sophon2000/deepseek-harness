@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-12-generic-tool-image-result-gallery.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-generic-tool-image-result-gallery.md
+/agent-note-generic-tool-image-result-gallery:
+  en: 510c9cc5d5a08eb4
+  zh: 42bc55d7ce1d8052
+/agent-note-generic-tool-image-result-gallery/problem:
+  en: 9644edaacdbfb1cb
+  zh: 4070d4f9af52dcdf
+/agent-note-generic-tool-image-result-gallery/decision:
+  en: 5fba65fceb55756b
+  zh: aac60e5e73fca150
+/agent-note-generic-tool-image-result-gallery/alternatives-considered:
+  en: 80121d5eddae3138
+  zh: cf2948ad7ac0e7b4
+/agent-note-generic-tool-image-result-gallery/consequences:
+  en: a532ce7c4428a534
+  zh: eea6bb40c181cdd3

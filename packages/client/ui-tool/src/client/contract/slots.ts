@@ -1,4 +1,5 @@
 /** Tool UI slot declarations and their composed component props. */
+import type { ReactNode } from 'react'
 import type {
   HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, SessionIdOf,
 } from '@deepseek-ai/dsh-client-ui-slots'
@@ -14,14 +15,11 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
-     * Keyed Tool call view dispatched by wire Tool name. Any name is allowed,
-     * including tools registered by your package. Register with
-     * `key: '<tool name>'`; a typo never renders.
-     *
-     * Registering an occupied key replaces its view; unclaimed keys use the
-     * generic row. The owner supplies the call identity and running
-     * or settled node through explicit phase props. Every stage supplies
-     * `name` and a lazy `args` view; preparing arguments may be incomplete.
+     * Keyed Tool view dispatched by wire name, including plugin-defined tools.
+     * Register with `key: '<tool name>'`; a typo never renders. An occupied key
+     * replaces its view; unclaimed keys use the generic row. Owner props carry
+     * call identity and phase-specific data. Every stage supplies `name` and
+     * a lazy `args` view; preparing arguments may be incomplete.
      */
     'tool.call.toolview': {
       kind: 'keyed'
@@ -29,17 +27,10 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       owner: ToolCallOwnerProps
     }
     /**
-     * Durable images of a settled image-bearing Tool call, rendered through
-     * the attachment presentation plugin. The Tool layer never imports an
-     * attachment implementation: a toolview declares this slot as a child and
-     * renders it with the image card's references plus the session-authorized
-     * loader it received in its owner, and the attachment plugin fills the
-     * gallery. Composing no attachment presentation plugin renders nothing,
-     * which is why the image card keeps its own envelope text beside the
-     * gallery. A child slot is declared by exactly one entry: registering a
-     * second toolview that declares the same child throws at load, so a
-     * future image-bearing tool must reuse this entry or own a distinct
-     * slot.
+     * Durable images supplied through the Tool call tree's single gallery slot.
+     * Atomic toolviews receive its renderer without importing attachment UI.
+     * Without an attachment presentation plugin the gallery renders nothing;
+     * image cards retain their envelope text beside it.
      */
     'tool.call.images': { kind: 'single'; scope: 'session'; owner: ToolImagesOwnerProps }
   }
@@ -54,6 +45,12 @@ export interface ToolImagesOwnerProps {
   /** Horizontal placement inside the owning record. */
   align: 'start' | 'end'
 }
+
+/** Attachment-agnostic image renderer supplied to every atomic Tool view. */
+export type ToolImageRenderer = (
+  images: readonly MessageImageSource[],
+  align?: ToolImagesOwnerProps['align'],
+) => ReactNode
 
 /** Standard owner currency supplied to every atomic Tool view. */
 export interface ToolCallCommonProps {
@@ -71,6 +68,8 @@ export interface ToolCallCommonProps {
   openFile: (path: string, options?: OpenFileOptions) => void
   /** Chat-supplied, session-authorized loader for durable images; Tool views do not manage attachment URLs. */
   loadImage: MessageImageLoader
+  /** Render standard image result blocks through the composed attachment UI. */
+  renderImages?: ToolImageRenderer | undefined
   /** Inspect this call in the trajectory view when available. */
   inspect?: (() => void) | undefined
 }
@@ -153,5 +152,6 @@ export type ToolHostInfoInjected = {
 /** Full props of the Tool call-tree renderer registered as a tool-call Chat Node. */
 export type ToolTreeProps = PropsRuntime<'conversation.chat.node', 'tool-call'>
   & PropsRenderSlots<'tool.call.toolview'>
+  & PropsRenderSlots<'tool.call.images'>
   & PropsLocale<'conversation'>
   & InjectFace<ToolHostInfoInjected>

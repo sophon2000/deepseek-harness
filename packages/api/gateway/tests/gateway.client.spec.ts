@@ -141,9 +141,9 @@ function remoteEventContracts(remote: ClientRemote): void {
 void remoteEventContracts
 
 const idSchema = z.string().min(1)
-const requestSchema = z.object({ objective: z.string().min(1) })
-const createResultSchema = z.object({ ref: z.string().min(1) })
-const renameResultSchema = z.object({ renamed: z.boolean() })
+const requestSchema = z.strictObject({ objective: z.string().min(1) })
+const createResultSchema = z.strictObject({ ref: z.string().min(1) })
+const renameResultSchema = z.strictObject({ renamed: z.boolean() })
 
 function directDescriptor(): InvocationDescriptor {
   return {

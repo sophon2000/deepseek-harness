@@ -12,8 +12,6 @@ Desktop product events use the optional [product analytics service](../product-a
 
 Use this package to render a browser chat from recorded Session conversations, including historical images, localized actions, and restored scroll position. Work-details modes control reasoning previews and process visibility without hiding final answers; Verbose keeps completed-turn process rows visible. Local transcript and steering submissions appear immediately, remain in their original surface, and disappear atomically when authoritative Session records arrive, while queued submissions stay outside Chat. The package does not assemble or modify model requests.
 
-File-mention providers receive the viewed Session ID with the closing-turn owner, so links into inherited history can address the fork itself.
-
 ## Table of Contents
 
 - [Reference previews](#reference-previews)
@@ -32,6 +30,8 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 
 <a id="reference-previews"></a>
 ## Reference previews
+
+File-mention providers register through Chat's `chatFileMentions` service and receive the viewed Session ID with the closing-turn owner, so links into inherited history can address the fork itself. Registration returns an effect-scoped disposer. A mention opens only when exactly one provider resolves it; competing claims leave plain text.
 
 Chat supplies file and HTTP(S) navigation through one `MarkdownDelegateProvider` around its node list. Assistant Markdown file links open in the right Sidebar after the message settles, including references to unmodified files. Relative paths resolve in the viewed Session's workspace; absolute paths retain the same Session's filesystem access. `#L24` and `#L24-L30` navigate to the first specified line and reuse an existing file tab. Missing files show the preview's error state.
 

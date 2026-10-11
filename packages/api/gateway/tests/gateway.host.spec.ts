@@ -103,7 +103,10 @@ class GoalService extends Service {
     throw this.businessError ?? new Error('fixture business failure')
   }
 
-  strictOnly(request: { readonly title: string }): unknown {
+  strictOnly(request: {
+    readonly title: string
+    readonly options?: { readonly priority: number }
+  }): unknown {
     this.calls.push('strictOnly')
     return this.nextResult === undefined ? request : this.nextResult
   }
@@ -797,6 +800,28 @@ describe('TypertGatewayService', () => {
       method: 'strictOnly',
       args: { request: { title: 'ship' } },
     })).resolves.toEqual({ title: 1 })
+  })
+
+  it('rejects unknown strict DTO properties before invoking business code', async () => {
+    const { ctx, service } = await setup()
+    registerStrict(ctx, [strictOnlyDescriptor()])
+
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'strictOnly',
+      args: { request: { title: 'ship', projectId: 'project-forged' } },
+    }), 'gateway/input-invalid')
+    await expectCode(ctx.typertGateway.invoke({
+      namespace: 'goals',
+      method: 'strictOnly',
+      args: {
+        request: {
+          title: 'ship',
+          options: { priority: 1, tenantId: 'tenant-forged' },
+        },
+      },
+    }), 'gateway/input-invalid')
+    expect(service.calls).toEqual([])
   })
 
   it('does not inspect non-JSON business results', async () => {
@@ -1567,7 +1592,10 @@ function passthroughDescriptor(): InvocationDescriptor {
 }
 
 function strictOnlyDescriptor(): InvocationDescriptor {
-  const value = strictCodec('@fixture/gateway#StrictValue', z.object({ title: z.string() }))
+  const value = strictCodec('@fixture/gateway#StrictValue', z.strictObject({
+    title: z.string(),
+    options: z.strictObject({ priority: z.number() }).optional(),
+  }))
   return {
     id: '@fixture/gateway#goals/strictOnly',
     service: 'goals',

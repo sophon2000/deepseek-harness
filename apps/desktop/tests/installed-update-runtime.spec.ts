@@ -20,7 +20,9 @@ describe('installed-update runtime preparation', () => {
   it('retags only release-owned packages and dependencies while preserving source and third-party versions', async () => {
     await fixture(async (directory) => {
       const original = join(directory, 'source')
-      runtimeFixture(original, source.version)
+      const product = { id: 'fixture', profileBundles: ['fixture-bundle'], resourcesRoot: 'products/fixture/resources',
+        service: { entrypoint: 'service.mjs', exportedEnvironment: ['FIXTURE_URL'] } }
+      runtimeFixture(original, source.version, '24.17.0', product)
       const before = await readFile(join(original, 'desktop-runtime.json'))
       const run = await createInstalledUpdateRun(join(directory, 'runs'), versions, source)
       const result = await prepareInstalledUpdateRuntime(join(run.root, 'run.json'), original)
@@ -28,6 +30,7 @@ describe('installed-update runtime preparation', () => {
       for (const version of versions) {
         const runtime = join(run.root, version, 'dsh')
         const descriptor = await verifyDesktopRuntime(runtime, version)
+        expect(descriptor.product).toEqual(product)
         expect(descriptor.sharedPackages.find(entry => entry.name === '@deepseek-ai/cordis')?.version).toBe(source.version)
         expect(descriptor.sharedPackages.find(entry => entry.name === '@deepseek-ai/dsh')?.version).toBe(version)
         const metadata = JSON.parse(await readFile(join(runtime, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8')) as {

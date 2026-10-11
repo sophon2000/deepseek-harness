@@ -50,6 +50,7 @@ function policy(fields: Partial<PackageDependencyPolicy> = {}): PackageDependenc
     clientFaceExclude: [],
     hostPackages: [],
     configurationOnlyDevDependencies: {},
+    publishedDeclarationDependencies: {},
     safeHostDependencyExports: {},
     peerRequiredHostExports: {},
     ...fields,
@@ -86,6 +87,7 @@ function facts(manifest: PackageDependencyManifest): PackageDependencyFacts {
     }],
     peerRequiredHostDependencies: new Set(),
     configurationOnlyDevDependencies: new Set(),
+    publishedDeclarationDependencies: new Set(),
     clientInject: new Set(),
   }
 }
@@ -175,6 +177,7 @@ function hostRuntimeFixture(): {
     }],
     peerRequiredHostDependencies: new Set(),
     configurationOnlyDevDependencies: new Set(),
+    publishedDeclarationDependencies: new Set(),
     clientInject: new Set(),
   }
   return { provider, workspaceNames, consumerFacts }
@@ -204,6 +207,9 @@ describe('package dependency scope', () => {
       '@deepseek-ai/dsh-client-ui-subagent': ['@deepseek-ai/dsh-client-ui-input-trigger'],
       '@deepseek-ai/dsh-client-ui-theme': ['@deepseek-ai/dsh-api-remotes'],
       '@deepseek-ai/dsh-client-ui-tool': ['@deepseek-ai/dsh-api-remotes'],
+    })
+    expect(PACKAGE_DEPENDENCY_POLICY.publishedDeclarationDependencies).toEqual({
+      '@deepseek-ai/dsh-session': ['@deepseek-ai/dsh-typert-protocol'],
     })
     expect(PACKAGE_DEPENDENCY_POLICY.duplicateSafePackages).toEqual([
       '@deepseek-ai/dsh-brand',
@@ -589,6 +595,14 @@ describe('face-aware source classification', () => {
       requiredServicePeers: { '@f/other': ['@f/types'] },
     }))
     expect(expectedPackageDependencies(unrelated).get('@f/types')?.section).toBe('devDependencies')
+    const published = readPackageDependencyFacts(root, subject, 'client-host', found.workspaceNames, policy({
+      publishedDeclarationDependencies: { '@f/dual': ['@f/types'] },
+    }))
+    expect([...published.publishedDeclarationDependencies]).toEqual(['@f/types'])
+    expect(expectedPackageDependencies(published).get('@f/types')).toEqual({
+      section: 'dependencies',
+      origins: ['packages/g/dual/src/index.ts', 'published declaration import'],
+    })
     for (const name of ['@f/missing', '@f/injected']) {
       expect(() => readPackageDependencyFacts(root, subject, 'client-host', found.workspaceNames, policy({
         requiredServicePeers: { '@f/dual': [name] },

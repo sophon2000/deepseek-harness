@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-08-25-close-generated-typert-object-codecs.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-25-close-generated-typert-object-codecs.md
+/agent-note-close-generated-typert-object-codecs:
+  en: 63245b3e3166e401
+  zh: 5afacae0c37b967e
+/agent-note-close-generated-typert-object-codecs/problem:
+  en: 1fdb770d82916d01
+  zh: deb4aba7b19f36e4
+/agent-note-close-generated-typert-object-codecs/decision:
+  en: b4eeaa0ddad5c21a
+  zh: 047af9969c7dd558
+/agent-note-close-generated-typert-object-codecs/alternatives-considered:
+  en: 8be142090f65bda3
+  zh: 864a689781f7ae70
+/agent-note-close-generated-typert-object-codecs/verification:
+  en: da64a152856b617d
+  zh: 207e859c1b455143
+/agent-note-close-generated-typert-object-codecs/consequences:
+  en: d97eade56693452d
+  zh: ffaadfe2aa8e96a7

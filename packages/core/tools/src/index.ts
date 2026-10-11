@@ -28,6 +28,7 @@ import type { PtcSdkLanguage } from './ptc.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 import { renderToolsSdkPy } from './py-types.ts'
+import { ToolArgsError as CanonicalToolArgsError } from './schema.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -224,6 +225,17 @@ export interface ToolOutputDefinition {
 export interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
+  /**
+   * Validate snapshotted model arguments before policy or approval observes the
+   * call. Throw when the arguments are invalid; the registry normalizes every
+   * rejection to its own `ToolArgsError` / `INVALID_ARGS` identity, including
+   * errors originating in a separately materialized provider package. Omit
+   * this callback only when the provider owns validation during execution,
+   * such as an MCP server. The registry still treats `execute` as the final
+   * enforcement point, so implementations may validate there again.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   */
+  validateArgs?(args: unknown): void
   /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
@@ -478,7 +490,7 @@ export interface ToolRuntimeScheduler {
  * Scheduler entry point omitted from the generated named service API.
  * @internal
  */
-export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol('@deepseek-ai/dsh-tools.scheduler')
+export const TOOL_RUNTIME_SCHEDULER: unique symbol = Symbol.for('@deepseek-ai/dsh-tools.scheduler')
 
 /** Canonical error code for cancellation after a tool body was invoked. */
 export const TOOL_ABORTED = 'ABORTED'
@@ -639,6 +651,24 @@ function errorMessage(error: unknown): string {
     // coercion. Error normalization is the outermost safety boundary, so its
     // fallback must itself be total.
     return '<unprintable thrown value>'
+  }
+}
+
+/** Normalize provider-owned argument validators into this runtime's stable error identity. */
+function validateDefinitionArgs(tool: ToolDefinition | undefined, args: unknown): void {
+  try {
+    tool?.validateArgs?.(args)
+  } catch (error: unknown) {
+    if (error instanceof CanonicalToolArgsError) throw error
+    try {
+      if (typeof error === 'object' && error !== null && 'violations' in error
+        && Array.isArray(error.violations) && error.violations.every(item => typeof item === 'string')) {
+        throw new CanonicalToolArgsError(error.violations)
+      }
+    } catch (normalized: unknown) {
+      if (normalized instanceof CanonicalToolArgsError) throw normalized
+    }
+    throw new CanonicalToolArgsError([errorMessage(error)])
   }
 }
 
@@ -1507,6 +1537,8 @@ export class ToolRuntime extends Service {
       return next({ kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() })
     }
     try {
+      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+      validateDefinitionArgs(tool, exec.arguments)
       const carrier = scopeTarget(this, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,

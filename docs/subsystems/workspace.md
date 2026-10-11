@@ -18,6 +18,24 @@ type WorkspaceId = Branded<'WorkspaceId'>
 
 `WorkspaceId` is a [branded id](core.md#branded-ids). Path identity is separate: `realpathNormalize` (`fs.realpath`; trailing slashes, `..`, and symlinks resolved) is the one uniqueness canon — workspace paths are stored canonicalized, uniqueness is string equality of canonical paths (a symlink to an owned directory collides), and attach-time session cwd checks go through the same canon.
 
+A durable Session-account lookup returns the owning workspace and validates the indexed immutable header cwd. It does not report live workspace directory availability.
+
+```ts type-equiv
+/**
+ * Durable Workspace account lookup for one Session. `validation` reports
+ * whether the registry's indexed immutable header cwd identifies the
+ * Workspace path; it does not report live Workspace directory availability
+ * (see {@link Workspace.status}).
+ */
+interface WorkspaceSessionInspection {
+  /** Workspace whose durable candidate account contains the Session id. */
+  readonly workspace: Workspace
+
+  /** Canonical-cwd validation result from the registry's header index. */
+  readonly validation: 'valid' | 'cwd-unavailable' | 'cwd-mismatch'
+}
+```
+
 ## The workspace entity
 
 Consumers see only the `Workspace` interface; the implementation stays package-private.
@@ -117,7 +135,7 @@ Ownership truth is the record's ordered `sessionIds`, never derived from session
 
 ## The registry: `ctx.workspaceRegistry`
 
-`WorkspaceRegistry` ([signatures](#ctxworkspaceregistry--workspaceregistry)) owns registration and resolution. `create(path, title?)` requires a fully qualified path, canonicalizes it, rejects a nonexistent path (the original `ENOENT`) or a non-directory, returns the existing entity unchanged when the canonical path is already owned, and otherwise creates a record with `title ?? defaultWorkspaceTitle(path)` prepended to the durable registry order (different canonical paths may share a display title, and a path with no final segment uses its root spelling). `get(id)` and the ordered `list()` are synchronous cache reads; `resolveByPath(path)` applies the same fully qualified realpath canon without creating. `delete(id)` removes only the registration, order entry, and session account — the directory, user files, live sessions, and persisted logs are never touched, so those sessions become Ungrouped ([reference](../../packages/workspace/workspace/README.md)); unknown ids return `false`. Create and delete persist a pending-mutation marker before their two writes (record + order) can diverge; startup resolves exactly the marked mutation — by deleting the marked table row, which completes an interrupted delete and rolls back an interrupted create (the registration is re-creatable, so rollback is the safe direction) — and an unmarked order/table mismatch fails loud as corruption.
+`WorkspaceRegistry` ([signatures](#ctxworkspaceregistry--workspaceregistry)) owns registration and resolution. `create(path, title?)` requires a fully qualified path, canonicalizes it, rejects a nonexistent path (the original `ENOENT`) or a non-directory, returns the existing entity unchanged when the canonical path is already owned, and otherwise creates a record with `title ?? defaultWorkspaceTitle(path)` prepended to the durable registry order (different canonical paths may share a display title, and a path with no final segment uses its root spelling). `get(id)`, the ordered `list()`, and `inspectSessionWorkspace(id)` are synchronous cache reads; `resolveByPath(path)` applies the same fully qualified realpath canon without creating. `delete(id)` removes only the registration, order entry, and session account — the directory, user files, live sessions, and persisted logs are never touched, so those sessions become Ungrouped ([reference](../../packages/workspace/workspace/README.md)); unknown ids return `false`. Create and delete persist a pending-mutation marker before their two writes (record + order) can diverge; startup resolves exactly the marked mutation — by deleting the marked table row, which completes an interrupted delete and rolls back an interrupted create (the registration is re-creatable, so rollback is the safe direction) — and an unmarked order/table mismatch fails loud as corruption.
 
 Sessions get their cwd at create time from whoever creates them, not from this registry — the API gateway resolves a new session's cwd from the chosen workspace's `path` (falling back to an explicit or default cwd), creates the session so the cwd lands in its immutable [`SessionHeader`](persistence.md#sessionheader--metadata-beside-the-log), then calls `attachSession`, which re-validates that stored header cwd against the workspace path. On the first successful start, the registry bootstraps history from persisted headers alone (`id`, `cwd`, `createdAt` — never event bodies), grouping sessions with a valid canonical cwd into per-directory workspaces, newest first; the initialized marker is written last so an interrupted bootstrap resumes safely. The bootstrap is one-time: cwd-less legacy sessions stay Ungrouped, and sessions created afterwards join a workspace only through `attachSession`.
 
@@ -521,6 +539,17 @@ get(id: WorkspaceId): Workspace | undefined
  * @returns a fresh ordered array of workspace entities.
  */
 list(): Workspace[]
+
+/**
+ * Inspect the durable Workspace account for one Session without widening
+ * the validated {@link Workspace.sessionIds} membership projection. The
+ * result is derived synchronously from the registry's startup/live header
+ * index and performs no persistence read or mutation.
+ * @param sessionId - Session whose durable Workspace account to inspect.
+ * @returns the accounted Workspace and canonical-cwd validation, or
+ * `undefined` when no Workspace account contains the Session id.
+ */
+inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined
 
 /**
  * Delete one workspace registration while retaining its directory and every

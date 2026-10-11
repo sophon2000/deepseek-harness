@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from packaging.version import Version
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -26,16 +27,21 @@ def test_release_tag_is_optional_for_non_release_builds() -> None:
     build_python_release.validate_release_tag(None, "1.2.3")
 
 
-def test_wheel_verification_uses_distribution_metadata_not_nested_libraries(tmp_path: Path) -> None:
+@pytest.mark.parametrize("repository", ["1.2.3", "1.2.3-rc.1", "0.2.0-rc.2.vh.1"])
+def test_wheel_verification_uses_distribution_metadata_not_nested_libraries(
+    tmp_path: Path, repository: str,
+) -> None:
     wheel = tmp_path / "sdk.whl"
+    version = build_python_release.pep440_version(repository)
+    dist_info = f"deepseek_harness_sdk-{version}.dist-info"
     with zipfile.ZipFile(wheel, "w") as archive:
         archive.writestr("nested/library.dist-info/WHEEL", "Tag: cp312-cp312-linux_x86_64\n")
         archive.writestr("nested/library.dist-info/METADATA", "Name: library\nVersion: 0.0.1\n")
-        archive.writestr("deepseek_harness_sdk-1.2.3.dist-info/WHEEL", "Tag: py3-none-any\n")
-        archive.writestr("deepseek_harness_sdk-1.2.3.dist-info/METADATA",
-                         "Name: deepseek-harness-sdk\nVersion: 1.2.3\nLicense-Expression: MIT\n"
-                         "License-File: LICENSE\nRequires-Dist: deepseek-harness-runtime-bin==1.2.3\n")
-    build_python_release.verify_wheel(wheel, "sdk", "1.2.3", None)
+        archive.writestr(f"{dist_info}/WHEEL", "Tag: py3-none-any\n")
+        archive.writestr(f"{dist_info}/METADATA",
+                         f"Name: deepseek-harness-sdk\nVersion: {version}\nLicense-Expression: MIT\n"
+                         f"License-File: LICENSE\nRequires-Dist: deepseek-harness-runtime-bin=={version}\n")
+    build_python_release.verify_wheel(wheel, "sdk", version, None)
 
 
 def test_release_tag_must_match_repository_version() -> None:
@@ -58,16 +64,50 @@ def test_repository_version_rejects_malformed_versions(tmp_path: Path) -> None:
         build_python_release.repository_version(tmp_path)
 
 
-def test_pep440_version_spells_a_prerelease_the_python_way() -> None:
-    # Build backends normalize to this spelling, so the wheel filename and
-    # metadata checks compare against it rather than the repository version.
-    assert build_python_release.pep440_version("1.2.3") == "1.2.3"
-    assert build_python_release.pep440_version("1.2.3-rc.1") == "1.2.3rc1"
-    assert build_python_release.pep440_version("1.2.3-alpha.2") == "1.2.3a2"
-    assert build_python_release.pep440_version("1.2.3-beta.10") == "1.2.3b10"
+@pytest.mark.parametrize(("repository", "wheel"), [
+    ("1.2.3", "1.2.3"),
+    ("1.2.3-rc.1", "1.2.3rc1"),
+    ("1.2.3-alpha.2", "1.2.3a2"),
+    ("1.2.3-beta.10", "1.2.3b10"),
+    ("1.2.3-a1", "1.2.3a1"),
+    ("1.2.3-b.2", "1.2.3b2"),
+    ("1.2.3-c.3", "1.2.3rc3"),
+    ("1.2.3-pre.4", "1.2.3rc4"),
+    ("1.2.3-preview5", "1.2.3rc5"),
+    ("0.2.0-rc.2.vh.1", "0.2.0rc2+vh.1"),
+    ("1.2.3-alpha.2.vh.3", "1.2.3a2+vh.3"),
+    ("1.2.3-beta.10.vh.4", "1.2.3b10+vh.4"),
+    ("1.2.3-vh.0", "1.2.3+vh.0"),
+    ("1.2.3-vh.1", "1.2.3+vh.1"),
+])
+def test_pep440_version_preserves_official_and_fork_versions(repository: str, wheel: str) -> None:
+    result = build_python_release.pep440_version(repository)
 
+    assert result == wheel
+    assert str(Version(result)) == result
+
+
+def test_fork_revisions_are_distinct_and_ordered_within_the_upstream_release() -> None:
+    repository_versions = [
+        "0.2.0-rc.2", "0.2.0-rc.2.vh.1", "0.2.0-rc.2.vh.2",
+        "0.2.0-rc.2.vh.10", "0.2.0-rc.3", "0.2.0", "0.2.0-vh.1",
+    ]
+    versions = [Version(build_python_release.pep440_version(version)) for version in repository_versions]
+
+    assert len(set(versions)) == len(repository_versions)
+    assert versions == sorted(versions)
+    assert versions[1].public == str(versions[0])
+    assert versions[1].local == "vh.1"
+
+
+@pytest.mark.parametrize("repository", [
+    "1.2.3-nightly", "1.2.3-rc.2.other.1", "1.2.3-rc.2.vh",
+    "1.2.3-rc.2.vh.01", "1.2.3-rc.2.vh.1.extra", "1.2.3-rc.2.vh.1.vh.2",
+    "1.2.3-vh.01", "1.2.3-vh.-1", "1.2.3-vh.1.extra",
+])
+def test_pep440_version_rejects_unknown_or_ambiguous_fork_suffixes(repository: str) -> None:
     with pytest.raises(ValueError, match="no PEP 440 spelling"):
-        build_python_release.pep440_version("1.2.3-nightly")
+        build_python_release.pep440_version(repository)
 
 
 def test_macos_wheel_tag_does_not_claim_unsupported_node_platforms() -> None:
@@ -93,16 +133,18 @@ def test_platform_manifest_rejects_incomplete_entries(tmp_path: Path) -> None:
         build_python_release.load_platforms(manifest)
 
 
-def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: Path) -> None:
+@pytest.mark.parametrize("repository", ["1.2.3", "1.2.3-rc.1", "0.2.0-rc.2.vh.1"])
+def test_stage_sdk_keeps_distribution_module_and_runtime_pin_distinct(tmp_path: Path, repository: str) -> None:
     destination = tmp_path / "staging"
+    version = build_python_release.pep440_version(repository)
 
-    build_python_release.stage_sdk(destination, "1.2.3")
+    build_python_release.stage_sdk(destination, version)
 
     pyproject = (destination / "pyproject.toml").read_text()
     assert 'name = "deepseek-harness-sdk"' in pyproject
-    assert 'version = "1.2.3"' in pyproject
+    assert f'version = "{version}"' in pyproject
     assert 'license = "MIT"' in pyproject
-    assert '"deepseek-harness-runtime-bin==1.2.3"' in pyproject
+    assert f'"deepseek-harness-runtime-bin=={version}"' in pyproject
     assert 'license-files = ["LICENSE"]' in pyproject
     assert (destination / "LICENSE").read_bytes() == (ROOT / "LICENSE").read_bytes()
     assert (destination / "src" / "deepseek_harness" / "__init__.py").is_file()

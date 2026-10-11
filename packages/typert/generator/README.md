@@ -20,12 +20,18 @@ English | [中文](README.zh.md)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
 
+Metadata declarations imported from an installed `@deepseek-ai/dsh-typert-protocol` package are recognized by their exact external-package identity. Their types remain external to the workspace graph, and declarations from another dependency do not become Typert markers merely by exporting the same names.
+
+An installed NPM dependency may supply a named Remote boundary type only when a concrete public non-root `package.json#exports` subpath exposes the resolved symbol and its target stays inside the package root. For workspace and installed types, the analyzer selects among eligible entries by import specifier, then exported name. The generated declaration imports that canonical symbol, preserves its identity across authored aliases, and allocates distinct local names for import collisions; root-only and pattern exports fail instead of weakening the [public-type requirement](../../../.agents/notes/implemented/bug-fix/2026-08-26-installed-public-remote-types.md).
+
 -----
 
 <a id="use-this-package"></a>
 ## Use this package
 
 This package is for package and repository maintainers who wire Typert generation into a build or consume generated artifacts. Publication is opt-in: declare the export entries, run the build, and the artifacts appear in `lib/`; static analysis needs no artifact.
+
+Fixed-property object declarations and object literals emit recursively closed `z.strictObject` schemas, so unknown properties fail parsing instead of being discarded. `Record`, explicit JSON index signatures, and the `object`, `unknown`, and `any` keywords retain their authored open semantics ([decision](../../../.agents/notes/implemented/bug-fix/2026-08-25-close-generated-typert-object-codecs.md)).
 
 ### Publishing Typert artifacts from a package
 

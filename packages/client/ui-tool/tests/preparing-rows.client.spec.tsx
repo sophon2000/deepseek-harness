@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { useDisclosure } from '@deepseek-ai/dsh-client-ui-chat/src/client/chat/use-disclosure.ts'
 import type { StartedToolCall, ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { makeTranslate, sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { en } from '@deepseek-ai/dsh-client-ui-conversation/src/client/locales.ts'
 import { en as common } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import { PartialArguments } from '@deepseek-ai/dsh-util-values'
@@ -24,13 +25,23 @@ afterEach(cleanup)
 
 type Props = Parameters<typeof TodoRow>[0] & Parameters<typeof ReadImageRow>[0] & Parameters<typeof AskQuestionRow>[0]
 
+function useEmptyProjection(_key: string): undefined
+function useEmptyProjection<Selected>(_key: string, select: (value: undefined) => Selected): Selected
+function useEmptyProjection<Selected>(_key: string, select?: (value: undefined) => Selected): Selected | undefined {
+  return select?.(undefined)
+}
+
 function preparation(name: string, args = new PartialArguments()): Extract<Props, { phase: 'preparing' }> {
+  const snapshot = sessionSnapshot(SessionId('session'))
+  const loadImage: Props['loadImage'] = () => Promise.reject(new Error('not used'))
+  const useSession: Props['useSession'] = selector => selector(snapshot)
+  const useProjection: Props['useProjection'] = useEmptyProjection
   return {
     phase: 'preparing', callId: 'call', toolName: name,
     block: { phase: 'preparing', args, callId: 'call', name, turn: 1, step: 1, time: 1, subCalls: [] },
-    cwd: '/workspace', t: makeTranslate(en, common), useDisclosure, openFile: vi.fn(), loadImage: vi.fn(),
-    useTodoHistory: vi.fn(), useSession: vi.fn(() => false), renderSlot: vi.fn(() => null),
-    useProjection: vi.fn(() => undefined), revealPanel: vi.fn(() => false), reviewPanel: vi.fn(() => false),
+    cwd: '/workspace', t: makeTranslate(en, common), useDisclosure, openFile: vi.fn(), loadImage,
+    useTodoHistory: vi.fn(), useSession, renderImages: vi.fn(() => null),
+    useProjection, revealPanel: vi.fn(() => false), reviewPanel: vi.fn(() => false),
   } as Extract<Props, { phase: 'preparing' }>
 }
 

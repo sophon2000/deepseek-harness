@@ -20,12 +20,18 @@ kind: "package-library"
 - [已知限制与延期工作](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
 
+从已安装的 `@deepseek-ai/dsh-typert-protocol` 包导入的元数据声明会通过精确的外部包身份来识别。其类型仍作为 workspace 类型图之外的外部类型处理；其他依赖即使导出同名声明，也不会因此成为 Typert 标记。
+
+只有当 `package.json#exports` 中具体的公共非根子路径暴露已解析符号，且其目标仍位于包根目录内时，已安装的 NPM 依赖才可以提供具名 Remote 边界类型。对于工作区类型和已安装类型，分析器先按导入说明符、再按导出名称，从符合条件的条目中选择。生成的声明会导入该规范符号、在源码使用别名时保留其身份，并为导入名称冲突分配不同的本地名称；只有根导出或模式导出的类型会失败，不会削弱[公开类型要求](../../../.agents/notes/implemented/bug-fix/2026-08-26-installed-public-remote-types.zh.md)。
+
 -----
 
 <a id="use-this-package"></a>
 ## 使用本包
 
 本包供把 Typert 生成接入构建或消费生成产物的包维护者与仓库维护者使用。发布是选择加入的：声明导出入口、运行构建，产物即出现在 `lib/` 中；静态分析则不需要产物。
+
+仅含固定属性的对象声明和对象字面量会生成递归闭合的 `z.strictObject` schema，因此未知属性会让解析失败，而不会被静默丢弃。`Record`、显式 JSON 索引签名，以及 `object`、`unknown`、`any` 关键字会保留源码表达的开放语义（[决策记录](../../../.agents/notes/implemented/bug-fix/2026-08-25-close-generated-typert-object-codecs.zh.md)）。
 
 ### 从包中发布 Typert 产物
 

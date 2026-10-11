@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
+import { DesktopProductProcess } from '../src/product-process.ts'
 import { createPluginProfile } from '../src/project-manager.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 
@@ -34,13 +35,18 @@ export async function smokeDesktopRuntime(
     npm_config_userconfig: join(home, 'npmrc'), npm_config_globalconfig: join(home, 'npmrc'),
     npm_config_store_dir: join(home, 'store'), npm_config_enable_global_virtual_store: 'false',
   }
-  const host = new DesktopHostProcess(node, root, profile, undefined, hostEnvironment,
-    undefined, join(resourcesRuntime, 'primary-runtime'),
-    { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
+  const product = runtime.product?.service === undefined
+    ? undefined
+    : new DesktopProductProcess(node, root, runtime.product, join(home, 'product'), hostEnvironment)
+  let host: DesktopHostProcess | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     writeFileSync(join(home, 'npmrc'), '')
-    createPluginProfile(profile)
+    const productEnvironment = product === undefined ? {} : (await product.start()).environment
+    host = new DesktopHostProcess(node, root, profile, undefined, { ...hostEnvironment, ...productEnvironment },
+      undefined, join(resourcesRuntime, 'primary-runtime'),
+      { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
+    createPluginProfile(profile, runtime.product?.profileBundles)
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(home, pluginName)
     mkdirSync(plugin, { recursive: true })
@@ -187,8 +193,10 @@ export function apply(ctx) {
     console.log('desktop runtime: DOCX, XLSX, PPTX to PDF and skill CLI discovery passed')
   } finally {
     clearTimeout(timer)
-    try { await host.stop() } finally {
-      await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+    try { await host?.stop() } finally {
+      try { await product?.stop() } finally {
+        await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+      }
     }
   }
 }

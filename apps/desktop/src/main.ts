@@ -24,8 +24,9 @@ import {
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
-import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
+import { DesktopHostFatalError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
+import { DesktopProductHostProcess, isDesktopBackendUncleanExit } from './product-host-process.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { DesktopBackendController } from './backend-controller.ts'
@@ -147,6 +148,7 @@ interface RuntimeResources {
   readonly node: string
   readonly pnpm: string
   readonly dsh: string
+  readonly productRuntime: string
 }
 
 function runtimeResources(): RuntimeResources {
@@ -157,8 +159,9 @@ function runtimeResources(): RuntimeResources {
     ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
       : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
-    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
-  return { node, nodeBin, pnpm, dsh }
+    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(process.resourcesPath, 'dsh'))
+  const productRuntime = dsh
+  return { node, nodeBin, pnpm, dsh, productRuntime }
 }
 
 function developmentPrimaryRuntime(): string {
@@ -349,7 +352,7 @@ async function main(): Promise<void> {
   let shellInstallerOwnsQuit = false
   let requireCleanStop = false
   let updateStoppedHost = false
-  let updateStopFailure: DesktopHostUncleanExitError | undefined
+  let updateStopFailure: Error | undefined
   let updateState: DesktopUpdateState = { phase: 'idle' }
   const systemLanguages = app.getPreferredSystemLanguages()
   let locale = resolveDesktopStartupLocale(null, systemLanguages)
@@ -443,10 +446,10 @@ async function main(): Promise<void> {
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
   const backend = new DesktopBackendController((onFailure) => {
     const hostInspectPort = developmentHostInspectPort(development)
-    const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
+    const host = new DesktopProductHostProcess(resources.node, resources.dsh, resources.productRuntime, activeProject,
+      paths.products, development ? undefined : readDesktopRuntime(resources.dsh).product,
       hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
-      primaryRuntime,
-      resources, (next) => { platformView.setSession(next) })
+      primaryRuntime, resources, (next) => { platformView.setSession(next) })
     return {
       start: async () => {
         const ready = await host.start()
@@ -501,7 +504,7 @@ async function main(): Promise<void> {
         stopAccount?.()
         try { await host.stop(requireCleanStop) }
         catch (error) {
-          if (!requireCleanStop || !(error instanceof DesktopHostUncleanExitError)) throw error
+          if (!requireCleanStop || !isDesktopBackendUncleanExit(error)) throw error
           // Backend cleanup succeeded; installation still rejects the unsuccessful task teardown.
           updateStopFailure = error
         }
@@ -617,12 +620,15 @@ async function main(): Promise<void> {
         mandatoryUI?.preparingRestart(stillActive)
         // The embedded Platform document holds credentials issued by the Host that is about to stop.
         await platformView.closeAndWait()
+        // A normal quit can stop this attempt while admission and Platform cleanup are awaited.
+        // Select graceful teardown only while this is still the live backend; no await separates the check and stop.
+        if (backend.host !== host) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
         requireCleanStop = true
         updateStopFailure = undefined
         await backend.stop()
         updateStoppedHost = true
         // The backend's async cleanup callback can assign this after the reset above.
-        const stopFailure = updateStopFailure as DesktopHostUncleanExitError | undefined
+        const stopFailure = updateStopFailure as Error | undefined
         if (stopFailure !== undefined) throw new DesktopUpdatePreparationError('stop-failed', locale.messages.updateStopFailed, stopFailure.message)
         updateJournal?.action('install-confirmed')
         shellInstallerOwnsQuit = true
@@ -636,7 +642,6 @@ async function main(): Promise<void> {
     },
     undefined, undefined, undefined,
     (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
-
   )
 
   const updateSchedule = new DesktopUpdateSchedule(updates, resolveDesktopUpdateScheduleConfig(process.env))
