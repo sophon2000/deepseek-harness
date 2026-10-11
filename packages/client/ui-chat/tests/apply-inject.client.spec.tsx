@@ -455,8 +455,8 @@ describe('Chat inject API', () => {
     const forClosing = vi.fn(() => mentions)
     const registry = b.runtime.ctx.get('chatFileMentions') as ChatFileMentions
     const assistantEntry = b.runtime.slots.entries('conversation.chat.node').find(entry => entry.options.key === 'assistant-step')!
-    const assistantInject = assistantEntry.inject as () => AssistantNodeInjected
-    const revision = assistantInject().hooks.fileMentionRevision
+    const assistantHooks = assistantEntry.inject!().hooks as AssistantNodeInjected['hooks']
+    const revision = assistantHooks.fileMentionRevision
     const initialRevision = revision.getSnapshot()
     const disposeFirst = registry.register('test:first', { forClosing })
     expect(revision.getSnapshot()).toBe(initialRevision + 1)
