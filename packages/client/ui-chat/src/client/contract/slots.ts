@@ -256,6 +256,14 @@ export interface PresentationInjected {
   }
 }
 
+/** Assistant presentation and the live lifetime of prose file vocabularies. */
+export interface AssistantNodeInjected extends PresentationInjected {
+  hooks: PresentationInjected['hooks'] & {
+    /** Changes whenever a file-mention provider registers or unregisters. */
+    fileMentionRevision: ObservableSnapshot<number>
+  }
+}
+
 /** Full props of one keyed Chat renderer. */
 export type ChatNodeViewProps<Kind extends ChatNodeKind = ChatNodeKind> =
   PropsRuntime<'conversation.chat.node', Kind> & PropsLocale<'chat'>

@@ -24,6 +24,7 @@ import { createChatStore } from '../src/client/stores.ts'
 import { CHAT_SETTINGS_NAMESPACE, type ChatSettings } from '../src/chat-settings.ts'
 import type { LinkOpeningRowInjected } from '../src/client/settings/LinkOpeningRow.tsx'
 import type { TranscriptViewRowInjected } from '../src/client/settings/TranscriptViewRow.tsx'
+import type { AssistantNodeInjected } from '../src/client/contract/slots.ts'
 
 usePinnedBrowserLanguages('zh-CN')
 
@@ -453,7 +454,12 @@ describe('Chat inject API', () => {
     const mentions = { resolve: vi.fn() } as never
     const forClosing = vi.fn(() => mentions)
     const registry = b.runtime.ctx.get('chatFileMentions') as ChatFileMentions
+    const assistantEntry = b.runtime.slots.entries('conversation.chat.node').find(entry => entry.options.key === 'assistant-step')!
+    const assistantInject = assistantEntry.inject as () => AssistantNodeInjected
+    const revision = assistantInject().hooks.fileMentionRevision
+    const initialRevision = revision.getSnapshot()
     const disposeFirst = registry.register('test:first', { forClosing })
+    expect(revision.getSnapshot()).toBe(initialRevision + 1)
     expect(typeof injected.fileMentions(owner)?.resolve).toBe('function')
     expect(forClosing).toHaveBeenCalledWith(owner, ROOT)
 
@@ -464,6 +470,7 @@ describe('Chat inject API', () => {
     disposeSecond()
     expect(injected.fileMentions(owner)?.resolve('unique')?.label).toBe('first')
     disposeFirst()
+    expect(revision.getSnapshot()).toBe(initialRevision + 4)
     expect(injected.fileMentions(owner)).toBeUndefined()
 
     expect(injected.chatScroll.read()).toBeNull()

@@ -22,11 +22,13 @@ import { TurnTriggerNodeView } from './TurnTriggerNodeView.tsx'
  * @param ctx - owning UI Conversation context.
  * @param performanceUsage - live statistics detail preference.
  * @param presentation - live presentation policy.
+ * @param fileMentionRevision - live file-mention provider lifetime.
  */
 export function registerChatNodeRenderers(
   ctx: Context,
   performanceUsage: ObservableSnapshot<PerformanceUsageMode>,
   presentation: ObservableSnapshot<ChatPresentationPolicy>,
+  fileMentionRevision: ObservableSnapshot<number>,
 ): void {
   ctx.effect(() => ctx.slots.registerFactory({
     name: 'conversation.chat.reasoning.content',
@@ -52,7 +54,7 @@ export function registerChatNodeRenderers(
     key: 'assistant-step',
     locale: NS,
     children: { 'conversation.chat.reasoning.body': { kind: 'single', scope: 'session' } },
-    inject: () => ({ hooks: { presentation } }),
+    inject: () => ({ hooks: { presentation, fileMentionRevision } }),
   }, AssistantNodeView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',

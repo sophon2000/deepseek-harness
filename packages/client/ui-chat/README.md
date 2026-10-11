@@ -31,7 +31,7 @@ Use this package to render a browser chat from recorded Session conversations, i
 <a id="reference-previews"></a>
 ## Reference previews
 
-File-mention providers register through Chat's `chatFileMentions` service and receive the viewed Session ID with the closing-turn owner, so links into inherited history can address the fork itself. Registration returns an effect-scoped disposer. A mention opens only when exactly one provider resolves it; competing claims leave plain text.
+File-mention providers register through Chat's `chatFileMentions` service and receive the viewed Session ID with the closing-turn owner, so links into inherited history can address the fork itself. Each registration has its own idempotent disposer, including when a provider object is reused. Registration and disposal refresh already displayed prose; stale resolvers and click callbacks become inert. A mention opens only when exactly one provider resolves it; competing claims leave plain text.
 
 Chat supplies file and HTTP(S) navigation through one `MarkdownDelegateProvider` around its node list. Assistant Markdown file links open in the right Sidebar after the message settles, including references to unmodified files. Relative paths resolve in the viewed Session's workspace; absolute paths retain the same Session's filesystem access. `#L24` and `#L24-L30` navigate to the first specified line and reuse an existing file tab. Missing files show the preview's error state.
 

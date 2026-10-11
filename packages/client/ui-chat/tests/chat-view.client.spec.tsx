@@ -39,6 +39,7 @@ import { ChatView } from '../src/client/chat/ChatView.tsx'
 import { ChatFlow } from '../src/client/chat/ChatFlow.tsx'
 import { en, zh } from '../src/client/locale.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
+import { ChatFileMentionRegistry } from '../src/client/file-mentions.ts'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
   CompactionNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
@@ -288,11 +289,12 @@ function HarnessChatFlow({ standard, owner, hookContext, renderSlot }: {
   return <ChatFlow {...shared} {...owner} {...hooks} renderSlot={renderSlot} />
 }
 
-function HarnessChatNode({ standard, owner, hookContext, usePerformanceUsage, toolOwners, fallback }: {
+function HarnessChatNode({ standard, owner, hookContext, usePerformanceUsage, useFileMentionRevision, toolOwners, fallback }: {
   readonly standard: ChatViewSlotProps
   readonly owner: RoutedChatNodeOwner
   readonly hookContext: ChatNodeHookContext
   readonly usePerformanceUsage: React.ComponentProps<typeof TurnTailNodeView>['usePerformanceUsage']
+  readonly useFileMentionRevision: React.ComponentProps<typeof AssistantNodeView>['useFileMentionRevision']
   readonly toolOwners: ToolOwner[]
   readonly fallback: React.ReactNode
 }) {
@@ -311,7 +313,7 @@ function HarnessChatNode({ standard, owner, hookContext, usePerformanceUsage, to
     case 'context':
       return <ContextMessageNodeView {...nodeProps} node={owner.node} />
     case 'assistant-step':
-      return <AssistantNodeView {...nodeProps} node={owner.node} {...assistantSlots} />
+      return <AssistantNodeView {...nodeProps} node={owner.node} useFileMentionRevision={useFileMentionRevision} {...assistantSlots} />
     case 'command':
       return <CommandNodeView {...nodeProps} node={owner.node} renderSlot={renderCommandSlot} />
     case 'manual-compaction':
@@ -413,12 +415,15 @@ function makeHarness(
   const t = makeTranslate(zh, commonZh)
   const toolOwners: ToolOwner[] = []
   const usePerformanceUsage = bindSnapshotSelector(performanceUsage)
+  const fileMentions = new ChatFileMentionRegistry()
+  const useFileMentionRevision = bindSnapshotSelector(fileMentions.revision)
   let nodeSlotOverride: NodeRenderer | undefined
   let imageSlotOverride: ImageRenderer | undefined
   const renderNodeSlot: NodeRenderer = (key, owner, opts) => {
     if (nodeSlotOverride !== undefined) return nodeSlotOverride(key, owner, opts)
     return <HarnessChatNode standard={props} owner={owner}
       hookContext={opts.hookContext} usePerformanceUsage={usePerformanceUsage}
+      useFileMentionRevision={useFileMentionRevision}
       toolOwners={toolOwners} fallback={opts.fallback} />
   }
   const renderFlowSlot: ChatFlowSlotProps['renderSlot'] = (key: string, owner: object, opts?: {
@@ -494,8 +499,7 @@ function makeHarness(
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
     chatScroll,
     forkAt,
-    // Absent-service default; mention tests override with a real resolver.
-    fileMentions: () => undefined,
+    fileMentions: owner => fileMentions.forClosing(owner, SID),
     t,
   }
   const set = (next: HarnessUpdate): void => {
@@ -520,7 +524,7 @@ function makeHarness(
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
     openFile, openSkill, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, toolOwners,
+    chatScroll, forkAt, toolOwners, fileMentions,
     setPerformanceUsage: (mode: 'compact' | 'detailed') => { performanceUsage.set(mode) },
     setGrouped: (value: ConversationGroupedView<ProcessGroupData> | undefined) => {
       grouped = value
@@ -694,6 +698,40 @@ describe('Chat node rendering', () => {
     fireEvent.click(mention)
     // The vocabulary was built from the closing message's own owner currency.
     expect(h.openFile).toHaveBeenCalledWith('for-seq-4/site/report.html')
+  })
+
+  it('updates already rendered prose when mention providers register, conflict, and dispose', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'build it'), assistant(2, 'Wrote `report.html`.', 1)],
+      turnEnds: new Map([[1, 2]]),
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(view.container.querySelectorAll('code button')).toHaveLength(0)
+    const openFirst = vi.fn()
+    const openSecond = vi.fn()
+    const provider = (open: () => void) => ({
+      forClosing: () => ({
+        resolve: (value: string) => value === 'report.html'
+          ? { label: 'Open report', title: 'report.html', open }
+          : undefined,
+      }),
+    })
+    let disposeFirst: () => void
+    act(() => { disposeFirst = h.fileMentions.register('first', provider(openFirst)) })
+    fireEvent.click(view.getByRole('button', { name: 'Open report' }))
+    expect(openFirst).toHaveBeenCalledOnce()
+
+    let disposeSecond: () => void
+    act(() => { disposeSecond = h.fileMentions.register('second', provider(openSecond)) })
+    expect(view.queryByRole('button', { name: 'Open report' })).toBeNull()
+    expect(openSecond).not.toHaveBeenCalled()
+    act(() => { disposeSecond() })
+    fireEvent.click(view.getByRole('button', { name: 'Open report' }))
+    expect(openFirst).toHaveBeenCalledTimes(2)
+
+    act(() => { disposeFirst() })
+    expect(view.queryByRole('button', { name: 'Open report' })).toBeNull()
+    expect(view.getByText('report.html').tagName).toBe('CODE')
   })
 
   it('formatRunDuration localizes units and floors partial seconds', () => {
