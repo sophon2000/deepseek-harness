@@ -7,7 +7,7 @@
 
 import { mountAgentLoopTestDependencies, provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -545,6 +545,62 @@ describe('signal, concurrency, and the fs/observed contract', () => {
 
 
 describe('current working directory', () => {
+  it('keeps the terminal guard directory through a wrapper change without rewriting model arguments', async () => {
+    dir = await realpath(await mkdtemp(join(tmpdir(), 'dsh-tool-fs-guard-cwd-')))
+    const project = join(dir, 'project')
+    const outside = join(dir, 'outside')
+    await mkdir(project)
+    await mkdir(outside)
+    await writeFile(join(project, 'note.txt'), 'authorized project bytes')
+    await writeFile(join(outside, 'note.txt'), 'outside bytes')
+    ctx = new Context()
+    try {
+      await ctx.plugin(LocalFileSystem, { cwd: project })
+      await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+      await ctx.plugin(AgentLoop, { agents: [] })
+      fiber = await ctx.plugin(ToolFs)
+      const handle = await ctx.agents.create({
+        sessionId: SessionId('guard-directory-files'), meta: { cwd: project },
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      const agent = handle.agent
+      const authorized = ctx.workingDirectory.get(agent.session)
+      let guardExecution: object | undefined
+      let bodyExecution: object | undefined
+      agent.ctx.tools.guard(async (exec) => {
+        guardExecution = exec
+        const cwd = await ctx.workingDirectory.ensureForExecution(exec)
+        return cwd === authorized ? undefined : 'outside project'
+      })
+      agent.ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'allow' }), { prepend: true })
+      ctx.on('tools/execute', async (exec, next) => {
+        bodyExecution = exec
+        expect(exec.arguments).toEqual({ file_path: 'note.txt' })
+        expect(Object.isFrozen(exec.arguments)).toBe(true)
+        await ctx.workingDirectory.set(agent, outside)
+        return next()
+      })
+      const result = await ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId('read-guard-current'), name: 'read',
+        arguments: { file_path: 'note.txt' }, agent,
+      })
+      expect(result.isError).toBe(false)
+      expect(bodyExecution).toBe(guardExecution)
+      expect(text(result)).toContain('authorized project bytes')
+      expect(text(result)).not.toContain('outside bytes')
+      expect(result.meta).toMatchObject({ path: join(authorized, 'note.txt') })
+      expect(ctx.workingDirectory.get(agent.session)).not.toBe(authorized)
+      const denied = await ctx.tools.execute({
+        signal: testToolSignal, callId: ToolCallId('read-next-current'), name: 'read',
+        arguments: { file_path: 'note.txt' }, agent,
+      })
+      expect(denied.isError).toBe(true)
+      expect(text(denied)).toBe('Error: outside project')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('routes subsequent files to the new directory while keeping the original permission root', async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-current-'))
     const next = join(dir, 'next')

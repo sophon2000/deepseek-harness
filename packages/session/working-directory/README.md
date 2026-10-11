@@ -41,7 +41,9 @@ Mount alongside `fs`, `sessionProjections`, and `systemPrompt`. `defaultDirector
 
 The Session projection owns the effective directory and exposes it in Session observations, so cold readers can use it without activating an Agent; the header continues to identify the original project. Changes serialize per Session, validate through the filesystem provider, check cancellation and Agent lifetime, commit an event, and queue a user-context notice. If notice queuing fails after commit, the operation returns the committed directory and logs a warning; the next request or resume still receives the required directory context. Prompt assembly validates the current directory before publishing its required context contribution. Existing processes and sandbox grants keep their independent ownership. The [service implementation](src/index.ts) defines the API.
 
-No runtime invariant companion is published because the service reads its only directory state from the Session projection and checks filesystem validity at use.
+Terminal tool guards and directory-consuming bodies pass the same execution object to `ensureForExecution`. The service caches its first validated directory promise by that object's identity, so a directory change between authorization and dispatch cannot redirect the call. Later executions use the new Session directory. Calls without an Agent leave the filesystem provider's directory default intact. Every lookup still checks cancellation and service/Agent lifetime; caching never extends either lifetime or rewrites model arguments.
+
+No runtime invariant companion is published because the service reads its Session directory state from the Session projection and checks filesystem validity when establishing each execution's directory.
 
 </details>
 

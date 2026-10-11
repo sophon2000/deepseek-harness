@@ -26,6 +26,8 @@ Playwright MCP 和 Chrome DevTools MCP 在获取 Session 的 MCP 连接时验证
 
 文件链接与命令目录标签使用各次操作执行时记录的结果元数据，因此后续目录变更不会使历史记录指向错误的位置。
 
+工具终局守卫可以异步检查目录。工具运行时在可扩展前置策略之后串行等待守卫，保留首个拒绝，并在取消时等待已启动检查结束。守卫和原生文件系统工具主体将真实执行对象共享给 `ensureForExecution`，由它按对象身份缓存首次目录验证的 promise。包装层在两个阶段之间改变 Session 目录不会使已授权调用转向其他目录；后续执行会看到新目录。每次查找仍检查取消状态及服务和 Agent 生命周期。这会固定执行上下文，不改写模型参数，也不改变文件系统权限。
+
 [提示词变量记录](2026-07-05-prompt-variables-and-tool-guidance-ownership.zh.md)保留严格插值、路由变量归属与工具指导归属。[环境后缀记录](../../archived/bug-fix/2026-09-06-environment-prompt-suffix.md)保留部署、Harness 源码与 Web 指导的有序前缀／后缀位置。本决策拥有目录状态及其用户上下文位置。
 
 ## Alternatives considered

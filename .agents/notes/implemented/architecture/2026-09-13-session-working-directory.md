@@ -26,6 +26,8 @@ Playwright MCP and Chrome DevTools MCP validate the effective directory when acq
 
 File links and command directory labels use result metadata captured when each operation runs, so historical rows remain correct after later directory changes.
 
+Terminal tool guards may perform asynchronous directory checks. The tool runtime awaits them serially after extensible pre-policy, preserves the first denial, and drains started checks on cancellation. Guards and native filesystem bodies share the actual execution object with `ensureForExecution`, which caches the first directory-validation promise by object identity. A wrapper that changes the Session directory between those stages cannot redirect the authorized call; a later execution observes the new directory. Every lookup still checks cancellation and service/Agent lifetime. This pins execution context without rewriting model arguments or changing filesystem permissions.
+
 The [prompt-variables note](2026-07-05-prompt-variables-and-tool-guidance-ownership.md) retains strict interpolation, route-variable ownership, and tool-guidance ownership. The [environment-suffix note](../../archived/bug-fix/2026-09-06-environment-prompt-suffix.md) retains ordered prefix/suffix placement for deployment, Harness source, and Web guidance. This decision owns directory state and placement in user context.
 
 ## Alternatives considered

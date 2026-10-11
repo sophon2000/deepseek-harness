@@ -715,6 +715,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   ToolRuntime: 'tools.md',
   ToolRestriction: 'tools.md',
   ToolSchema: 'tools.md',
+  WorkingDirectoryExecution: 'working-directory.md',
   SettingsNamespace: 'settings.md',
   SettingsDescriptor: 'settings.md',
   SettingsDescribeValue: 'settings.md',

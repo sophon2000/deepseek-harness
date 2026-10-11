@@ -3341,7 +3341,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'guard(guard: ToolGuard): () => void',
         description: 'Register a monotonic guard after the extensible `tools/pre-execute` waterfall. A plain-context guard applies globally; one registered through `agent.ctx` applies only to that agent. Any matching guard may deny by returning a reason, while no guard can force-allow a call another guard denied. The exact effect disposer is returned for ordered ownership and HMR cleanup.',
-        parameters: [{ name: 'guard', description: 'synchronous check; a returned string denies the execution.' }],
+        parameters: [{ name: 'guard', description: 'serially awaited check; a returned string denies the execution.' }],
         returns: 'the exact disposer that unregisters the guard.',
       },
       {
@@ -3650,6 +3650,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'agent', description: 'live or unpublished Agent owning the Session.' }, { name: 'signal', description: 'cancellation for filesystem inspection.' }],
         returns: 'the existing directory; recovery is committed before fulfillment. A notice failure is warned without reverting the committed state.',
         throws: ['when the original project is also unavailable.'],
+      },
+      {
+        signature: 'ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined>',
+        description: 'Pin the first validated directory for one tool execution without changing its arguments. Guards and the body must pass the same execution object, not a copy. Later Session directory changes apply to later executions. Every lookup still checks cancellation and service/Agent lifetime; pending checks drain as in ensure.',
+        parameters: [{ name: 'execution', description: 'real execution object shared by terminal guards and the body.' }],
+        returns: 'the execution\'s directory, or undefined for a call without an Agent.',
       },
       {
         signature: 'set(agent: Agent, path: string, signal?: AbortSignal): Promise<string>',
@@ -7973,7 +7979,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolGuard',
-    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
+    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>;',
   },
   {
     name: 'ToolHistory',
@@ -8410,6 +8416,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'WorkingDirectoryExecution',
+    declaration: 'export interface WorkingDirectoryExecution {\n    readonly agent?: Agent;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'Workspace',

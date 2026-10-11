@@ -10,6 +10,20 @@ A Session's active directory is owned by [`dsh-working-directory`](../../package
 
 Changes are local to one Session. Relative filesystem operations, newly started processes, instruction discovery, skills, and file completion use the active directory. Existing terminals and persistent shells retain their own directories. Sandbox writable roots and project membership remain anchored to the original project.
 
+## Execution directory
+
+Terminal guards and filesystem tool bodies pass the same execution object to `ensureForExecution`. The first call validates and pins a directory promise to that identity; a later Session directory change cannot redirect the authorized execution. Every lookup still checks cancellation and service/Agent lifetime. Calls without an Agent return `undefined` and retain provider defaults. The execution shape requires only the existing Agent and signal; callers must not copy the execution or rewrite model arguments.
+
+```ts type-equiv
+/** Execution identity shared by terminal guards and the directory-consuming body. */
+interface WorkingDirectoryExecution {
+  /** Agent whose Session supplies the current directory, if the call has one. */
+  readonly agent?: Agent
+  /** Current execution cancellation, including any body wrapper's fused signal. */
+  readonly signal: AbortSignal
+}
+```
+
 ## Model context
 
 The initial value and subsequent current values reach the model as required user-context snapshots, even when optional runtime context is disabled. Each committed change attempts to queue a notice through the ordinary Agent inbox; cancellation or disposal can discard notices before request admission. The directory event survives, and the next admitted request receives the current value. Directory context never enters the system prompt. [`working_directory`](../../packages/session/tool-working-directory/README.md) exposes one optional `cd` argument.
@@ -45,6 +59,16 @@ get(session: Session): string
  * @throws when the original project is also unavailable.
  */
 ensure(agent: Agent, signal?: AbortSignal): Promise<string>
+
+/**
+ * Pin the first validated directory for one tool execution without changing its arguments.
+ * Guards and the body must pass the same execution object, not a copy. Later
+ * Session directory changes apply to later executions. Every lookup still
+ * checks cancellation and service/Agent lifetime; pending checks drain as in {@link ensure}.
+ * @param execution - real execution object shared by terminal guards and the body.
+ * @returns the execution's directory, or undefined for a call without an Agent.
+ */
+ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined>
 
 /**
  * Change one Session's directory without changing existing processes or permissions.

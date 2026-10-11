@@ -342,9 +342,10 @@ interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
  * returning `undefined` leaves it unchanged. Because guards have no allow
  * result, listener ordering cannot turn a denial back into permission.
  * @param execution - the identity-protected call after extensible pre-execute policy completed.
- * @returns a final denial reason, or `undefined` to leave the call allowed.
+ * @returns a final denial reason, or `undefined` to leave the call allowed;
+ * asynchronous guards settle before the next guard or dispatch begins.
  */
-type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
+type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>
 ```
 
 ```ts type-equiv
@@ -556,7 +557,7 @@ restrict(filter: ToolRestriction): () => void
  * returning a reason, while no guard can force-allow a call another guard
  * denied. The exact effect disposer is returned for ordered ownership and
  * HMR cleanup.
- * @param guard - synchronous check; a returned string denies the execution.
+ * @param guard - serially awaited check; a returned string denies the execution.
  * @returns the exact disposer that unregisters the guard.
  */
 guard(guard: ToolGuard): () => void
