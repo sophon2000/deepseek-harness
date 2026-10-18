@@ -1543,12 +1543,27 @@ export class ToolRuntime extends Service {
     }
     try {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+      const validatedArgs = tool?.validateArgs
       validateDefinitionArgs(tool, exec.arguments)
       const carrier = scopeTarget(this, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
+      if (gate.kind === 'ask') {
+        // Policy may materialize a tool or change scoped visibility. Preserve
+        // that historical policy window, but never ask the user to approve an
+        // absent or newly invalid call. Deny/cancel and allow retain their
+        // established paths; dispatch still resolves again after approval.
+        if (this.callerCancelled(exec)) {
+          return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
+        }
+        const approvalTool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+        if (approvalTool === undefined) throw new ToolNotFoundError(exec.name)
+        if (approvalTool !== tool || approvalTool.validateArgs !== validatedArgs) {
+          validateDefinitionArgs(approvalTool, exec.arguments)
+        }
+      }
       const askResolution = gate.kind === 'ask'
         ? await this.serviceAsk(exec, gate)
         : { decision: gate, approvalCancelled: false }

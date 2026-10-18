@@ -8,6 +8,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type ApprovalService from '@deepseek-ai/dsh-user-approval'
 
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -212,6 +213,47 @@ describe('restrict() over an inherited scope layer', () => {
       { inject: ['tools', 'systemPrompt'] }))
     return { scope, key }
   }
+
+  it('rechecks child visibility after policy before asking, without narrowing the parent', async () => {
+    const ctx = await mount()
+    const parent = await mintAgentScope(ctx, 'ask-parent')
+    parent.scope.ctx.tools.register(tool('scoped-ask'))
+    const child = await mintChild(ctx, parent.key, 'ask-child')
+    let asked = 0
+    let policies = 0
+    ctx.provide('approval', { request: async () => { asked++; return 'allowed-once' } } as unknown as ApprovalService)
+    child.scope.ctx.on('tools/pre-execute', async () => {
+      policies++
+      child.scope.ctx.tools.restrict({ deny: ['scoped-ask'] })
+      return { kind: 'ask' }
+    })
+    try {
+      expect(await run(ctx, 'scoped-ask', child.key)).toBe('Error: unknown tool "scoped-ask"')
+      expect(policies).toBe(1)
+      expect(asked).toBe(0)
+      expect(await run(ctx, 'scoped-ask', parent.key)).toBe('ran:scoped-ask')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('does not approve a sibling-only tool while preserving a dynamically registered own tool', async () => {
+    const ctx = await mount()
+    const owner = await mintAgentScope(ctx, 'ask-owner')
+    const other = await mintAgentScope(ctx, 'ask-other')
+    owner.scope.ctx.tools.register(tool('private-ask'))
+    let asked = 0
+    ctx.provide('approval', { request: async () => { asked++; return 'allowed-once' } } as unknown as ApprovalService)
+    other.scope.ctx.on('tools/pre-execute', async (exec) => {
+      if (exec.name === 'own-dynamic-ask') other.scope.ctx.tools.register(tool(exec.name))
+      return { kind: 'ask' }
+    })
+    try {
+      expect(await run(ctx, 'private-ask', other.key)).toBe('Error: unknown tool "private-ask"')
+      expect(asked).toBe(0)
+      expect(await run(ctx, 'own-dynamic-ask', other.key)).toBe('ran:own-dynamic-ask')
+      expect(asked).toBe(1)
+      expect(ctx.tools.get('own-dynamic-ask', owner.key)).toBeUndefined()
+    } finally { await ctx.fiber.dispose() }
+  })
 
   it('filters tools the child inherits from an ancestor scope, not only global ones', async () => {
     // The shape every preset deployment has: no model-facing row in the global

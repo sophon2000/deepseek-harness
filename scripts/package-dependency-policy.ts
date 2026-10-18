@@ -17,6 +17,7 @@ const HOST_DEPENDENCY_PACKAGES: readonly string[] = [
 
 /** Required Cordis services whose Host imports are type-only. */
 const REQUIRED_SERVICE_PEERS = {
+  '@deepseek-ai/dsh-api-workspace-files': ['@deepseek-ai/dsh-session'],
   '@deepseek-ai/dsh-api-terminal-controller': ['@deepseek-ai/dsh-subprocess'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
@@ -36,6 +37,10 @@ const CONFIGURATION_ONLY_DEV_DEPENDENCIES = {
 
 /** Type-only imports that must resolve in the published declaration graph. */
 const PUBLISHED_DECLARATION_DEPENDENCIES = {
+  '@deepseek-ai/dsh-api-gateway': ['@deepseek-ai/dsh-brand'],
+  '@deepseek-ai/dsh-client-connection': ['@deepseek-ai/dsh-brand', '@deepseek-ai/dsh-typert-protocol'],
+  '@deepseek-ai/dsh-typert-registry': ['@deepseek-ai/dsh-typert-protocol'],
+  '@deepseek-ai/dsh-llm': ['@deepseek-ai/dsh-attachment'],
   '@deepseek-ai/dsh-session': ['@deepseek-ai/dsh-typert-protocol'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
