@@ -125,6 +125,26 @@ Ownership truth is the record's ordered `sessionIds`, never derived from session
 
 Sessions get their cwd at create time from whoever creates them, not from this registry — the API gateway resolves a new session's cwd from the chosen workspace's `path` (falling back to an explicit or default cwd), creates the session so the cwd lands in its immutable [`SessionHeader`](persistence.md#sessionheader--metadata-beside-the-log), then calls `attachSession`, which re-validates that stored header cwd against the workspace path. On the first successful start, the registry bootstraps history from persisted headers alone (`id`, `cwd`, `createdAt` — never event bodies), grouping sessions with a valid canonical cwd into per-directory workspaces, newest first; the initialized marker is written last so an interrupted bootstrap resumes safely. The bootstrap is one-time: cwd-less legacy sessions stay Ungrouped, and sessions created afterwards join a workspace only through `attachSession`.
 
+## Session account inspection
+
+`inspectSessionWorkspace(sessionId)` returns a durable candidate account even when its indexed cwd validation fails; no account returns `undefined`. It does not infer ownership from a matching directory, refresh the header index, or establish live filesystem availability. Consumers requiring a usable source must also check directory availability rather than treating `validation: 'valid'` as an I/O lease.
+
+```ts type-equiv
+/**
+ * Durable Workspace account lookup for one Session. `validation` reports
+ * whether the registry's indexed immutable header cwd identifies the
+ * Workspace path; it does not report live Workspace directory availability
+ * (see {@link Workspace.status}).
+ */
+interface WorkspaceSessionInspection {
+  /** Workspace whose durable candidate account contains the Session id. */
+  readonly workspace: Workspace
+
+  /** Canonical-cwd validation result from the registry's header index. */
+  readonly validation: 'valid' | 'cwd-unavailable' | 'cwd-mismatch'
+}
+```
+
 ## Default Workspace initialization
 
 The controller's `initializeDefault` takes no request: it owns the fixed `default-workspace` directory name, resolves the Documents location, and asks the registry to initialize once. The registry accepts a directory resolver, derives the initial title from the requested directory's final segment rather than the canonical one, and commits the registration with its durable identity. No language reaches the Host — browser consumers label a Workspace still carrying that automatic title through the controller's `workspaceDisplayTitle`, so only the on-screen name follows the reader's language. [First-use behavior and configuration](../../packages/api/workspace-controller/README.md#first-use-workspace) describe reuse and failure handling.
@@ -509,6 +529,17 @@ get(id: WorkspaceId): Workspace | undefined
  * @returns a fresh ordered array of workspace entities.
  */
 list(): Workspace[]
+
+/**
+ * Inspect the durable Workspace account for one Session without widening
+ * the validated {@link Workspace.sessionIds} membership projection. The
+ * result is derived synchronously from the registry's startup/live header
+ * index and performs no persistence read or mutation.
+ * @param sessionId - Session whose durable Workspace account to inspect.
+ * @returns the accounted Workspace and canonical-cwd validation, or
+ * `undefined` when no Workspace account contains the Session id.
+ */
+inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined
 
 /**
  * Delete one workspace registration while retaining its directory and every

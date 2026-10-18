@@ -125,6 +125,26 @@ interface Workspace {
 
 会话的 cwd 在创建时由创建者赋予，而不是由本注册表赋予——API 网关从所选工作区的 `path` 解析新会话的 cwd（回退到显式或默认 cwd），先创建会话使 cwd 落入其不可变的 [`SessionHeader`](persistence.zh.md#sessionheader--metadata-beside-the-log)，再调用 `attachSession`，后者会把已存储的 header cwd 与工作区路径重新校验一遍。首次成功启动时，注册表仅凭已持久化的 header（`id`、`cwd`、`createdAt`——绝不读事件正文）引导历史：把规范 cwd 有效的会话按目录分组为工作区，最新的排在最前；「已初始化」标记最后写入，因此被中断的引导可以安全续跑。引导只发生这一次：没有 cwd 的历史遗留会话保持 Ungrouped，此后创建的会话只能通过 `attachSession` 加入工作区。
 
+## 会话账本检查
+
+`inspectSessionWorkspace(sessionId)` 返回持久化候选账本，即使其索引中的 cwd 校验失败；没有账本时返回 `undefined`。它不会从目录相同推断归属、刷新 header 索引或证明文件系统实时可用。需要可用源的消费方还必须检查目录可用性，不能将 `validation: 'valid'` 当作 I/O 租约。
+
+```ts type-equiv
+/**
+ * Durable Workspace account lookup for one Session. `validation` reports
+ * whether the registry's indexed immutable header cwd identifies the
+ * Workspace path; it does not report live Workspace directory availability
+ * (see {@link Workspace.status}).
+ */
+interface WorkspaceSessionInspection {
+  /** Workspace whose durable candidate account contains the Session id. */
+  readonly workspace: Workspace
+
+  /** Canonical-cwd validation result from the registry's header index. */
+  readonly validation: 'valid' | 'cwd-unavailable' | 'cwd-mismatch'
+}
+```
+
 ## 默认工作区初始化
 
 控制器的 `initializeDefault` 不接受请求参数：它拥有固定目录名 `default-workspace`，解析 Documents 位置，并请求注册表执行一次初始化。注册表接收目录解析器，以所请求目录（而非规范路径）的最后一段作为初始标题，并将登记与持久化身份一起提交。语言不会传到 Host——浏览器消费方通过控制器的 `workspaceDisplayTitle` 为仍保留该自动标题的工作区加标签，因此只有屏幕上的名称跟随读者语言。[首次使用行为与配置](../../packages/api/workspace-controller/README.zh.md#first-use-workspace)说明复用和失败处理。
@@ -509,6 +529,17 @@ get(id: WorkspaceId): Workspace | undefined
  * @returns a fresh ordered array of workspace entities.
  */
 list(): Workspace[]
+
+/**
+ * Inspect the durable Workspace account for one Session without widening
+ * the validated {@link Workspace.sessionIds} membership projection. The
+ * result is derived synchronously from the registry's startup/live header
+ * index and performs no persistence read or mutation.
+ * @param sessionId - Session whose durable Workspace account to inspect.
+ * @returns the accounted Workspace and canonical-cwd validation, or
+ * `undefined` when no Workspace account contains the Session id.
+ */
+inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined
 
 /**
  * Delete one workspace registration while retaining its directory and every

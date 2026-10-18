@@ -10,6 +10,20 @@ Session 的当前目录由 [`dsh-working-directory`](../../packages/session/work
 
 变更仅影响一个 Session。相对路径文件系统操作、新启动的进程、指令发现、技能和文件补全使用当前目录。已有终端和持久 shell 保留自己的目录。沙箱可写根目录与项目归属继续绑定原始项目。
 
+## 执行目录身份
+
+只有守卫和执行体传入同一个实际执行对象时，`ensureForExecution` 才会共享首次校验的目录。后续 Session 目录变化影响后续执行；每次读取仍检查取消和服务/Agent 生命周期。没有 Agent 的调用返回 `undefined`。这份共享观察不会改变参数、工作区归属或文件系统权限。
+
+```ts type-equiv
+/** Execution identity shared by terminal guards and the directory-consuming body. */
+interface WorkingDirectoryExecution {
+  /** Agent whose Session supplies the current directory, if the call has one. */
+  readonly agent?: Agent
+  /** Current execution cancellation, including any body wrapper's fused signal. */
+  readonly signal: AbortSignal
+}
+```
+
 ## 模型上下文
 
 初始值与后续当前值通过必需的用户上下文快照到达模型，即使可选运行时上下文被禁用也不例外。每次已提交变更都会尝试通过普通 Agent 收件箱排入通知；取消或销毁可能丢弃尚未进入请求的通知。目录事件仍然保留，下一次获准进入的请求会收到当前值。目录上下文不进入系统提示词。[`working_directory`](../../packages/session/tool-working-directory/README.zh.md) 提供一个可选的 `cd` 参数。
@@ -45,6 +59,16 @@ get(session: Session): string
  * @throws when the original project is also unavailable.
  */
 ensure(agent: Agent, signal?: AbortSignal): Promise<string>
+
+/**
+ * Pin the first validated directory for one tool execution without changing its arguments.
+ * Guards and the body must pass the same execution object, not a copy. Later
+ * Session directory changes apply to later executions. Every lookup still
+ * checks cancellation and service/Agent lifetime; pending checks drain as in {@link ensure}.
+ * @param execution - real execution object shared by terminal guards and the body.
+ * @returns the execution's directory, or undefined for a call without an Agent.
+ */
+ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined>
 
 /**
  * Change one Session's directory without changing existing processes or permissions.
