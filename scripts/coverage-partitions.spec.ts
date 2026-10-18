@@ -104,12 +104,11 @@ describe('coverage partition count', () => {
 })
 
 describe('lane test budget', () => {
-  it.each([30_000, 90_000])('applies a configured %i ms budget to tests, hooks, and expect.poll', (timeout) => {
-    expect(parseCoverageTestTimeout(String(timeout))).toBe(timeout)
-    expect(coverageTestTimeoutOptions(String(timeout))).toEqual({
-      testTimeout: timeout,
-      hookTimeout: timeout,
-      expect: { poll: { timeout } },
+  it('applies one configured budget to tests, hooks, and expect.poll', () => {
+    expect(coverageTestTimeoutOptions('30000')).toEqual({
+      testTimeout: 30000,
+      hookTimeout: 30000,
+      expect: { poll: { timeout: 30000 } },
     })
   })
 
@@ -270,17 +269,26 @@ describe('coverage file inventory', () => {
     expect(durations.get('packages/a/tests/y.spec.ts')).toBe(7)
   })
 
-  it('extracts per-file durations from partition json reports', async () => {
+  it('extracts per-file durations from compact partition timing reports', async () => {
     const root = await temporaryRoot()
-    const report = join(root, 'partition-1.report.json')
+    const report = join(root, 'partition-1.times.json')
     await writeFile(report, JSON.stringify({
-      testResults: [
-        { name: join(root, 'packages/a/tests/x.spec.ts'), startTime: 1000, endTime: 1500 },
-        { name: 'not-a-spec', startTime: 1, endTime: 2 },
-      ],
+      'packages/a/tests/x.spec.ts': 500,
+      'packages/a/tests/y.spec.ts': 0,
+      'packages/a/tests/invalid.spec.ts': -1,
+      'packages/a/tests/malformed.spec.ts': 'unknown',
     }))
-    const durations = collectPartitionDurations([report], root)
+    const durations = collectPartitionDurations([report])
     expect(durations.get('packages/a/tests/x.spec.ts')).toBe(500)
+    expect(durations.get('packages/a/tests/y.spec.ts')).toBe(0)
+    expect(durations.size).toBe(2)
+  })
+
+  it.each(['null', '[]', '42', '"invalid"', '{'])('ignores corrupt timing metadata %s', async (contents) => {
+    const root = await temporaryRoot()
+    const report = join(root, 'partition.times.json')
+    await writeFile(report, contents)
+    expect(collectPartitionDurations([report])).toEqual(new Map())
   })
 })
 
@@ -512,9 +520,10 @@ describe('coverage partition coordinator', () => {
         '--maxWorkers=1',
         '--reporter=default',
         '--reporter=blob',
-        '--reporter=json',
         '--testTimeout=30000',
       ]))
+      expect(command.args).not.toContain('--reporter=json')
+      expect(command.args).toContain('--reporter=./scripts/coverage-file-times.ts')
       expect(command.args).not.toContain('--shard=1/3')
       expect(command.args.some(argument => argument.startsWith('--config='))).toBe(true)
       expect(command.env).toEqual({
@@ -531,6 +540,8 @@ describe('coverage partition coordinator', () => {
     expect(allConfigs).toContain('c.spec.ts')
     for (const source of partitionConfigs) {
       expect(source).toContain("from '../../vitest.config.ts'")
+      expect(source).toContain("from '../../scripts/coverage-fork-diagnostics.ts'")
+      expect(source).toContain('pool: coverageForkPool')
     }
     const mergeCommand = commands[3]
     if (mergeCommand === undefined) throw new Error('coverage merge command was not observed')

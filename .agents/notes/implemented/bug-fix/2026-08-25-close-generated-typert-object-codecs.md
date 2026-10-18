@@ -12,7 +12,7 @@ The same behavior applied recursively to nested DTOs and to generated result sch
 
 ## Decision
 
-The Typert Zod emitter uses `z.strictObject` for every object declaration or object literal with fixed JSON properties. Unknown properties fail at the Client and Host codecs, including inside nested objects and generated results, instead of being normalized away.
+The Typert Zod emitter uses `z.strictObject` for every object declaration or object literal with fixed JSON properties. Generated schemas reject unknown properties, including inside nested objects and result schemas, instead of normalizing them away. Client calls send typed arguments unchanged; the Host executes request schemas before business invocation. JSON results remain trusted typed values unless a consumer explicitly parses their generated schema.
 
 `Record`, explicit JSON index signatures, the `object`, `unknown`, and `any` keywords, and unique-symbol-only nominal markers retain their existing open or erased semantics. A fixed-property object combined with an index signature remains open only to keys accepted by that index schema. SRC `src-json` codecs remain permissive because they do not have compiler-derived property information.
 
@@ -26,7 +26,7 @@ The Typert Zod emitter uses `z.strictObject` for every object declaration or obj
 
 ## Verification
 
-Generator tests execute emitted schemas and cover fixed objects, nested objects, inheritance, intersections, empty DTOs, `Record`, pure index signatures, and fixed properties combined with an index signature. A generated Remote artifact rejects outer `projectId`, nested `tenantId`, and an unknown result property. Client runtime coverage proves that an unknown request property reaches no carrier call; Gateway runtime coverage sends the outer and nested forged fields through a strict descriptor and proves that the business implementation records no call. The built-LIB integration test additionally crosses the real HTTP route with generated Client and Host bundles, rejects both a Client-side `projectId` and a raw forged Host-side `tenantId`, and leaves goal state and session events unchanged.
+Generator tests execute emitted schemas and cover fixed objects, nested objects, inheritance, intersections, empty DTOs, `Record`, pure index signatures, and fixed properties combined with an index signature. A generated Remote schema rejects outer `projectId`, nested `tenantId`, and an unknown result property. Gateway runtime coverage sends the outer and nested forged fields through a strict descriptor and proves that the business implementation records no call. The built-LIB integration test crosses the real HTTP route with generated Client and Host bundles: an unknown request property reaches the carrier unchanged, the Host returns `gateway/input-invalid`, and goal state and session events remain unchanged. A raw HTTP request with a forged `tenantId` fails the same way.
 
 ## Consequences
 

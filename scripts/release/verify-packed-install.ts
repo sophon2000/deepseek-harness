@@ -1,6 +1,7 @@
 /**
  * Install packed tarballs into a throwaway consumer outside the repository and
- * drive the installed executable with plain Node.
+ * drive the installed executable with plain Node. Its npm cache belongs to that
+ * consumer and is removed with it on normal completion or failure.
  *
  * Every tarball the installed tree needs comes from `--from`, so the only
  * registry traffic is for external dependencies. That matters beyond hermetic
@@ -100,12 +101,10 @@ function main(): void {
 
     const environment = consumerEnvironment(consumerRoot)
     console.log(`release verify-packed-install: installing ${String(packed.size)} tarball(s) into ${consumerRoot}`)
-    // Keep optional dependencies enabled. External packages such as Koffi use
-    // optionalDependencies to distribute their host prebuild; globally omitting
-    // them turns a normal install into an accidental native source build. npm
-    // still skips platform-incompatible optional packages, while the Landlock
-    // entry package itself is supplied through --from.
-    capture('npm', ['install', '--no-audit', '--no-fund', '--package-lock=false', '--loglevel=http'],
+    // External native packages distribute host prebuilds through optional
+    // dependencies. npm skips incompatible platforms while retaining these
+    // prebuilds for the current host.
+    capture('npm', ['install', '--cache', join(consumerRoot, '.npm-cache'), '--no-audit', '--no-fund', '--package-lock=false', '--loglevel=http'],
       { cwd: consumerRoot, env: environment })
 
     const installedEntry = join(consumerRoot, 'node_modules', entry.packageName)

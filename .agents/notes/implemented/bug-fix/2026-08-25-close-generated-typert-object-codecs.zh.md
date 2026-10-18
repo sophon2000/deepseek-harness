@@ -12,7 +12,7 @@ Typert 会把编译器生成的 Remote codec 标记为 `strict`，但固定属�
 
 ## Decision
 
-Typert Zod 生成器对每个包含固定 JSON 属性的对象声明或对象字面量使用 `z.strictObject`。未知属性会在 Client 和 Host codec 处失败，包括嵌套对象内部和生成结果中的未知属性，不再被规范化掉。
+Typert Zod 生成器对每个包含固定 JSON 属性的对象声明或对象字面量使用 `z.strictObject`。生成的 schema 会拒绝未知属性，包括嵌套对象内部和结果 schema 中的未知属性，不再将其规范化掉。Client 调用原样发送已定型的参数；Host 在调用业务方法之前执行请求 schema。JSON 结果仍作为可信的已定型值传递，除非消费方显式使用生成的 schema 解析它们。
 
 `Record`、显式 JSON 索引签名、`object`、`unknown`、`any` 关键字，以及仅含 unique symbol 的名义标记会保留原有的开放或擦除语义。固定属性对象与索引签名组合时，只对该索引 schema 接受的键保持开放。SRC 的 `src-json` codec 继续保持宽松，因为它没有编译器推导的属性信息。
 
@@ -26,7 +26,7 @@ Typert Zod 生成器对每个包含固定 JSON 属性的对象声明或对象字
 
 ## Verification
 
-生成器测试会执行实际生成的 schema，并覆盖固定对象、嵌套对象、继承、交叉类型、空 DTO、`Record`、纯索引签名，以及固定属性与索引签名的组合。生成的 Remote 产物会拒绝外层 `projectId`、嵌套 `tenantId` 和未知结果属性。Client 运行时测试会证明含未知请求属性的调用不会触达载体；Gateway 运行时测试会通过 strict descriptor 发送外层和嵌套的伪造字段，并证明业务实现没有记录任何调用。构建后 LIB 集成测试还会让生成的 Client 与 Host bundle 跨越真实 HTTP 路由，分别拒绝 Client 侧 `projectId` 和直接伪造到 Host 侧的 `tenantId`，并确认 goal 状态与 session event 均未改变。
+生成器测试会执行实际生成的 schema，并覆盖固定对象、嵌套对象、继承、交叉类型、空 DTO、`Record`、纯索引签名，以及固定属性与索引签名的组合。生成的 Remote schema 会拒绝外层 `projectId`、嵌套 `tenantId` 和未知结果属性。Gateway 运行时测试会通过 strict descriptor 发送外层和嵌套的伪造字段，并证明业务实现没有记录任何调用。构建后 LIB 集成测试让生成的 Client 与 Host bundle 跨越真实 HTTP 路由：未知请求属性原样到达载体，Host 返回 `gateway/input-invalid`，goal 状态与 session event 均保持不变。携带伪造 `tenantId` 的原始 HTTP 请求以相同方式失败。
 
 ## Consequences
 

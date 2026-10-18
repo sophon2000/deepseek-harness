@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /deepseek-harness-desktop:
-  en: eccac345d51428fa
-  zh: 4a448b3d63cb8117
+  en: 5b8518fd5e0030ef
+  zh: 02efee59c39647dc
 /deepseek-harness-desktop/terminal-command:
   en: bef92953c237363f
   zh: d21d6effd21b8c00
@@ -15,23 +15,23 @@
   en: 069fdfd72d2ea26a
   zh: 76ae549d43c99bb4
 /deepseek-harness-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: 604b96a40efbb9b6
-  zh: 72d3cc3e569c5d1f
+  en: b9d40ba5613459f6
+  zh: 1c1ce19f563f65c0
 /deepseek-harness-desktop/bundled-command-runtime:
-  en: bcd49c21c44cc1e2
-  zh: 7e7b4e16d9ebfec6
+  en: 0df33111618d2cf1
+  zh: f7d2936252a2f43e
 /deepseek-harness-desktop/installation-ownership:
   en: 7d5ac84b94df8764
   zh: e41c7c2456811056
 /deepseek-harness-desktop/installation-ownership/runtime-and-plugin-activation:
-  en: 78fc5062963ce468
-  zh: bda851fe4d9baef4
+  en: 430d191452c7e2cd
+  zh: 7426d5ea37a92e2c
 /deepseek-harness-desktop/installation-ownership/host-environment:
   en: 84a9cc7ca9455aa8
   zh: 4091b8aa8231b74a
 /deepseek-harness-desktop/develop:
-  en: 6eb24eb6ddcbb027
-  zh: a9ec15df47c4f1b0
+  en: 4f3b9821db210483
+  zh: ce6f6cd991030a51
 /deepseek-harness-desktop/develop/startup-onboarding:
   en: a51346b8d880ddba
   zh: 7913214c1c66063c
@@ -42,29 +42,41 @@
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
 /deepseek-harness-desktop/package/release-versions:
-  en: f461b255133384cc
-  zh: 2b9db718f22fdd04
+  en: 3b8f3724d77f294d
+  zh: 1d5fceb8006720b8
+/deepseek-harness-desktop/package/local-macos-dmg-without-release-signing:
+  en: 57869a5e3885f843
+  zh: 7cfc01b2dcbebd78
+/deepseek-harness-desktop/package/local-official-bundles-from-a-loopback-registry:
+  en: 5f05072ec82cc62d
+  zh: a3d63b58d1ef2db7
 /deepseek-harness-desktop/package/runtime-file-selection:
   en: 2e0de3989148ae17
   zh: 184c84c1dc6be689
 /deepseek-harness-desktop/package/upload-updates:
-  en: 72073b2e72590067
-  zh: 63b1f9790395c37d
+  en: f48baa680e841b0d
+  zh: 25ded1aeaac6dad1
 /deepseek-harness-desktop/package/unsigned-windows-test-installer:
-  en: cfd5780dd26a8e46
-  zh: f7a16b1ede793b7b
+  en: 501707f52e2c16dc
+  zh: 5f501b8c441ab35c
 /deepseek-harness-desktop/package/windows-installer-interface:
-  en: f176a8b1c7de3064
-  zh: 6ea2dbe6bb808c34
+  en: 1fc1db8f54475c8f
+  zh: dd834ed206070396
 /deepseek-harness-desktop/package/windows-ev-signing:
-  en: 2406cdc1cd079684
-  zh: 20247a57465987f8
+  en: 0d41a4594d4f2d11
+  zh: 5f86e18a50292045
+/deepseek-harness-desktop/package/desktop-runtime-preparation:
+  en: 9a71990bee9867a7
+  zh: 76c5c1fdff6e6908
 /deepseek-harness-desktop/updates:
-  en: d0df867b69cbffa4
-  zh: eeb47b79b86fe5ee
+  en: 41d0f50eb7173342
+  zh: ce940ef3cbcc6fa5
+/deepseek-harness-desktop/updates/local-desktop-settings:
+  en: 2e57457c44c85b5f
+  zh: 5b8510a3dc4c6c9d
 /deepseek-harness-desktop/updates/mandatory-update-policy:
-  en: 2f789a4949fafb12
-  zh: d8b28c01cfee11b7
+  en: 0224ec950bc3386a
+  zh: 0cf0e0f34f96f39e
 /deepseek-harness-desktop/updates/local-updater-qualification:
   en: bc50fd8a4d96c227
   zh: fb0a6ce80c31cda6

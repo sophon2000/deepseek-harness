@@ -38,7 +38,7 @@ export function runtimeFixture(
 ): DesktopRuntimeDescriptor {
   const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/cordis', ...(product?.profileBundles ?? [])]
   for (const name of names) {
-    const bundle = name === '@deepseek-ai/dsh-base' || name === '@deepseek-ai/dsh-web-app'
+    const bundle = name === '@deepseek-ai/dsh-base' || name === '@deepseek-ai/dsh-web-app' || product?.profileBundles.includes(name)
     const path = writePackage(join(root, 'node_modules'), name, {
       version,
       ...(name === '@deepseek-ai/dsh' ? { dependencies: Object.fromEntries(names.slice(1).map(dependency => [dependency, version])) } : {}),

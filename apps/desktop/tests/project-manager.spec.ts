@@ -43,6 +43,36 @@ afterEach(() => {
 })
 
 describe('desktop external plugin profile', () => {
+  it('adds new runtime product bundles to an existing profile while retaining user metadata, packages and patch', async () => {
+    const { root, manager } = setup()
+    await manager.applyRelease()
+    seedPlugin(manager)
+    const manifestPath = join(manager.paths.profile, 'package.json')
+    const original = JSON.parse(readFileSync(manifestPath, 'utf8')) as { dsh: { profile: { bundles: string[] } } }
+    const patch = '- id: user-setting\n  config:\n    retained: true\n'
+    writeFileSync(join(manager.paths.profile, 'cordis.patch.yml'), patch)
+    const pluginBytes = readFileSync(join(manager.paths.profile, 'node_modules/plugin/package.json'), 'utf8')
+    const dsh = join(root, 'product-release')
+    const product = { id: 'fixture', profileBundles: ['fixture-bundle'], resourcesRoot: 'products/fixture/resources' }
+    runtimeFixture(dsh, '1.1.0', '24.17.0', product)
+    const upgraded = new DesktopProjectManager(manager.paths, { dsh })
+    await upgraded.applyRelease()
+    expect(JSON.parse(readFileSync(manifestPath, 'utf8'))).toEqual({ ...original,
+      dsh: { ...original.dsh, profile: { ...original.dsh.profile, bundles: [...original.dsh.profile.bundles, 'fixture-bundle'] } },
+    })
+    expect(readFileSync(join(manager.paths.profile, 'cordis.patch.yml'), 'utf8')).toBe(patch)
+    expect(readFileSync(join(manager.paths.profile, 'node_modules/plugin/package.json'), 'utf8')).toBe(pluginBytes)
+    const upgradedBytes = readFileSync(manifestPath, 'utf8')
+    await upgraded.applyRelease()
+    expect(readFileSync(manifestPath, 'utf8')).toBe(upgradedBytes)
+    const next = join(root, 'next-product-release')
+    runtimeFixture(next, '1.2.0', '24.17.0', { ...product, profileBundles: ['fixture-bundle', 'fixture-extra'] })
+    await new DesktopProjectManager(manager.paths, { dsh: next }).applyRelease()
+    expect((JSON.parse(readFileSync(manifestPath, 'utf8')) as typeof original).dsh.profile.bundles)
+      .toEqual([...original.dsh.profile.bundles, 'fixture-bundle', 'fixture-extra'])
+    expect(readFileSync(join(manager.paths.profile, 'cordis.patch.yml'), 'utf8')).toBe(patch)
+  })
+
   it('preserves installed packages, profile state, and the lockfile when preparing a launch', async () => {
     const { manager } = setup()
     await manager.applyRelease()

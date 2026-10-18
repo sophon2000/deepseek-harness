@@ -8,7 +8,7 @@ English | [中文](2026-09-09-profile-resolution-generations.zh.md)
 
 A profile loads plugin rows from its own package project, while Harness packages and packages carried by selected bundles can live outside that project's ordinary dependency tree. Bridging the trees through shared symlinks, profile-owned links, or packaged-executable proxy packages persists package selections across processes and installations. Those files require reconciliation and locking, expose generated proxy manifests to metadata readers, and cannot represent a process-local change atomically.
 
-The runtime design keeps installation-first, ordered-bundle, and local-before-fallback precedence. It covers imports performed by plugin modules as well as Loader row imports and works in the main thread and Harness-owned Workers. Generation replacement preserves existing package mappings and local package names, permits linked-root membership changes, and never mutates a live table entry by entry.
+The runtime design keeps installation-first, ordered-bundle, and local-before-fallback precedence. It covers imports performed by plugin modules as well as Loader row imports and works in the main thread and Harness-owned Workers. Generation replacement preserves retained package identities, permits removing profile packages and changing linked-root membership, and never mutates a live table entry by entry.
 
 ## Decision
 
@@ -75,7 +75,7 @@ Linked-root membership is immutable within a generation. A successor may add or 
 
 The router retains the real target of each successfully published link name for its lifetime, solely to validate successors. Removing a root does not erase that record or keep its directory intercepted. Re-adding the same name and target is allowed; a different target is rejected because Node caches real paths. Failed publication changes neither the current generation nor the recorded targets.
 
-The launcher constructs one startup generation. The service accepts a complete successor, but no package-manager transaction invokes replacement in this implementation.
+The launcher constructs one startup generation. `ProfileRuntimeResolution` retains only the installation anchor, Harness home, and optional profile directory as recomputation inputs; successors reread disk selection and layers rather than inheriting a supplied profile's synthetic layers. A generation without a profile directory can recompute installation packages. The [package refresh decision](2026-09-30-profile-package-refresh-and-manifest-invalidation.md) assigns successor publication to Plugin Manager operations.
 
 ### Shared ESM and CommonJS rule
 
@@ -105,15 +105,15 @@ New Workers inherit the latest published generation. Existing Workers keep the g
 
 ### Additive package changes
 
-A caller adding a package completes its pnpm transaction before constructing a successor generation. Replacement rejects any generation that changes the directory or version of an existing package. The caller publishes an additive successor before mounting the new Loader row; this implementation does not provide that package transaction. A mount failure may leave the package installed but inactive.
+A caller adding a package completes its pnpm transaction before constructing a successor generation. Replacement rejects any generation that changes the directory or version of a retained package. Plugin Manager publishes the successor before mounting the new Loader row. A mount failure may leave the package installed but inactive.
 
-Changing or removing an existing runtime package mapping, or removing a recorded profile-local package name, requires process restart because Node's ESM Module Map, CommonJS cache, existing object references, and running Workers can retain the old module identity. These restrictions do not prohibit removing a linked root from the interception scope. Generation replacement does not claim to unload modules.
+A retained package keeps its normalized directory, version, and scope; installation entries also keep their declaring anchor and cannot be removed. Violating these restrictions requires process restart because Node's ESM Module Map, CommonJS cache, existing object references, and running Workers can retain the old module identity. A profile entry may change its declaring anchor: deselecting the first bundle that reaches a shared dependency can leave another bundle selecting the same physical package. Profile-scoped mappings and profile-local package names may be removed; the caller stops their plugins before deleting package files. These restrictions do not prohibit removing a linked root from the interception scope. Generation replacement does not claim to unload modules.
 
 ### Filesystem and runtime carriers
 
 The resolver does not create, update, or remove fallback symlinks and proxy packages. Runtime resolution entries occupy their package names at `$DSH_HOME/profiles/node_modules`; every other name sees that directory as an ordinary ancestor. Construction records links to directories outside the shared profiles tree and the active profile itself, including targets without their own manifest. Installation-scope package directories stay outside linked interception even when a broader linked root contains them. Eligible linked importers retain native ancestor order and per-position peer mappings. The [lookup-order Note](2026-09-19-profile-resolution-lookup-order.md) records precedence and scope. Writable profile state and package-manager transactions remain outside the resolver.
 
-Runtime resolution requires a supported Node Internal loader interface. The Electron Host runs through the Electron executable with `ELECTRON_RUN_AS_NODE=1`; packaged builds read the complete dsh tree from external `Resources/dsh`. Pkg and Electron use the same runtime resolution mechanism as ordinary Node launches.
+Runtime resolution requires a supported Node Internal loader interface. The Electron Host runs through the Electron executable with `ELECTRON_RUN_AS_NODE=1`; packaged builds read the dsh tree from ASAR and map executable ASAR entries to electron-builder's unpacked tree. Pkg and Electron use the same runtime resolution mechanism as ordinary Node launches.
 
 ### Performance and verification
 
@@ -142,9 +142,9 @@ Behavior tests exercise root order, transitive and peer dependencies, local and 
 ## Verification
 
 - One eager computation supplies the runtime resolution; startup neither writes nor retires module-resolution data.
-- [Generation tests](../../../../packages/boot/app-boot/tests/profile-resolution.spec.ts) cover installation and selected-bundle graphs with ordinary directories and recursive symlinks, including different dependency versions beside logical and real anchors. They also cover linked-root removal, same-target restoration, overlapping roots, native misses, new requests from loaded modules, and relink rejection after removal.
+- [Generation tests](../../../../packages/boot/app-boot/tests/profile-resolution.spec.ts) cover installation and selected-bundle graphs with ordinary directories and recursive symlinks, including different dependency versions beside logical and real anchors. They also cover same-package profile declarer changes, retained-identity rejection, captured-directory recomputation, linked-root removal, same-target restoration, overlapping roots, native misses, new requests from loaded modules, and relink rejection after removal.
 - [Source-launch tests](../../../../apps/cli/tests/source-launch.compat.spec.ts) and [built-bin tests](../../../../apps/cli/tests/built-bin.e2e.ts) run both profile layouts through the real CLI. They assert ESM/CJS versions, loaded paths, per-format dependency identity, and consistent Tools/AgentLoop module instances with an accessible scheduler key.
-- Pkg and Electron carriers select runtime resolution; Electron executes its Host in Node mode from the complete external `Resources/dsh` tree.
+- Pkg and Electron carriers select runtime resolution; Electron executes its Host in Node mode from the ASAR-backed dsh tree while native executable entries remain unpacked.
 - ESM and CommonJS adapters share one router and delegate final resolution to Node without `module.registerHooks` or `_findPath` replacement.
 - Production metadata lookup does not record Loader import results or wrap Entry, registry, tree, or HMR methods.
 - The Node compatibility matrix runs main-thread resolver specifications across supported loader interfaces; service and bootstrap specifications cover Worker environment-data and installation interfaces without launching a built Worker.
@@ -152,4 +152,4 @@ Behavior tests exercise root order, transitive and peer dependencies, local and 
 
 ## Consequences
 
-Runtime startup avoids disk mutation and proxy manifests while retaining package-precedence rules. Real-directory anchors align dependency discovery with default Node loading and tsx workspace mapping, including cases where a logical symlink path would select another version. The implementation accepts the maintenance cost of Node Internal compatibility tests and an early, self-contained bootstrap in each owned Worker; it provides no disk-only backend or dual comparison mode. Package mappings and local package names remain additive; linked-root membership may change without unloading modules.
+Runtime startup avoids disk mutation and proxy manifests while retaining package-precedence rules. Real-directory anchors align dependency discovery with default Node loading and tsx workspace mapping, including cases where a logical symlink path would select another version. The implementation accepts the maintenance cost of Node Internal compatibility tests and an early, self-contained bootstrap in each owned Worker; it provides no disk-only backend or dual comparison mode. Profile package records and linked-root membership may be removed without unloading modules; retained package identities stay unchanged.

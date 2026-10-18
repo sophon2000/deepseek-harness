@@ -15,14 +15,13 @@ import { ToolRow, type ToolRowProps } from '../components/ToolRow.tsx'
 /** Full row props of a read-family toolview: the runtime share plus its locale seat. */
 export type ReadFamilyRowProps = ToolCallViewProps & { t: ToolRowProps['t'] }
 
-/** read_image row props: the runtime share, the declared image child slot, and the locale seat. */
+/** read_image row props: the runtime share, inherited gallery renderer, and locale. */
 export type ReadImageRowProps = ReadFamilyRowProps
 
 /**
  * The card material one read-family row contributes: exactly the ToolRow card
  * props that row owns. `read` supplies `read` and the line its call named;
- * `read_image` supplies `image` together with the slot dispatcher and loader
- * that draw it.
+ * `read_image` supplies `image` with its inherited gallery renderer.
  */
 export type ReadFamilyCard = Pick<ToolRowProps, 'read' | 'image' | 'renderImages' | 'filePathLine'>
 

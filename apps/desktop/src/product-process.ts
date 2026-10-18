@@ -46,6 +46,9 @@ export interface DesktopProductReady {
   readonly environment: NodeJS.ProcessEnv
 }
 
+/** The product has exited, but its unsuccessful teardown forbids update installation. */
+export class DesktopProductUncleanExitError extends Error {}
+
 /** Product service launched from an integrity-checked Desktop runtime. */
 export class DesktopProductProcess {
   private child: ChildProcess | undefined
@@ -60,6 +63,8 @@ export class DesktopProductProcess {
   private stopping = false
   private failureReported = false
   private readyTimer: ReturnType<typeof setTimeout> | undefined
+  private stopPromise: Promise<void> | undefined
+  private uncleanExit: DesktopProductUncleanExitError | undefined
 
   constructor(
     private readonly node: string,
@@ -78,12 +83,16 @@ export class DesktopProductProcess {
 
   /** Start once and resolve after the product reports its exact allowlisted Host environment. */
   async start(): Promise<DesktopProductReady> {
+    if (this.stopping) throw new Error('desktop product service is stopped')
     if (this.child !== undefined) return this.readyPromise
     const service = this.product.service
     if (service === undefined) throw new Error('desktop product service is not declared')
     const resourcesRoot = runtimePath(this.runtimeDir, this.product.resourcesRoot)
     const entrypoint = runtimePath(resourcesRoot, service.entrypoint)
     await mkdir(this.dataRoot, { recursive: true })
+    // stop() can close the process while its data directory is being prepared.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (this.stopping) throw new Error('desktop product service startup was cancelled')
     const child = spawn(this.node, [entrypoint, '--runtime-root', resourcesRoot, '--data-root', this.dataRoot], {
       cwd: this.dataRoot,
       env: cleanEnvironment(this.environment),
@@ -129,19 +138,40 @@ export class DesktopProductProcess {
     return this.readyPromise
   }
 
-  /** Stop cooperatively, then terminate a service that does not respond. */
-  async stop(): Promise<void> {
+  /** Stop and await exit; an update additionally requires a successful cooperative shutdown. */
+  stop(requireGraceful = false): Promise<void> {
+    if (this.stopPromise === undefined) {
+      this.stopping = true
+      this.clearReadyTimer()
+      this.stopPromise = this.stopChild()
+    }
+    return requireGraceful ? this.stopPromise.then(() => {
+      if (this.uncleanExit !== undefined) throw this.uncleanExit
+    }) : this.stopPromise
+  }
+
+  private async stopChild(): Promise<void> {
     const child = this.child
     if (child === undefined) return
-    this.stopping = true
-    if (child.connected) child.send({ type: 'shutdown' })
+    this.readyReject(new Error('desktop product service startup was cancelled'))
+    let forced = false
+    const terminate = (): void => { forced = true; child.kill('SIGTERM') }
+    if (child.connected) child.send({ type: 'shutdown' }, (error) => {
+      if (error !== null) terminate()
+    })
     const exited = this.exitPromise ?? Promise.resolve()
-    if (!await exitsWithin(exited, 10_000)) child.kill('SIGTERM')
+    if (!await exitsWithin(exited, 10_000)) terminate()
     if (!await exitsWithin(exited, 5_000)) {
       child.kill('SIGKILL')
       if (!await exitsWithin(exited, 5_000)) throw new Error('desktop product service did not exit after SIGKILL')
     }
     this.child = undefined
+    // Termination can be requested by the IPC callback while awaiting child exit.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (forced || child.exitCode !== 0 || child.signalCode !== null) {
+      // Only exit metadata reaches update diagnostics; product stderr can contain credentials.
+      this.uncleanExit = new DesktopProductUncleanExitError(`desktop update: product did not complete graceful teardown (exit ${String(child.exitCode)}, signal ${String(child.signalCode)}, forced termination ${String(forced)})`)
+    }
   }
 
   private fail(error: Error): void {

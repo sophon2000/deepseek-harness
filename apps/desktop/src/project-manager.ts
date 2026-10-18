@@ -23,7 +23,7 @@ import type { DesktopPaths } from './paths.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import {
-  initProfile, PROFILE_TEMPLATES, removeLinkProjections, sanitizeProfile, type ProfileTemplate,
+  initProfile, PROFILE_TEMPLATES, readProfileManifest, removeLinkProjections, sanitizeProfile, writeProfileBundles, type ProfileTemplate,
 } from '@deepseek-ai/dsh-app-boot'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
@@ -77,14 +77,16 @@ export class DesktopProjectManager {
   ) {}
 
   /**
-   * Back up the profile patch and disable third-party bundles without loading application resources.
+   * Back up the profile patch and disable third-party bundles without starting the application.
    * The caller must stop the Host first.
    * @returns Backup path after the locked profile write, or undefined if the patch was absent.
    */
   async disableAllPlugins(): Promise<string | undefined> {
     // Recovery must remain usable when the runtime descriptor itself is missing or damaged.
     let productBundles: readonly string[] = []
-    try { productBundles = readDesktopRuntime(this.runtime.dsh).product?.profileBundles ?? [] } catch { /* recovery fallback */ }
+    try { productBundles = readDesktopRuntime(this.runtime.dsh).product?.profileBundles ?? [] } catch (_error) {
+      // Recovery remains available when runtime metadata cannot identify built-in product bundles.
+    }
     return this.withLock(() => sanitizeProfile(
       'dsh', this.paths.profile, desktopProfileBundles(productBundles),
     ))
@@ -187,7 +189,15 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
   writeFileSync(join(projectDir, 'pnpm-workspace.yaml'), workspaceFile(), { mode: 0o600 })
 }
 
-/** Create the first external plugin profile without running a package manager. */
+/** Initialize a profile and add missing runtime-owned product bundles without changing user packages or patches. */
 export function createPluginProfile(projectDir: string, productBundles: readonly string[] = []): void {
   initProfile(projectDir, desktopProfileBundles(productBundles))
+  if (productBundles.length === 0) return
+  const manifest = readProfileManifest('dsh desktop', projectDir)
+  const previous = manifest.dsh?.profile?.bundles ?? []
+  if (!Array.isArray(previous) || !previous.every(name => typeof name === 'string')) {
+    throw new Error('desktop project: profile bundles must be a string array')
+  }
+  const missing = productBundles.filter(name => !previous.includes(name))
+  if (missing.length > 0) writeProfileBundles(projectDir, manifest, [...previous, ...missing])
 }

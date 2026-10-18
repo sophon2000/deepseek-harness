@@ -15,23 +15,23 @@
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
 /deepseek-ai-dsh-client-ui-tool/use-this-package:
-  en: be2bc859e0d64fe5
-  zh: d51a35fb36675dd3
+  en: 3b9b719ca4e4cc62
+  zh: a14b63a16476d684
 /deepseek-ai-dsh-client-ui-tool/use-this-package/registering-a-business-tool-view:
-  en: 6e43711d0b8a6b00
-  zh: b387e2c6bc613d1f
+  en: 6f4f1b0caa7ece5c
+  zh: c6c760a918ff7302
 /deepseek-ai-dsh-client-ui-tool/use-this-package/built-in-views:
-  en: 822b168fa53732b7
-  zh: 5fb4e8d578a083e4
+  en: 36ff1f3c07df3a55
+  zh: d9b9b555fece4c4e
 /deepseek-ai-dsh-client-ui-tool/understand-the-implementation:
   en: 00bc7b0c84edc603
   zh: 1cfcf5b435248a91
 /deepseek-ai-dsh-client-ui-tool/understand-the-implementation/rendering-contract:
-  en: 2959b10b01e08a7b
-  zh: 7084ca22650cbb5b
+  en: 672e63b2f92e689b
+  zh: ba950ecb480325a6
 /deepseek-ai-dsh-client-ui-tool/understand-the-implementation/cards:
-  en: 936ae18b0927971f
-  zh: 170fb021d250fb58
+  en: 679c7bb0f49d7929
+  zh: 93bba9a6da95d303
 /deepseek-ai-dsh-client-ui-tool/understand-the-implementation/declared-optional-capabilities:
   en: c1926deb4e5f3734
   zh: c5845f465b94a459
@@ -45,8 +45,8 @@
   en: ca75c51c89c2c9b0
   zh: de54f3467ef3b9be
 /deepseek-ai-dsh-client-ui-tool/known-limitations-and-deferred-work:
-  en: 7475317a656f1d11
-  zh: 787f10cc0f2c586e
+  en: 49f7008105e804df
+  zh: e773f101126b01b4
 /deepseek-ai-dsh-client-ui-tool/known-limitations-and-deferred-work/dev-note:
-  en: 0fdeab2e4db0261f
-  zh: 156d2b2952cf112e
+  en: e67f633dc6fe7773
+  zh: 3bb0c20c93f16f98

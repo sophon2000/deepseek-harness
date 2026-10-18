@@ -1,0 +1,88 @@
+# 工作目录
+
+[English](working-directory.md) | 中文
+
+Session 的当前目录由 [`dsh-working-directory`](../../packages/session/working-directory/README.zh.md) 拥有。不可变 header 标识原始项目；`working-directory/change` 记录后续目录相关操作使用的有效目录。生成的[持久化目录](../persistence-catalog.zh.md) 拥有事件声明。
+
+## 目录选择
+
+`ctx.workingDirectory.get(session)` 读取日志中的值。`ensure(agent)` 验证它，并在目录消失时恢复原始项目。`set(agent, path)` 验证并记录请求的变更。header 没有目录的 Session 使用配置的运行时回退目录；回退目录不可用时返回错误。
+
+变更仅影响一个 Session。相对路径文件系统操作、新启动的进程、指令发现、技能和文件补全使用当前目录。已有终端和持久 shell 保留自己的目录。沙箱可写根目录与项目归属继续绑定原始项目。
+
+## 执行目录
+
+终局守卫与文件系统工具主体将同一个执行对象传给 `ensureForExecution`。首次调用会验证目录，并将目录 promise 固定到该对象身份；之后的 Session 目录变更无法让已授权执行转向其他目录。每次查找仍检查取消状态及服务和 Agent 生命周期。没有 Agent 的调用返回 `undefined`，保留 provider 默认目录。执行结构只需要已有的 Agent 和 signal；调用方不可复制执行对象，也不可改写模型参数。
+
+```ts type-equiv
+/** Execution identity shared by terminal guards and the directory-consuming body. */
+interface WorkingDirectoryExecution {
+  /** Agent whose Session supplies the current directory, if the call has one. */
+  readonly agent?: Agent
+  /** Current execution cancellation, including any body wrapper's fused signal. */
+  readonly signal: AbortSignal
+}
+```
+
+## 模型上下文
+
+初始值与后续当前值通过必需的用户上下文快照到达模型，即使可选运行时上下文被禁用也不例外。每次已提交变更都会尝试通过普通 Agent 收件箱排入通知；取消或销毁可能丢弃尚未进入请求的通知。目录事件仍然保留，下一次获准进入的请求会收到当前值。目录上下文不进入系统提示词。[`working_directory`](../../packages/session/tool-working-directory/README.zh.md) 提供一个可选的 `cd` 参数。
+
+<!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
+
+<a id="cordis-surface"></a>
+
+## Cordis API
+
+Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
+
+<a id="ctxworkingdirectory--workingdirectoryservice"></a>
+
+### `ctx.workingDirectory` — `WorkingDirectoryService`
+
+One owner for each Session's effective directory and its model-visible changes.
+
+```ts cordis-catalog
+/**
+ * Read the committed directory without filesystem I/O.
+ * @param session - Session whose directory is requested.
+ * @returns its effective absolute directory.
+ */
+get(session: Session): string
+
+/**
+ * Validate the current directory and restore the original project when it disappeared.
+ * @param agent - live or unpublished Agent owning the Session.
+ * @param signal - cancellation for filesystem inspection.
+ * @returns the existing directory; recovery is committed before fulfillment.
+ * A notice failure is warned without reverting the committed state.
+ * @throws when the original project is also unavailable.
+ */
+ensure(agent: Agent, signal?: AbortSignal): Promise<string>
+
+/**
+ * Pin the first validated directory for one tool execution without changing its arguments.
+ * Guards and the body must pass the same execution object, not a copy. Later
+ * Session directory changes apply to later executions. Every lookup still
+ * checks cancellation and service/Agent lifetime; pending checks drain as in {@link ensure}.
+ * @param execution - real execution object shared by terminal guards and the body.
+ * @returns the execution's directory, or undefined for a call without an Agent.
+ */
+ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined>
+
+/**
+ * Change one Session's directory without changing existing processes or permissions.
+ * @param agent - live or unpublished Agent owning the Session.
+ * @param path - absolute path or a path relative to its current directory.
+ * @param signal - cancellation before the durable change.
+ * @returns the canonical absolute directory, committed before fulfillment.
+ * A notice failure is warned; the next request still receives the committed directory.
+ * @throws when the requested path is not an existing directory.
+ */
+set(agent: Agent, path: string, signal?: AbortSignal): Promise<string>
+```
+
+Types: [Agent](core.zh.md) · [Session](session.zh.md)
+
+Source: [`packages/session/working-directory/src/index.ts`](../../packages/session/working-directory/src/index.ts)
+<!-- END GENERATED cordis-surface -->

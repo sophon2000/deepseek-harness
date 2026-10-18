@@ -9,6 +9,7 @@ import {
   CompactionNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from './MessageItem.tsx'
+import { DefaultReasoningBody, ReasoningContent } from './ReasoningContent.tsx'
 import { SystemPromptNodeView } from './SystemPromptRow.tsx'
 import { TurnProcessNodeView } from './TurnProcessNodeView.tsx'
 import { TurnTailNodeView } from './TurnTailNodeView.tsx'
@@ -21,12 +22,23 @@ import { TurnTriggerNodeView } from './TurnTriggerNodeView.tsx'
  * @param ctx - owning UI Conversation context.
  * @param performanceUsage - live statistics detail preference.
  * @param presentation - live presentation policy.
+ * @param fileMentionRevision - live file-mention provider lifetime.
  */
 export function registerChatNodeRenderers(
   ctx: Context,
   performanceUsage: ObservableSnapshot<PerformanceUsageMode>,
   presentation: ObservableSnapshot<ChatPresentationPolicy>,
+  fileMentionRevision: ObservableSnapshot<number>,
 ): void {
+  ctx.effect(() => ctx.slots.registerFactory({
+    name: 'conversation.chat.reasoning.content',
+    scope: 'root',
+    locale: NS,
+  }, ReasoningContent))
+  ctx.slots.inject('conversation.chat.reasoning.body', () => ctx.slots.register({
+    name: 'conversation.chat.reasoning.body',
+    priority: 100,
+  }, DefaultReasoningBody))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register(
     { name: 'conversation.chat.node', key: 'user', locale: NS }, UserMessageNodeView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register(
@@ -41,7 +53,8 @@ export function registerChatNodeRenderers(
     name: 'conversation.chat.node',
     key: 'assistant-step',
     locale: NS,
-    inject: () => ({ hooks: { presentation } }),
+    children: { 'conversation.chat.reasoning.body': { kind: 'single', scope: 'session' } },
+    inject: () => ({ hooks: { presentation, fileMentionRevision } }),
   }, AssistantNodeView))
   ctx.slots.inject('conversation.chat.node', () => ctx.slots.register({
     name: 'conversation.chat.node',

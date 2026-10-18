@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-tools
  */
 
+import type {} from '@deepseek-ai/dsh-working-directory'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
@@ -216,7 +217,7 @@ export interface ToolOutputDefinition {
   readonly schema: JsonSchemaNode
   /** Pure projection from validated arguments and value to Native/model content. */
   render(args: unknown, value: JsonValue): ContentBlock[]
-  /** Pure replayable presentation projection, computed only for top-level calls. */
+  /** Pure replayable presentation projection for native and nested calls. */
   presentationMeta?(args: unknown, value: JsonValue): JsonValue
 }
 
@@ -318,9 +319,9 @@ export interface ToolResult {
   isError: boolean
   /**
    * The tool-private presentation payload projected by its output declaration.
-   * It is persisted verbatim on `tool/result` for Host presenters and Client
-   * renderers to narrow independently. Absent when the tool declared no
-   * projector or the call was nested under a composite transport.
+   * It is persisted on `tool/result` or `tool/ptc-dispatch` for Host presenters
+   * and Client renderers to narrow independently. Absent when the tool
+   * declared no projector.
    */
   meta?: JsonValue
 }
@@ -698,7 +699,7 @@ function errorInfo(error: unknown): ToolErrorInfo | undefined {
 }
 
 /** How the registry presents its tools to the model (see {@link Config.mode}). */
-export type ToolPresentationMode = 'native' | 'ptc' | 'both'
+export type ToolPresentationMode = 'native' | 'ptc'
 
 /** Plugin config: how the registered tools are presented to the model. */
 export interface Config {
@@ -706,9 +707,9 @@ export interface Config {
    * Model presentation. `native` (default) sends every visible schema; `ptc`
    * sends only `run_code` plus a generated SDK prompt and collapses the
    * executor to the same surface (a model-direct call may only name
-   * `run_code`; `run_code` SDK sub-dispatches keep every visible tool); `both`
-   * sends both forms. PTC mode requires a `ctx.ptcRuntime` whose `language`
-   * has a registered SDK renderer (TypeScript or Python) and fail prompt
+   * `run_code`; `run_code` SDK sub-dispatches keep every visible tool).
+   * PTC mode requires a `ctx.ptcRuntime` whose `language`
+   * has a registered SDK renderer (TypeScript or Python) and fails prompt
    * assembly when it is absent or has no renderer. Under `ptc`, native names
    * in `toolOrder` are invalid.
    */
@@ -756,9 +757,10 @@ interface ToolView {
  * returning `undefined` leaves it unchanged. Because guards have no allow
  * result, listener ordering cannot turn a denial back into permission.
  * @param execution - the identity-protected call after extensible pre-execute policy completed.
- * @returns a final denial reason, or `undefined` to leave the call allowed.
+ * @returns a final denial reason, or `undefined` to leave the call allowed;
+ * asynchronous guards settle before the next guard or dispatch begins.
  */
-export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
+export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>
 
 /** One scope's complete tool-registry contribution. */
 class ToolLayer implements ScopeLayer {
@@ -794,9 +796,10 @@ class ToolLayer implements ScopeLayer {
   }
 
   /** First monotonic denial from this layer's live guard registrations. */
-  guardReason(exec: ToolExecution): string | undefined {
+  async guardReason(exec: ToolExecution, callerCancelled: () => boolean): Promise<string | undefined> {
     for (const guard of this.guards.values()) {
-      const reason = guard(exec)
+      if (callerCancelled()) return undefined
+      const reason = await guard(exec)
       if (reason !== undefined) return reason
     }
     return undefined
@@ -838,7 +841,7 @@ export class ToolRuntime extends Service {
   static inject = ['systemPrompt']
 
   static Config: z<Config> = z.object({
-    mode: z.union(['native', 'ptc', 'both'] as const).default('native'),
+    mode: z.union(['native', 'ptc'] as const).default('native'),
     maxParallelSubCalls: z.natural().min(1).default(10),
   })
 
@@ -900,7 +903,7 @@ export class ToolRuntime extends Service {
    * the deployment is inconsistent. Its order places the rule before that
    * guidance rather than after it.
    *
-   * `both` renders empty: native calls do execute there, so the rule is false.
+   * Native scopes render no instruction.
    * @returns the section registration.
    */
   private collapseSection(): PromptSection {
@@ -973,6 +976,14 @@ export class ToolRuntime extends Service {
    */
   private requirePtcTransport(): ToolDefinition {
     this.ptcTransport ??= createRunCodeTool(this, {
+      resolveWorkingDirectory: async (exec) => {
+        // Only Agent-owned PTC requires directory state; native registries
+        // and unowned programs can run without this service.
+        if (exec.agent === undefined) return undefined
+        const directories = this.ctx.get('workingDirectory')
+        if (directories === undefined) throw new Error('dsh-tools: run_code with an Agent requires workingDirectory')
+        return directories.ensure(exec.agent, exec.signal)
+      },
       requireRuntime: () => this.requirePtcRuntime(this.defaultMode),
       peekApprover: () => this.ctx.get('approval'),
       resolveSandboxPolicy: (exec) => {
@@ -1049,13 +1060,10 @@ export class ToolRuntime extends Service {
     // language with no SDK renderer.
     this.requirePtcRuntime(mode)
     const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
-    if (mode === 'ptc') {
-      return {
-        schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
-        knownNames: [RUN_CODE_NAME],
-      }
+    return {
+      schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
+      knownNames: [RUN_CODE_NAME],
     }
-    return { schemas, knownNames: [...view.knownNames, RUN_CODE_NAME] }
   }
 
   /**
@@ -1160,7 +1168,7 @@ export class ToolRuntime extends Service {
    * returning a reason, while no guard can force-allow a call another guard
    * denied. The exact effect disposer is returned for ordered ownership and
    * HMR cleanup.
-   * @param guard - synchronous check; a returned string denies the execution.
+   * @param guard - serially awaited check; a returned string denies the execution.
    * @returns the exact disposer that unregisters the guard.
    */
   guard(guard: ToolGuard): () => void {
@@ -1172,12 +1180,13 @@ export class ToolRuntime extends Service {
   }
 
   /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
-  private guardReason(exec: ToolExecution): string | undefined {
-    const globalReason = this.layers.global.guardReason(exec)
+  private async guardReason(exec: ToolRunContext): Promise<string | undefined> {
+    const callerCancelled = () => this.callerCancelled(exec)
+    const globalReason = await this.layers.global.guardReason(exec, callerCancelled)
     if (globalReason !== undefined) return globalReason
     if (exec.agent === undefined) return undefined
     for (const layer of this.layers.chainLayers(exec.agent)) {
-      const reason = layer.guardReason(exec)
+      const reason = await layer.guardReason(exec, callerCancelled)
       if (reason !== undefined) return reason
     }
     return undefined
@@ -1548,7 +1557,7 @@ export class ToolRuntime extends Service {
       if (decision.kind === 'cancel') {
         return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
       }
-      const denialReason = decision.kind === 'allow' ? this.guardReason(exec) : decision.reason
+      const denialReason = decision.kind === 'allow' ? await this.guardReason(exec) : decision.reason
       const denialInfo = decision.kind === 'deny' ? decision.info : undefined
       if (denialReason !== undefined) {
         return await next({
@@ -1874,7 +1883,7 @@ export class ToolRuntime extends Service {
     }
     const content = snapshotProjection(tool.name, 'render', rendered)
     let meta: JsonValue | undefined
-    if (exec.parent === undefined && tool.output.presentationMeta !== undefined) {
+    if (tool.output.presentationMeta !== undefined) {
       let projected: JsonValue
       try {
         projected = tool.output.presentationMeta(exec.arguments, value)

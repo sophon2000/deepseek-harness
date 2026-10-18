@@ -34,13 +34,13 @@ uv run --project python/sdk python scripts/smoke-python-runtime.py \
   --scenario sdk-minimal --exe dist-exe/deepseek-harness-sdk-runtime-macos-arm64
 ```
 
-SDK 场景会比对 `scripts/snapshots/python-sdk-single-exe/` 下已提交的期望输出。`minimal/model-visible.json` 固定 Linux／macOS `sdk-minimal` profile 所组装的系统提示词、对外公布的工具 schema 与模型可见消息；`minimal/win-x64/model-visible.json` 固定对应的 PowerShell 版本。因此，插件一旦贡献出计划外的系统分段或 user 消息，该任务即失败，且该 profile 发出的每条消息都会参与比对。`advanced/` 跨所有目标固定一个复杂进程的 SDK 结果及父／子会话日志。`restart/` 针对同一持久化根目录启动两个完整 SDK 运行时进程，并跨所有目标固定其彼此隔离的模型历史、高层结果与独立持久日志。`sdk-minimal-in-history` 复用持久 shell 与编辑器场景，并在首次 shell 调用成功后更改一个分段。`minimal-in-history/prompt-history.json` 固定两个提示词版本、后续请求中不变的首条提示词、追加的 SDK system-message 事件及 `request/context.systemPromptUpdate`；工具 schema 保持不变，并独立检查编辑器创建的文件。`sdk-dynamic-tools` 在 `dynamic-tools/tool-history.json` 中固定原生工具的新增与移除，包括历史 header 引用，以及 Python SDK 结果、通知与持久事件的一致性。重新运行对应场景时加上 `--update-snapshots`，并在提交前审阅该差异。
+SDK 场景会比对 `scripts/snapshots/python-sdk-single-exe/` 下已提交的期望输出。`minimal/model-visible.json` 固定 Linux／macOS `sdk-minimal` profile 所组装的系统提示词、对外公布的工具 schema 与模型可见消息；`minimal/win-x64/model-visible.json` 固定对应的 PowerShell 版本。因此，插件一旦贡献出计划外的系统分段或 user 消息，该任务即失败，且该 profile 发出的每条消息都会参与比对。`advanced/` 固定直接工具调用、子 agent 和 workflow；`advanced-ptc/` 固定程序调用与嵌套拒绝。两者都跨所有目标比对 SDK 结果及会话日志。`restart/` 针对同一持久化根目录启动两个完整 SDK 运行时进程，并跨所有目标固定其彼此隔离的模型历史、高层结果与独立持久日志。`sdk-minimal-in-history` 复用持久 shell 与编辑器场景，并在首次 shell 调用成功后更改一个分段。`minimal-in-history/prompt-history.json` 固定两个提示词版本、后续请求中不变的首条提示词、追加的 SDK system-message 事件及 `request/context.systemPromptUpdate`；工具 schema 保持不变，并独立检查编辑器创建的文件。`sdk-dynamic-tools` 在 `dynamic-tools/tool-history.json` 中固定原生工具的新增与移除，包括历史 header 引用，以及 Python SDK 结果、通知与持久事件的一致性。重新运行对应场景时加上 `--update-snapshots`，并在提交前审阅该差异。
 
 `scheduler-recovery/` 记录一个失败的工具轮次及后续完成的轮次。它保留原始的 `UNKNOWN` 轮次错误、第一个工具已完成的结果，以及其余调用的 `TOOL_OUTCOME_UNKNOWN` / `TOOL_NOT_STARTED` 结果。`sdk-snapshot` 和 `all` 包含此场景；`--scenario sdk-recovery` 单独运行它。
 
-`advanced` 与 `restart` 的比较按每份输入自身的 Session 代际匹配原生 delivery 限定值，包括 SDK 事件与通知。捕获的代际及其他 delivery 代际保留数值。每一侧的 Session 角色必须使用同一个代际，新日志必须标识当前写入器。比较绝不重写已提交的记录。
+`advanced`、`advanced-ptc` 与 `restart` 的比较按每份输入自身的 Session 代际匹配原生 delivery 限定值，包括 SDK 事件与通知。捕获的代际及其他 delivery 代际保留数值。每一侧的 Session 角色必须使用同一个代际，新日志必须标识当前写入器。未使用 `--update-snapshots` 时，比较不会写入文件。刷新只写入当前 writer 的输出，并保留更早的 Session 代际。
 
-可信拉取请求与 master 推送还会在各自选定的原生目标上运行 `--scenario sdk-live --installed-wheel`。该场景面向 `https://api.deepseek.com` 执行两个使用工具的轮次：立即检查已创建文件，将其内容替换为仅宿主知道的随机挑战值，并要求第二轮将变更后的内容复制到全新的回执文件，且不修改源文件。两个轮次都必须完成、返回精确的哨兵答案并由模型请求调用工具；文件通过外部逐字节比较验证。仓库密钥缺失时失败，而不是自行 skip。Fork 与 Dependabot 拉取请求会运行完整的 keyless 安装后 wheel 路径，但不会获得密钥。
+可信拉取请求与 master 推送还会在各自选定的原生目标上运行 `--scenario sdk-live --installed-wheel`。该场景面向 `https://api.deepseek.com` 执行两个使用工具的轮次：立即检查已创建文件，将其内容替换为仅宿主知道的随机挑战值，并要求第二轮将变更后的内容复制到全新的回执文件，且不修改源文件。两个轮次都必须完成、返回独占一行的哨兵确认并由模型请求调用工具；确认可以位于解释之前或之后，文件通过外部逐字节比较验证。仓库密钥缺失时失败，而不是自行 skip。Fork 与 Dependabot 拉取请求会运行完整的 keyless 安装后 wheel 路径，但不会获得密钥。
 
 交互式冒烟测试需要环境变量或仓库根目录 `.env` 中存在 `DEEPSEEK_API_KEY`：
 
@@ -84,8 +84,6 @@ pip install \
 ```
 
 运行时分发包仅提供 wheel 包。发布流水线会连同纯 SDK wheel 包一起发布五个平台 wheel 包：Linux x64、Linux arm64、macOS 14 或更高版本的 arm64 与 x64，以及 Windows x64（`win_amd64`）。只有与仓库版本匹配时，才接受 `python-v<repository-version>` 标签；`0.0.1-rc.1` 之类的仓库预发布版本在 wheel 包文件名和元数据中使用规范化的 PEP 440 写法，例如 `0.0.1rc1`。
-
-Video Harness fork 修订版将 `.vh.N` 后缀保留为 PEP 440 本地版本：`0.2.0-rc.2.vh.1` 转换为 `0.2.0rc2+vh.1`，`0.2.0-vh.1` 转换为 `0.2.0+vh.1`。wheel 元数据和 SDK 的精确运行时版本 pin 都包含本地标签，将每个 fork 修订版与上游版本及其他修订版区分开。这些 wheel 支持直接安装或私有索引；[公共 PyPI 不接受本地版本](https://packaging.python.org/en/latest/specifications/version-specifiers/#local-version-identifiers)。未知后缀和含前导零的 fork 修订号会被拒绝。
 
 ## 验证候选发行版
 
