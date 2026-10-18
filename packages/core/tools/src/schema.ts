@@ -592,6 +592,10 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
         },
       } : {},
     },
+    validateArgs(args: unknown): void {
+      const violations = validate(args)
+      if (violations.length > 0) throw new ToolArgsError(violations)
+    },
     ...(options.deferLoading === true ? { deferLoading: options.deferLoading } : {}),
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     async execute(args: unknown, exec: ToolRunContext): Promise<JsonValue> {

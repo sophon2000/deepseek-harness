@@ -15,17 +15,17 @@ const artifact = (path: string): string => join(root, path)
 const artifactUrl = (path: string): string => pathToFileURL(artifact(path)).href
 
 const requiredArtifacts = [
-  'packages/client/connection/lib/client.js',
+  'packages/client/connection/lib/client.browser.js',
   'packages/client/connection/lib/index.js',
   'packages/api/remotes/lib/client.js',
   'packages/core/agent/lib/index.js',
   'packages/core/session/lib/index.js',
   'packages/goal/goal/lib/index.js',
   'packages/goal/goal/lib/typert.host.js',
-  'packages/api/gateway/lib/client.js',
+  'packages/api/gateway/lib/client.browser.js',
   'packages/api/gateway/lib/index.js',
   'packages/api/remote-access/lib/index.js',
-  'packages/typert/registry/lib/client.js',
+  'packages/typert/registry/lib/client.browser.js',
   'packages/typert/registry/lib/index.js',
   'packages/session/session-projection/lib/index.js',
 ].every(path => existsSync(artifact(path)))
@@ -34,14 +34,14 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
   it('runs root and Agent-scoped calls through generated bundles and real HTTP', async () => {
     const urls = Object.fromEntries(Object.entries({
       agent: 'packages/core/agent/lib/index.js',
-      apiGatewayClient: 'packages/api/gateway/lib/client.js',
+      apiGatewayClient: 'packages/api/gateway/lib/client.browser.js',
       apiGatewayHost: 'packages/api/gateway/lib/index.js',
-      connectionClient: 'packages/client/connection/lib/client.js',
+      connectionClient: 'packages/client/connection/lib/client.browser.js',
       connectionHost: 'packages/client/connection/lib/index.js',
       goal: 'packages/goal/goal/lib/index.js',
       goalTypert: 'packages/goal/goal/lib/typert.host.js',
       remoteAccess: 'packages/api/remote-access/lib/index.js',
-      registryClient: 'packages/typert/registry/lib/client.js',
+      registryClient: 'packages/typert/registry/lib/client.browser.js',
       registryHost: 'packages/typert/registry/lib/index.js',
       remotesClient: 'packages/api/remotes/lib/client.js',
       session: 'packages/core/session/lib/index.js',
@@ -188,6 +188,17 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
         })
 
         const invalidResult = await client.remote.goals.create(rootAgent.id, { objective: 1 })
+        // Bypass the generated Client helper to prove the built Host rejects
+        // unknown request fields before any business mutation.
+        const extraResponse = await fetch(origin + '/api/goals/create', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            type: 'client-request', rpcId: 'rpc-extra', method: 'goals/create',
+            payload: { args: { agentId: rootAgent.id, request: { objective: 'rejected', tenantId: 'forged' } } },
+          }),
+        })
+        const extraResult = (await extraResponse.json()).result
         // Every generated method resolves to the RemoteResult envelope; the
         // business values below are what the assertions pin.
         const rootResult = await client.remote.goals.create(rootAgent.id, { objective: 'root goal' })
@@ -200,6 +211,8 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
         const scopedResult = await agentContext.remote.goals.create({ objective: 'scoped goal', maxGoalRounds: 3 })
         const result = {
           invalidResult,
+          extraStatus: extraResponse.status,
+          extraResult,
           rootResult: rootResult.value,
           rootEdit: rootEdit.value,
           scopedResult: scopedResult.value,
@@ -227,6 +240,8 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     expect(result.exitCode, `stderr:\n${result.stderr}`).toBe(0)
     const output = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}') as {
       invalidResult: { ok: boolean; error?: { code: string } }
+      extraStatus: number
+      extraResult: { ok: boolean; error?: { code: string } }
       rootResult: { ref: { id: string; revision: number } }
       rootEdit: { objective: string; revision: number }
       scopedResult: { ref: { id: string; revision: number } }
@@ -237,6 +252,8 @@ describe.skipIf(!requiredArtifacts)('Goal Remote built LIB chain', () => {
     }
     expect(output).toMatchObject({
       invalidResult: { ok: false, error: { code: 'gateway/input-invalid' } },
+      extraStatus: 200,
+      extraResult: { ok: false, error: { code: 'gateway/input-invalid' } },
       rootResult: { ref: { revision: 1 } },
       rootEdit: { objective: 'edited root goal', revision: 2 },
       scopedResult: { ref: { revision: 1 } },

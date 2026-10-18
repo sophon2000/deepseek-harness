@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { valid } from 'semver'
 import { DESKTOP_HOST_PACKAGE } from './core-package-set.ts'
 import { parseDesktopRelease, type DesktopRelease } from './release.ts'
+import { parseDesktopRuntimeProduct, type DesktopRuntimeProduct } from './desktop-product.ts'
 
 /** Descriptor at the root of the immutable Desktop resource tree. */
 export const DESKTOP_RUNTIME_FILE = 'desktop-runtime.json'
@@ -34,6 +35,7 @@ export interface DesktopRuntimeDescriptor {
   readonly arch: string
   readonly sharedPackages: readonly DesktopSharedPackage[]
   readonly files: readonly DesktopRuntimeFile[]
+  readonly product?: DesktopRuntimeProduct
 }
 
 const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/u
@@ -119,11 +121,13 @@ async function inventoryRuntimeForVerification(root: string): Promise<DesktopRun
  * @param release - Matching shell, dsh, Host, and executable versions.
  * @param sharedNames - Release-owned packages supplied to plugins.
  * @param target - Platform and architecture selected by runtime preparation.
+ * @param files - Complete file inventory, read before writing the descriptor.
  * @returns Descriptor written beside the production packages.
  */
-export function writeDesktopRuntime(
+function writeRuntimeDescriptor(
   root: string, release: DesktopRelease, sharedNames: readonly string[],
-  target: { platform: NodeJS.Platform; arch: string } = process,
+  target: { platform: NodeJS.Platform; arch: string }, files: readonly DesktopRuntimeFile[],
+  product?: DesktopRuntimeProduct,
 ): DesktopRuntimeDescriptor {
   const sharedPackages = [...new Set(sharedNames)].sort().map((name) => {
     if (!PACKAGE_NAME.test(name)) throw new Error(`desktop runtime: invalid shared package ${name}`)
@@ -136,10 +140,28 @@ export function writeDesktopRuntime(
   })
   const descriptor: DesktopRuntimeDescriptor = {
     schemaVersion: 1, release, platform: target.platform, arch: target.arch,
-    sharedPackages, files: inventoryDesktopRuntime(root),
+    sharedPackages, files, ...(product === undefined ? {} : { product }),
   }
   writeFileSync(join(root, DESKTOP_RUNTIME_FILE), `${JSON.stringify(descriptor, undefined, 2)}\n`)
   return descriptor
+}
+
+/** Seal a runtime synchronously with the standard descriptor format. */
+export function writeDesktopRuntime(
+  root: string, release: DesktopRelease, sharedNames: readonly string[],
+  target: { platform: NodeJS.Platform; arch: string } = process,
+  product?: DesktopRuntimeProduct,
+): DesktopRuntimeDescriptor {
+  return writeRuntimeDescriptor(root, release, sharedNames, target, inventoryDesktopRuntime(root), product)
+}
+
+/** Seal production trees using the same bounded, fully drained reads as verification. */
+export async function writeDesktopRuntimeAsync(
+  root: string, release: DesktopRelease, sharedNames: readonly string[],
+  target: { platform: NodeJS.Platform; arch: string } = process,
+  product?: DesktopRuntimeProduct,
+): Promise<DesktopRuntimeDescriptor> {
+  return writeRuntimeDescriptor(root, release, sharedNames, target, await inventoryRuntimeForVerification(root), product)
 }
 
 /**
@@ -174,8 +196,12 @@ export function readDesktopRuntime(root: string): DesktopRuntimeDescriptor {
       throw new Error(`desktop runtime: missing or mismatched ${name}`)
     }
   }
+  const product = value.product === undefined ? undefined : parseDesktopRuntimeProduct(value.product)
+  if (product !== undefined && !product.profileBundles.every(name => sharedPackages.some(entry => entry.name === name))) {
+    throw new Error('desktop runtime: product profile bundle is not a shared package')
+  }
   return { schemaVersion: value.schemaVersion as 1, release, platform: value.platform as NodeJS.Platform,
-    arch: value.arch, sharedPackages, files }
+    arch: value.arch, sharedPackages, files, ...(product === undefined ? {} : { product }) }
 }
 
 /**
@@ -190,8 +216,7 @@ export async function verifyDesktopRuntime(
   root: string, expectedVersion: string, target: { platform: NodeJS.Platform; arch: string } = process,
 ): Promise<DesktopRuntimeDescriptor> {
   const descriptor = readDesktopRuntime(root)
-  // readDesktopRuntime preserves the disk schema value without validating release compatibility.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- readDesktopRuntime defers schema validation to packaging.
   if (descriptor.schemaVersion !== 1 || descriptor.platform !== target.platform || descriptor.arch !== target.arch) {
     throw new Error('desktop runtime: invalid descriptor or incompatible platform/architecture')
   }

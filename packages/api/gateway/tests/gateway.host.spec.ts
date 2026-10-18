@@ -30,6 +30,10 @@ interface FixtureAgent {
   readonly id: string
 }
 
+interface StructuredFixtureAgent extends FixtureAgent {
+  readonly structuredIdentity: true
+}
+
 interface MarkedContext extends Context {
   readonly fixtureScope?: string
 }
@@ -38,6 +42,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertLookupMap {
     gatewayFixture: TypertLookup<FixtureAgent, string>
     gatewayFixtureAlias: TypertLookup<FixtureAgent, string>
+    gatewayStructuredFixture: TypertLookup<StructuredFixtureAgent, { readonly id: string }>
   }
 
   interface TypertContextMap {
@@ -835,6 +840,75 @@ describe('TypertGatewayService', () => {
       method: 'strictOnly',
       args: { request: { title: 'ship' } },
     })).resolves.toEqual({ title: 1 })
+  })
+
+  it('rejects unknown generated input fields while keeping ordinary result behavior', async () => {
+    const { ctx, service } = await setup()
+    const descriptor = strictOnlyDescriptor()
+    const codec = {
+      mode: 'strict' as const,
+      typeSymbol: '@fixture/gateway#StrictValue',
+      create: () => z.object({ title: z.string(), options: z.object({ priority: z.number() }).optional() }),
+    }
+    const closed = {
+      ...codec,
+      create: () => z.strictObject({ title: z.string(), options: z.strictObject({ priority: z.number() }).optional() }),
+    }
+    registerStrict(ctx, [{ ...descriptor, parameters: [{ name: 'request', wire: 'request', source: 'json', codec, strictCodec: closed }] }])
+    for (const request of [{ title: 'ship', projectId: 'forged' }, { title: 'ship', options: { priority: 1, tenantId: 'forged' } }]) {
+      await expectCode(ctx.typertGateway.invoke({ peer: ownerPeer(ctx), namespace: 'goals', method: 'strictOnly', args: { request } }), 'gateway/input-invalid')
+    }
+    expect(service.calls).toEqual([])
+    service.nextResult = { title: 'accepted', internal: true }
+    await expect(ctx.typertGateway.invoke({ peer: ownerPeer(ctx), namespace: 'goals', method: 'strictOnly', args: { request: { title: 'ship', options: { priority: 1 } } } })).resolves.toEqual({ title: 'accepted', internal: true })
+  })
+
+  it('rejects undeclared structured lookup fields before resolving the identity', async () => {
+    const { ctx, service } = await setup()
+    const agent: StructuredFixtureAgent = { id: 'agent-1', structuredIdentity: true }
+    const resolvedIds: { readonly id: string }[] = []
+    ctx.typert.lookups.register('gatewayStructuredFixture', {
+      parameter: 'agent',
+      wire: 'agentId',
+      hostTypeSymbol: '@fixture/domain#StructuredAgent',
+      wireTypeSymbol: '@fixture/domain#StructuredAgentId',
+      resolve: (identity) => {
+        resolvedIds.push(identity)
+        return identity.id === agent.id ? agent : undefined
+      },
+    })
+    const descriptor = createDescriptor()
+    registerStrict(ctx, [{
+      ...descriptor,
+      parameters: descriptor.parameters.map(parameter => parameter.source === 'lookup' ? {
+        ...parameter,
+        lookup: 'gatewayStructuredFixture',
+        codec: {
+          mode: 'strict' as const,
+          typeSymbol: '@fixture/domain#StructuredAgentId',
+          create: () => z.object({ id: z.string() }),
+        },
+        strictCodec: {
+          mode: 'strict' as const,
+          typeSymbol: '@fixture/domain#StructuredAgentId',
+          create: () => z.strictObject({ id: z.string() }),
+        },
+      } : parameter),
+    }])
+
+    await expectCode(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx), namespace: 'goals', method: 'create',
+      args: { agentId: { id: agent.id, tenantId: 'forged' }, request: { title: 'ship' } },
+    }), 'gateway/input-invalid')
+    expect(resolvedIds).toEqual([])
+    expect(service.calls).toEqual([])
+
+    await expect(ctx.typertGateway.invoke({
+      peer: ownerPeer(ctx), namespace: 'goals', method: 'create',
+      args: { agentId: { id: agent.id }, request: { title: 'ship' } },
+    })).resolves.toMatchObject({ agentId: agent.id, title: 'ship' })
+    expect(resolvedIds).toEqual([{ id: agent.id }])
+    expect(service.calls).toEqual(['create'])
   })
 
   it('does not inspect non-JSON business results', async () => {

@@ -752,6 +752,14 @@ describe('face-aware source classification', () => {
       requiredServicePeers: { '@f/other': ['@f/types'] },
     }))
     expect(expectedPackageDependencies(unrelated).get('@f/types')?.section).toBe('devDependencies')
+    const published = await readPackageDependencyFacts(root, subject, 'client-host', found.workspaceNames, policy({
+      publishedDeclarationDependencies: { '@f/dual': ['@f/types'] },
+    }))
+    expect([...(published.publishedDeclarationDependencies ?? [])]).toEqual(['@f/types'])
+    expect(expectedPackageDependencies(published).get('@f/types')).toEqual({
+      section: 'dependencies',
+      origins: ['packages/g/dual/src/index.ts', 'published declaration import'],
+    })
     for (const name of ['@f/missing', '@f/injected']) {
       await expect(readPackageDependencyFacts(root, subject, 'client-host', found.workspaceNames, policy({
         requiredServicePeers: { '@f/dual': [name] },

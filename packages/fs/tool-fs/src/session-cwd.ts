@@ -18,8 +18,6 @@ export async function sessionResolveOptions(
   ctx: Context,
   exec: ToolExecution,
 ): Promise<{ cwd?: string; signal?: AbortSignal }> {
-  const cwd = exec.agent === undefined
-    ? undefined
-    : await ctx.workingDirectory.ensure(exec.agent, exec.signal)
+  const cwd = await ctx.workingDirectory.ensureForExecution(exec)
   return { ...cwd !== undefined ? { cwd } : {}, signal: exec.signal }
 }

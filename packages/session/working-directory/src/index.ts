@@ -58,6 +58,14 @@ export interface Config {
   defaultDirectory?: string
 }
 
+/** Execution identity shared by terminal guards and the directory-consuming body. */
+export interface WorkingDirectoryExecution {
+  /** Agent whose Session supplies the current directory, if the call has one. */
+  readonly agent?: Agent
+  /** Current execution cancellation, including any body wrapper's fused signal. */
+  readonly signal: AbortSignal
+}
+
 /** One owner for each Session's effective directory and its model-visible changes. */
 export class WorkingDirectoryService extends Service {
   static inject = ['fs', 'sessionProjections', 'systemPrompt']
@@ -69,6 +77,7 @@ export class WorkingDirectoryService extends Service {
   /** Absolute deployment fallback for Sessions with no recorded original directory. */
   readonly defaultDirectory: string
   private readonly pending = new WeakMap<Session, Promise<void>>()
+  private readonly executions = new WeakMap<WorkingDirectoryExecution, Promise<string>>()
   private readonly operations = new Set<Promise<unknown>>()
   private readonly lifecycle = new AbortController()
 
@@ -149,6 +158,33 @@ export class WorkingDirectoryService extends Service {
       this.commit(agent, restored, true, control)
       return restored
     })
+  }
+
+  /**
+   * Pin the first validated directory for one tool execution without changing its arguments.
+   * Guards and the body must pass the same execution object, not a copy. Later
+   * Session directory changes apply to later executions. Every lookup still
+   * checks cancellation and service/Agent lifetime; pending checks drain as in {@link ensure}.
+   * @param execution - real execution object shared by terminal guards and the body.
+   * @returns the execution's directory, or undefined for a call without an Agent.
+   */
+  ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined> {
+    if (execution.agent === undefined) return Promise.resolve(undefined)
+    try {
+      this.lifecycle.signal.throwIfAborted()
+      execution.signal.throwIfAborted()
+      execution.agent.ctx.fiber.assertActive()
+    } catch (error: unknown) {
+      // Preserve arbitrary AbortSignal reasons just as ensure's serialized
+      // checks do, while keeping this API's failure asynchronous.
+      return Promise.resolve().then(() => { throw error })
+    }
+    let pending = this.executions.get(execution)
+    if (pending === undefined) {
+      pending = this.ensure(execution.agent, execution.signal)
+      this.executions.set(execution, pending)
+    }
+    return pending
   }
 
   /**

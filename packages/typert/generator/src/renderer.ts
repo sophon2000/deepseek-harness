@@ -81,7 +81,7 @@ export class TypeGraphRenderer {
   /**
    * Render one type expression from the retained source structure.
    * @param id - type node id.
-   * @param references - optional generated names for declaration references.
+   * @param references - optional generated names for declaration and external symbol references.
    * @returns TypeScript type text.
    */
   renderType(id: TypeNodeId, references?: ReadonlyMap<SymbolId, string>): string {
@@ -93,7 +93,7 @@ export class TypeGraphRenderer {
       case 'reference': {
         const name = node.target.kind === 'type-parameter'
           ? this.parameterNames.get(node.target.parameter) ?? node.name
-          : node.target.kind === 'declaration'
+          : node.target.kind === 'declaration' || node.target.kind === 'external'
             ? references?.get(node.target.symbol) ?? node.name
             : node.name
         return node.arguments.length === 0

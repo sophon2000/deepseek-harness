@@ -135,14 +135,14 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 describe('current directory resolution', () => {
   it('uses the directory service and keeps non-agent provider defaults', async () => {
     const ctx = new Context()
-    const ensure = vi.fn(async () => '/current/project')
-    ctx.provide('workingDirectory', { ensure })
+    const ensureForExecution = vi.fn(async (exec: { agent?: object }) => exec.agent === undefined ? undefined : '/current/project')
+    ctx.provide('workingDirectory', { ensureForExecution })
     const agent = { session: { header: { cwd: '/original/project' } } }
     const exec = { agent, signal: testToolSignal }
     expect(await sessionResolveOptions(ctx, exec as never)).toEqual({ cwd: '/current/project', signal: testToolSignal })
-    expect(ensure).toHaveBeenCalledWith(agent, testToolSignal)
+    expect(ensureForExecution).toHaveBeenCalledWith(exec)
     expect(await sessionResolveOptions(ctx, { signal: testToolSignal } as never)).toEqual({ signal: testToolSignal })
-    expect(ensure).toHaveBeenCalledTimes(1)
+    expect(ensureForExecution).toHaveBeenCalledTimes(2)
     await ctx.fiber.dispose()
   })
 })

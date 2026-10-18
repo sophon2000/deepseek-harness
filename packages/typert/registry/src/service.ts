@@ -743,6 +743,15 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
       throw new Error(`typert: invocation "${descriptor.id}" JSON parameter "${parameter.name}" declares a lookup key`)
     }
     validateCodec(parameter.codec, `${descriptor.id} parameter ${parameter.name}`)
+    if (parameter.strictCodec !== undefined) {
+      // Runtime descriptors can originate in untyped JavaScript plugins.
+      const strictCodec = parameter.strictCodec as InvocationDescriptor['result']
+      validateCodec(strictCodec, `${descriptor.id} strict parameter ${parameter.name}`)
+      if (strictCodec.mode !== 'strict' || parameter.codec.mode !== 'strict'
+        || strictCodec.typeSymbol !== parameter.codec.typeSymbol) {
+        throw new Error(`typert: invocation "${descriptor.id}" strict parameter "${parameter.name}" must match its ordinary codec type`)
+      }
+    }
   }
   const cancellation = descriptor.cancellation as { readonly parameter: string } | undefined
   if (cancellation !== undefined && cancellation.parameter !== 'signal') {

@@ -76,6 +76,7 @@ export interface PackageDependencyFacts {
   readonly hostRuntimeExportUses: readonly HostRuntimeExportUse[]
   readonly peerRequiredHostDependencies: ReadonlySet<string>
   readonly configurationOnlyDevDependencies: ReadonlySet<string>
+  readonly publishedDeclarationDependencies?: ReadonlySet<string>
   readonly clientInject: ReadonlySet<string>
 }
 
@@ -586,6 +587,9 @@ export async function readPackageDependencyFacts(
     configurationOnlyDevDependencies: new Set(
       policy.configurationOnlyDevDependencies[pkg.manifest.name ?? ''] ?? [],
     ),
+    publishedDeclarationDependencies: new Set(
+      policy.publishedDeclarationDependencies?.[pkg.manifest.name ?? ''] ?? [],
+    ),
     clientInject: new Set(inject.map(packageNameOf).filter(name => name !== undefined)),
   }
 }
@@ -682,7 +686,7 @@ export async function readPackageDependencyState(
     policyViolations: [
       ...discovered.violations,
       ...collectHostDependencyExportPolicyViolations(facts, workspaceNames, policy),
-      ...(['configurationOnlyDevDependencies', 'requiredServicePeers'] as const).flatMap(field =>
+      ...(['configurationOnlyDevDependencies', 'requiredServicePeers', 'publishedDeclarationDependencies'] as const).flatMap(field =>
         Object.keys(policy[field] ?? {})
           .filter(name => !selectedNames.has(name))
           .map(name => `${field} names unmanaged package ${name}`)),
@@ -726,6 +730,10 @@ export function expectedPackageDependencies(
   }
   for (const name of Object.keys(facts.manifest.peerDependencies ?? {})) {
     if (name !== CORDIS) add(name, 'devDependencies', 'existing non-Cordis peer')
+  }
+  // Type-only public declarations survive packing; shared peer identity wins.
+  for (const name of facts.publishedDeclarationDependencies ?? []) {
+    if (facts.workspaceNames.has(name)) add(name, 'dependencies', 'published declaration import')
   }
   for (const [name, paths] of facts.hostRuntimeSourceUses) {
     const expectedSection = facts.workspaceNames.has(name) && facts.peerRequiredHostDependencies.has(name)

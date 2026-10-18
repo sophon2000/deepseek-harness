@@ -1,10 +1,11 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { setImmediate } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
 import type { Events } from '@deepseek-ai/cordis'
 import { bindScopeParent, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
@@ -263,6 +264,125 @@ describe('restrict() over an inherited scope layer', () => {
 })
 
 describe('scoped execution dispatch', () => {
+  it('awaits async guard layers in order and keeps their denial beyond a prepended allow', async () => {
+    const ctx = await mount()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let pending: Promise<string> | undefined
+    try {
+      const { scope, key } = await mintAgentScope(ctx, 'async-guard')
+      const calls: string[] = []
+      ctx.tools.register({ ...tool('t'), execute: async () => { calls.push('body'); return 'ran:t' } })
+      ctx.tools.guard(async () => {
+        calls.push('global:start')
+        entered.resolve(undefined)
+        await release.promise
+        calls.push('global:done')
+        return undefined
+      })
+      scope.ctx.tools.guard(async () => {
+        await Promise.resolve()
+        calls.push('scoped:deny')
+        return 'async terminal policy'
+      })
+      scope.ctx.tools.guard(() => { calls.push('after-deny'); return undefined })
+      scope.ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'allow' }), { prepend: true })
+      pending = run(ctx, 't', key)
+      await entered.promise
+      expect(calls).toEqual(['global:start'])
+      release.resolve(undefined)
+      expect(await pending).toBe('Error: async terminal policy')
+      expect(calls).toEqual(['global:start', 'global:done', 'scoped:deny'])
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([pending])
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('drains a cancelled async guard before final notification and never dispatches the body', async () => {
+    const ctx = await mount()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const controller = new AbortController()
+    const calls: string[] = []
+    let pending: Promise<unknown> | undefined
+    try {
+      ctx.tools.register({ ...tool('t'), execute: async () => { calls.push('body'); return 'ran:t' } })
+      ctx.tools.guard(async (exec) => {
+        entered.resolve(undefined)
+        try { await release.promise } finally { calls.push('guard:cleanup') }
+        expect(exec.signal.aborted).toBe(true)
+        return undefined
+      })
+      ctx.tools.guard(() => { calls.push('later-guard'); return undefined })
+      ctx.on('tools/execute', (_exec, next) => { calls.push('around'); return next() })
+      ctx.on('tools/result', () => { calls.push('result') })
+      let settled = false
+      const result = ctx.tools.execute({ signal: controller.signal, callId: ToolCallId('cancel-guard'), name: 't', arguments: {} })
+      pending = result.finally(() => { settled = true })
+      await entered.promise
+      controller.abort()
+      await setImmediate()
+      expect(settled).toBe(false)
+      expect(calls).toEqual([])
+      release.resolve(undefined)
+      expect(await result).toMatchObject({ isError: true, error: { info: { code: TOOL_ABORTED_BEFORE_DISPATCH } } })
+      expect(calls).toEqual(['guard:cleanup', 'result'])
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([pending])
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('cannot skip async guards by replacing the pre-execute view with an aborted signal', async () => {
+    const ctx = await mount()
+    const calls: string[] = []
+    const replaced = new AbortController()
+    replaced.abort()
+    try {
+      ctx.tools.register({ ...tool('t'), execute: async () => { calls.push('body'); return 'ran:t' } })
+      ctx.on('tools/pre-execute', (exec) => {
+        Reflect.set(exec, 'signal', replaced.signal)
+        return Promise.resolve({ kind: 'allow' })
+      }, { prepend: true })
+      ctx.tools.guard(async () => { await Promise.resolve(); calls.push('guard'); return 'terminal denial' })
+      ctx.on('tools/execute', (exec, next) => {
+        calls.push('around')
+        exec.signal = testToolSignal
+        return next()
+      })
+      expect(await run(ctx, 't')).toBe('Error: terminal denial')
+      expect(calls).toEqual(['guard'])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('materializes async guard rejection only after cleanup and retains finalizer ownership', async () => {
+    const ctx = await mount()
+    const calls: string[] = []
+    try {
+      ctx.tools.register({
+        ...tool('t'),
+        execute: async () => { calls.push('body'); return 'ran:t' },
+        finalizeContent: () => { calls.push('finalizer'); return undefined },
+      })
+      ctx.tools.guard(async () => {
+        try { await Promise.resolve(); throw new Error('guard filesystem unavailable') }
+        finally { calls.push('guard:cleanup') }
+      })
+      ctx.tools.guard(() => { calls.push('later-guard'); return undefined })
+      ctx.on('tools/post-execute', (_exec, _result, next) => { calls.push('post'); return next() })
+      ctx.on('tools/result', () => { calls.push('result') })
+      expect(await run(ctx, 't')).toBe('Error: guard filesystem unavailable')
+      expect(calls).toEqual(['guard:cleanup', 'finalizer', 'result'])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('an agent.ctx pre-execute listener gates only its own agent (and never subject-less calls)', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')

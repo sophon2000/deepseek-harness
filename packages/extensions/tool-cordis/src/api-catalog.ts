@@ -3437,7 +3437,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'guard(guard: ToolGuard): () => void',
         description: 'Register a monotonic guard after the extensible `tools/pre-execute` waterfall. A plain-context guard applies globally; one registered through `agent.ctx` applies only to that agent. Any matching guard may deny by returning a reason, while no guard can force-allow a call another guard denied. The exact effect disposer is returned for ordered ownership and HMR cleanup.',
-        parameters: [{ name: 'guard', description: 'synchronous check; a returned string denies the execution.' }],
+        parameters: [{ name: 'guard', description: 'serially awaited check; a returned string denies the execution.' }],
         returns: 'the exact disposer that unregisters the guard.',
       },
       {
@@ -3768,6 +3768,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the original project is also unavailable.'],
       },
       {
+        signature: 'ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined>',
+        description: 'Pin the first validated directory for one tool execution without changing its arguments. Guards and the body must pass the same execution object, not a copy. Later Session directory changes apply to later executions. Every lookup still checks cancellation and service/Agent lifetime; pending checks drain as in ensure.',
+        parameters: [{ name: 'execution', description: 'real execution object shared by terminal guards and the body.' }],
+        returns: 'the execution\'s directory, or undefined for a call without an Agent.',
+      },
+      {
         signature: 'set(agent: Agent, path: string, signal?: AbortSignal): Promise<string>',
         description: 'Change one Session\'s directory without changing existing processes or permissions.',
         parameters: [{ name: 'agent', description: 'live or unpublished Agent owning the Session.' }, { name: 'path', description: 'absolute path or a path relative to its current directory.' }, { name: 'signal', description: 'cancellation before the durable change.' }],
@@ -3935,6 +3941,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Synchronous workspace projection in durable registry order. Every entity\'s `sessionIds` getter is already filtered by the startup/live canonical-cwd header index; this method performs no persistence reads.',
         parameters: [],
         returns: 'a fresh ordered array of workspace entities.',
+      },
+      {
+        signature: 'inspectSessionWorkspace(sessionId: SessionId): WorkspaceSessionInspection | undefined',
+        description: 'Inspect the durable Workspace account for one Session without widening the validated Workspace.sessionIds membership projection. The result is derived synchronously from the registry\'s startup/live header index and performs no persistence read or mutation.',
+        parameters: [{ name: 'sessionId', description: 'Session whose durable Workspace account to inspect.' }],
+        returns: 'the accounted Workspace and canonical-cwd validation, or `undefined` when no Workspace account contains the Session id.',
       },
       {
         signature: 'delete(id: WorkspaceId): Promise<boolean>',
@@ -5743,7 +5755,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InvocationParameterDescriptor',
-    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly description?: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypertCodec;\n    readonly acceptsUndefined?: true;\n}',
+    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly description?: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypertCodec;\n    readonly strictCodec?: Extract<TypertCodec, {\n        readonly mode: \'strict\';\n    }>;\n    readonly acceptsUndefined?: true;\n}',
   },
   {
     name: 'InvocationSourceLocation',
@@ -8219,7 +8231,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    validateArgs?(args: unknown): void;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
@@ -8263,7 +8275,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolGuard',
-    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
+    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>;',
   },
   {
     name: 'ToolHistory',
@@ -8730,6 +8742,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
   },
   {
+    name: 'WorkingDirectoryExecution',
+    declaration: 'export interface WorkingDirectoryExecution {\n    readonly agent?: Agent;\n    readonly signal: AbortSignal;\n}',
+  },
+  {
     name: 'Workspace',
     declaration: 'export interface Workspace {\n    readonly id: WorkspaceId;\n    readonly path: string;\n    readonly title: string;\n    readonly createdAt: string;\n    readonly updatedAt: string;\n    readonly sessionIds: readonly SessionId[];\n    setTitle(title: string): Promise<void>;\n    attachSession(sessionId: SessionId): Promise<void>;\n    insertSessionBefore(sessionId: SessionId, beforeSessionId?: SessionId): Promise<void>;\n    detachSession(sessionId: SessionId): Promise<void>;\n    status(): Promise<\'ok\' | \'missing-dir\'>;\n}',
   },
@@ -8852,6 +8868,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceRenameRequest',
     declaration: 'export interface WorkspaceRenameRequest {\n    readonly workspaceId: WorkspaceId;\n    readonly title: string;\n}',
+  },
+  {
+    name: 'WorkspaceSessionInspection',
+    declaration: 'export interface WorkspaceSessionInspection {\n    readonly workspace: Workspace;\n    readonly validation: \'valid\' | \'cwd-unavailable\' | \'cwd-mismatch\';\n}',
   },
   {
     name: 'WorkspaceUnarchiveSessionRequest',

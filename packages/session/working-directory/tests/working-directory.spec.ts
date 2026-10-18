@@ -37,6 +37,44 @@ async function fixture(config?: (root: string) => WorkingDirectoryConfig) {
 }
 
 describe('Session working directories', () => {
+  it('pins one directory promise per execution while later executions follow a committed change', async () => {
+    await using f = await fixture()
+    const child = join(f.root, 'child')
+    await mkdir(child)
+    const exec = { agent: f.agent, signal: new AbortController().signal }
+    const first = f.ctx.workingDirectory.ensureForExecution(exec)
+    expect(f.ctx.workingDirectory.ensureForExecution(exec)).toBe(first)
+    await expect(first).resolves.toBe(f.root)
+    await f.ctx.workingDirectory.set(f.agent, child)
+    await expect(f.ctx.workingDirectory.ensureForExecution(exec)).resolves.toBe(f.root)
+    await expect(f.ctx.workingDirectory.ensureForExecution({ ...exec })).resolves.toBe(child)
+    await expect(f.ctx.workingDirectory.ensureForExecution({ signal: exec.signal })).resolves.toBeUndefined()
+  })
+
+  it.each(['cancel', 'agent-dispose', 'service-dispose'] as const)('rejects a cached execution after %s', async (action) => {
+    await using f = await fixture()
+    const controller = new AbortController()
+    const exec = { agent: f.agent, signal: controller.signal }
+    await f.ctx.workingDirectory.ensureForExecution(exec)
+    const service = f.ctx.workingDirectory
+    if (action === 'cancel') controller.abort(new Error('execution cancelled'))
+    else if (action === 'agent-dispose') await f.agent.ctx.fiber.dispose()
+    else await f.directoryFiber.dispose()
+    const expected = action === 'cancel' ? 'execution cancelled'
+      : action === 'agent-dispose' ? 'inactive context' : 'working-directory service disposed'
+    await expect(service.ensureForExecution(exec)).rejects.toThrow(expected)
+  })
+
+  it('preserves an arbitrary cancellation reason for a cached execution', async () => {
+    await using f = await fixture()
+    const controller = new AbortController()
+    const exec = { agent: f.agent, signal: controller.signal }
+    await f.ctx.workingDirectory.ensureForExecution(exec)
+    const reason = { kind: 'caller-stopped' }
+    controller.abort(reason)
+    await expect(f.ctx.workingDirectory.ensureForExecution(exec)).rejects.toBe(reason)
+  })
+
   it('keeps origin metadata and other Sessions independent while logging the changed directory', async () => {
     await using f = await fixture()
     const child = join(f.root, 'child')
@@ -240,7 +278,7 @@ describe('Session working directories', () => {
     }
   })
 
-  it.each(['ensure', 'set'] as const)('aborts and drains pending %s before disposal completes', async (operation) => {
+  it.each(['ensure', 'ensureForExecution', 'set'] as const)('aborts and drains pending %s before disposal completes', async (operation) => {
     await using f = await fixture()
     const directories = f.ctx.workingDirectory
     const entered = Promise.withResolvers<AbortSignal>()
@@ -255,9 +293,9 @@ describe('Session working directories', () => {
       await release.promise
       return info
     })
-    const pending = operation === 'ensure'
-      ? directories.ensure(f.agent)
-      : directories.set(f.agent, f.root)
+    const pending = operation === 'ensureForExecution'
+      ? directories.ensureForExecution({ agent: f.agent, signal: new AbortController().signal })
+      : operation === 'ensure' ? directories.ensure(f.agent) : directories.set(f.agent, f.root)
     const rejection = expect(pending).rejects.toThrow('working-directory service disposed')
     let disposal: Promise<void> | undefined
     try {

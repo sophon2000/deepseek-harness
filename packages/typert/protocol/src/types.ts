@@ -374,6 +374,8 @@ export interface InvocationParameterDescriptor {
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
   readonly codec: TypertCodec
+  /** Closed generated request codec used by Host dispatch; ordinary and result codecs retain their declared behavior. */
+  readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
   readonly acceptsUndefined?: true
 }
@@ -596,7 +598,7 @@ export interface TypertRemoteParameterSpec extends Omit<InvocationParameterDescr
   readonly wire?: string
   /** Ordinary Remote parser and projection for this parameter. */
   readonly codec: TypertRemoteCodecSpec
-  /** Consumer-selected counterpart rejecting undeclared fields in explicit input objects. */
+  /** Closed request codec used by Host dispatch and explicit strict consumer input parsing. */
   readonly strictCodec: TypertRemoteCodecSpec
 }
 

@@ -9,6 +9,7 @@ import type { MenuItemConstructorOptions, MessageBoxOptions } from 'electron'
 import { DESKTOP_IPC, type DesktopUpdateState } from '../src/ipc.ts'
 import { MANDATORY_IPC } from '../src/mandatory-update-ipc.ts'
 import { DesktopHostFatalError, DesktopHostUncleanExitError } from '../src/host-process.ts'
+import { DesktopProductUncleanExitError } from '../src/product-process.ts'
 import { en, zh } from '../src/locale.ts'
 import { DesktopUpdatePreparationError } from '../src/update-error.ts'
 import { writeCrashReport } from '../src/crash-report.ts'
@@ -144,10 +145,12 @@ const harness = await vi.hoisted(async () => {
       return this.exited.promise
     })
     constructor(
-      readonly node: string, readonly runtime: string, readonly profile: string,
+      readonly node: string, readonly runtime: string, readonly productRuntime: string, readonly profile: string,
+      readonly productsDataRoot: string, readonly product?: unknown,
       readonly inspectPort?: number, readonly environment?: NodeJS.ProcessEnv, readonly onFailure?: (error: Error) => void,
       readonly primaryRuntime?: string,
       readonly packageManager?: { pnpm: string; nodeBin: string },
+      readonly onPlatformSession?: (session: unknown) => void,
     ) { hosts.push(this) }
   }
   const app = Object.assign(new EventEmitter(), {
@@ -317,7 +320,7 @@ vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   readDesktopLoginShellEnvironment: harness.loginShell,
 }))
 vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' } }) }))
-vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
+vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile', products: 'desktop-test-products' }) }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease
@@ -326,7 +329,14 @@ vi.mock('../src/project-manager.ts', () => ({
   },
 }))
 vi.mock('../src/host-process.ts', async importOriginal => ({
-  ...await importOriginal<typeof import('../src/host-process.ts')>(), DesktopHostProcess: harness.FakeHost,
+  ...await importOriginal<typeof import('../src/host-process.ts')>(),
+}))
+vi.mock('../src/product-process.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/product-process.ts')>(),
+}))
+vi.mock('../src/product-host-process.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/product-host-process.ts')>(),
+  DesktopProductHostProcess: harness.FakeHost,
 }))
 vi.mock('../src/update-dialog.ts', () => ({ DesktopUpdateDialog: class {
   get isOpen() { return harness.shellDialog.isOpen }
@@ -1801,6 +1811,23 @@ describe('desktop main startup', () => {
     await expect(preparing).resolves.toBe(true)
   })
 
+  it('refuses update handoff when ordinary quit starts during Platform cleanup', async () => {
+    const host = await readyForUpdate()
+    harness.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 })
+    const cleanup = harness.deferPlatformClose()
+    const preparing = harness.prepareUpdate()
+    const rejected = expect(preparing).rejects.toMatchObject({ kind: 'tasks-unavailable' })
+    await vi.waitFor(() => { expect(harness.platformCloseAndWait).toHaveBeenCalledOnce() })
+    harness.app.quit()
+    await host.stopping.promise
+    expect(host.stop).toHaveBeenCalledExactlyOnceWith(false)
+    cleanup.resolve()
+    await rejected
+    expect(host.stop).toHaveBeenCalledExactlyOnceWith(false)
+    host.exited.resolve()
+    await harness.quitCompleted.promise
+  })
+
   it.each(['accepted', 'failed'] as const)('settles analytics intake before locking API admission and continues after intake failure: %s', async (outcome) => {
     const host = await readyForUpdate()
     await vi.waitFor(() => { expect(harness.analytics).toHaveBeenCalledWith(expect.objectContaining({ eventName: 'desktop_app_launch' })) })
@@ -1919,7 +1946,8 @@ describe('desktop main startup', () => {
     }
   })
 
-  it.each([false, true])('restores a confirmed non-graceful exit without approving installation, mandatory: %s', async (mandatory) => {
+  it.each([false, true].flatMap(mandatory => ['host', 'product', 'both'].map(child => ({ mandatory, child }))))
+  ('restores a confirmed non-graceful $child exit without approving installation, mandatory: $mandatory', async ({ mandatory, child }) => {
     if (mandatory) {
       harness.embeddedPolicy = { origin: 'https://policy.example.com', allowedPageOrigins: ['https://downloads.example.com'] }
       vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 40005, data: {
@@ -1933,7 +1961,10 @@ describe('desktop main startup', () => {
     const rejected = expect(preparing).rejects.toMatchObject(new DesktopUpdatePreparationError('stop-failed', en.updateStopFailed, 'Task teardown failed after child exit'))
     if (mandatory) await answerMandatory('install')
     await host.stopping.promise
-    host.exited.reject(new DesktopHostUncleanExitError('Task teardown failed after child exit'))
+    const hostFailure = new DesktopHostUncleanExitError('Task teardown failed after child exit')
+    const productFailure = new DesktopProductUncleanExitError('Task teardown failed after child exit')
+    host.exited.reject(child === 'host' ? hostFailure : child === 'product' ? productFailure
+      : new AggregateError([hostFailure, productFailure], 'Task teardown failed after child exit'))
     await rejected
     expect(host.updateTasks.mock.calls).toEqual([['inspect'], ['lock']])
     harness.dialog.showMessageBox.mockResolvedValue({ response: 1 })
@@ -2231,7 +2262,8 @@ describe('desktop main startup', () => {
     expect(harness.applyRelease).toHaveBeenCalledTimes(1)
     expect(harness.hosts[0]).toMatchObject({
       node: process.execPath,
-      runtime: join(harness.app.getAppPath(), 'dsh'),
+      runtime: join(process.resourcesPath, 'dsh'),
+      productRuntime: join(process.resourcesPath, 'dsh'),
       primaryRuntime: join('desktop-test-resources', 'runtime', 'primary-runtime'),
       profile: 'desktop-test-profile',
     })

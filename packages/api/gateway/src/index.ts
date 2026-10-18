@@ -1050,7 +1050,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     // Lookup ids are never omissible, so an absent field belongs to a json parameter that takes undefined.
     if (!Object.hasOwn(args, parameter.wire)) return undefined
     if (parameter.source === 'json') return args[parameter.wire]
-    const value = decode(parameter.codec, args[parameter.wire], endpoint, parameter.wire)
+    const value = decode(parameter.strictCodec ?? parameter.codec, args[parameter.wire], endpoint, parameter.wire)
     const key = parameter.lookup
     /* v8 ignore next -- registry validation rejects strict descriptors without a key, and SRC derivation always supplies one. */
     if (key === undefined) {
@@ -1639,8 +1639,8 @@ function assertExactArguments(
 }
 
 /**
- * Decode every present JSON argument once through its parameter codec; a
- * Typert codec drops object fields its compiled type does not declare. Lookup
+ * Decode every present JSON argument once through its closed generated request
+ * codec when available, otherwise its declared ordinary codec. Lookup
  * and Context identities keep their wire values; dispatch decodes and resolves
  * them only after the access check. An absent field stays absent; a present
  * `undefined` is not JSON-safe and fails decoding.
@@ -1655,7 +1655,7 @@ function validateArguments(
   for (const parameter of descriptor.parameters) {
     if (!Object.hasOwn(args, parameter.wire)) continue
     const value = args[parameter.wire]
-    entries.push([parameter.wire, parameter.source === 'json' ? decode(parameter.codec, value, endpoint, parameter.wire) : value])
+    entries.push([parameter.wire, parameter.source === 'json' ? decode(parameter.strictCodec ?? parameter.codec, value, endpoint, parameter.wire) : value])
   }
   return Object.fromEntries(entries)
 }

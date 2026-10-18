@@ -639,6 +639,8 @@ describe('TypertRegistry', () => {
 
     const bogusMode: string = 'duplex'
     const malformed: readonly [InvocationDescriptor, string][] = [
+      [{ ...strictInvocation, parameters: [{ name: 'request', wire: 'request', source: 'json', codec: strict, strictCodec: { ...strict, typeSymbol: '@fixture#Other' } }] }, 'must match its ordinary codec type'],
+      [{ ...strictInvocation, parameters: [{ name: 'request', wire: 'request', source: 'json', codec: { mode: 'src-json' }, strictCodec: strict }] }, 'must match its ordinary codec type'],
       [{ ...invocation(), id: '' }, 'invocation id'],
       [{ ...invocation(), mode: bogusMode as 'stream' }, 'mode must be "stream"'],
       [{
