@@ -121,11 +121,12 @@ async function inventoryRuntimeForVerification(root: string): Promise<DesktopRun
  * @param release - Matching shell, dsh, Host, and executable versions.
  * @param sharedNames - Release-owned packages supplied to plugins.
  * @param target - Platform and architecture selected by runtime preparation.
+ * @param files - Complete file inventory, read before writing the descriptor.
  * @returns Descriptor written beside the production packages.
  */
-export function writeDesktopRuntime(
+function writeRuntimeDescriptor(
   root: string, release: DesktopRelease, sharedNames: readonly string[],
-  target: { platform: NodeJS.Platform; arch: string } = process,
+  target: { platform: NodeJS.Platform; arch: string }, files: readonly DesktopRuntimeFile[],
   product?: DesktopRuntimeProduct,
 ): DesktopRuntimeDescriptor {
   const sharedPackages = [...new Set(sharedNames)].sort().map((name) => {
@@ -139,10 +140,28 @@ export function writeDesktopRuntime(
   })
   const descriptor: DesktopRuntimeDescriptor = {
     schemaVersion: 1, release, platform: target.platform, arch: target.arch,
-    sharedPackages, files: inventoryDesktopRuntime(root), ...(product === undefined ? {} : { product }),
+    sharedPackages, files, ...(product === undefined ? {} : { product }),
   }
   writeFileSync(join(root, DESKTOP_RUNTIME_FILE), `${JSON.stringify(descriptor, undefined, 2)}\n`)
   return descriptor
+}
+
+/** Seal a runtime synchronously with the standard descriptor format. */
+export function writeDesktopRuntime(
+  root: string, release: DesktopRelease, sharedNames: readonly string[],
+  target: { platform: NodeJS.Platform; arch: string } = process,
+  product?: DesktopRuntimeProduct,
+): DesktopRuntimeDescriptor {
+  return writeRuntimeDescriptor(root, release, sharedNames, target, inventoryDesktopRuntime(root), product)
+}
+
+/** Seal production trees using the same bounded, fully drained reads as verification. */
+export async function writeDesktopRuntimeAsync(
+  root: string, release: DesktopRelease, sharedNames: readonly string[],
+  target: { platform: NodeJS.Platform; arch: string } = process,
+  product?: DesktopRuntimeProduct,
+): Promise<DesktopRuntimeDescriptor> {
+  return writeRuntimeDescriptor(root, release, sharedNames, target, await inventoryRuntimeForVerification(root), product)
 }
 
 /**

@@ -10,7 +10,7 @@ import {
 } from './desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
-import { loadDesktopPackageEnvironment, localMacOSPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
+import { loadDesktopPackageEnvironment, localUnsignedPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
 import { withWindowsSigningStage } from './windows-signing-stage.mjs'
 import { prepareWindowsSignatureCacheDirectory, resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
@@ -334,8 +334,8 @@ async function resolveRequestedBuildVersion(
 async function main(): Promise<void> {
   const invocation = parseDesktopPackageInvocation(process.argv.slice(2))
   const { target } = invocation
-  const environment = target.platform === 'darwin' && invocation.unsigned
-    ? localMacOSPackageEnvironment()
+  const environment = invocation.unsigned
+    ? localUnsignedPackageEnvironment()
     : loadDesktopPackageEnvironment(target.platform)
   const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   // Release settings come from the target dotenv file alone, so the version this run publishes is an

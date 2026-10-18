@@ -37,7 +37,8 @@ export async function smokeDesktopRuntime(
   }
   const product = runtime.product?.service === undefined
     ? undefined
-    : new DesktopProductProcess(node, root, runtime.product, join(home, 'product'), hostEnvironment)
+    : new DesktopProductProcess(node, root, runtime.product, join(home, 'product'), hostEnvironment,
+      undefined, runtime.product.service.readyTimeoutMs)
   let host: DesktopHostProcess | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
