@@ -28,6 +28,17 @@ interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
+   * Validate snapshotted model arguments before policy or approval observes the
+   * call. Throw when the arguments are invalid; the registry normalizes every
+   * rejection to its own `ToolArgsError` / `INVALID_ARGS` identity, including
+   * errors originating in a separately materialized provider package. Omit
+   * this callback only when the provider owns validation during execution,
+   * such as an MCP server. The registry still treats `execute` as the final
+   * enforcement point, so implementations may validate there again.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   */
+  validateArgs?(args: unknown): void
+  /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
    * owned work reaches quiescence. The registry preserves caller cancellation
@@ -322,7 +333,7 @@ interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
 
 `ToolExecutionToken` is an opaque runtime `Symbol` used only for identity comparison. Before policy, `execute()` materializes and freezes arguments, rejects non-JSON input, and assigns the token. Identity fields, the required caller signal, and the optional parent token remain readonly. A `ToolDispatchExecution` wrapper may replace but not remove the signal; the registry re-fuses the caller signal before invoking the body. Final observers receive the frozen execution identity.
 
-A `ToolGuard` is scope-aware final pre-dispatch policy. Its return type deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it.
+A `ToolGuard` is scope-aware final pre-dispatch policy. Guards settle serially before the next guard or body starts. The return type deliberately has no allow result: `undefined` preserves the waterfall decision, while a returned reason can only reduce permission, so a later listener cannot undo it. `validateArgs` rejects invalid snapshotted input before `tools/pre-execute` or approval observes it; the registry normalizes validator failures to its own `ToolArgsError` / `INVALID_ARGS` identity. Execution-time enforcement remains required.
 
 ```ts type-equiv
 /**
@@ -331,9 +342,10 @@ A `ToolGuard` is scope-aware final pre-dispatch policy. Its return type delibera
  * returning `undefined` leaves it unchanged. Because guards have no allow
  * result, listener ordering cannot turn a denial back into permission.
  * @param execution - the identity-protected call after extensible pre-execute policy completed.
- * @returns a final denial reason, or `undefined` to leave the call allowed.
+ * @returns a final denial reason, or `undefined` to leave the call allowed;
+ * asynchronous guards settle before the next guard or dispatch begins.
  */
-type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
+type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>
 ```
 
 ```ts type-equiv
@@ -545,7 +557,7 @@ restrict(filter: ToolRestriction): () => void
  * returning a reason, while no guard can force-allow a call another guard
  * denied. The exact effect disposer is returned for ordered ownership and
  * HMR cleanup.
- * @param guard - synchronous check; a returned string denies the execution.
+ * @param guard - serially awaited check; a returned string denies the execution.
  * @returns the exact disposer that unregisters the guard.
  */
 guard(guard: ToolGuard): () => void

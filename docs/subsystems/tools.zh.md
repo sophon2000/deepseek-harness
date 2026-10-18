@@ -28,6 +28,17 @@ interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
+   * Validate snapshotted model arguments before policy or approval observes the
+   * call. Throw when the arguments are invalid; the registry normalizes every
+   * rejection to its own `ToolArgsError` / `INVALID_ARGS` identity, including
+   * errors originating in a separately materialized provider package. Omit
+   * this callback only when the provider owns validation during execution,
+   * such as an MCP server. The registry still treats `execute` as the final
+   * enforcement point, so implementations may validate there again.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   */
+  validateArgs?(args: unknown): void
+  /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
    * owned work reaches quiescence. The registry preserves caller cancellation
@@ -322,7 +333,7 @@ interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
 
 `ToolExecutionToken` 是不透明的运行时 `Symbol`，仅用于身份比较。策略执行前，`execute()` 会物化并冻结参数、拒绝非 JSON 输入并分配 token。身份字段、调用方必需的 signal 和可选的 parent token 均保持 readonly。`ToolDispatchExecution` 包装层可以替换 signal 但不能移除；注册表会在调用工具函数体前重新融合调用方的 signal。最终观察者接收冻结的执行身份。
 
-`ToolGuard` 是感知作用域的最终预分派策略。其返回类型有意不包含 allow 结果：`undefined` 保留 waterfall 的决策，而返回的 reason 只能缩减权限，因此后续监听器无法撤销它。
+`ToolGuard` 是感知作用域的最终预分派策略。守卫按顺序完成，之后才启动下一个守卫或执行体。返回类型有意不包含 allow 结果：`undefined` 保留 waterfall 的决策，而返回的 reason 只能缩减权限，因此后续监听器无法撤销它。`validateArgs` 在 `tools/pre-execute` 或审批观察输入前拒绝无效的参数快照；注册表将校验器失败统一为自身的 `ToolArgsError` / `INVALID_ARGS` 身份。执行时的强制校验仍然必需。
 
 ```ts type-equiv
 /**
@@ -331,9 +342,10 @@ interface ToolDispatchExecution extends Omit<ToolExecution, 'signal'> {
  * returning `undefined` leaves it unchanged. Because guards have no allow
  * result, listener ordering cannot turn a denial back into permission.
  * @param execution - the identity-protected call after extensible pre-execute policy completed.
- * @returns a final denial reason, or `undefined` to leave the call allowed.
+ * @returns a final denial reason, or `undefined` to leave the call allowed;
+ * asynchronous guards settle before the next guard or dispatch begins.
  */
-type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
+type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>
 ```
 
 ```ts type-equiv
@@ -545,7 +557,7 @@ restrict(filter: ToolRestriction): () => void
  * returning a reason, while no guard can force-allow a call another guard
  * denied. The exact effect disposer is returned for ordered ownership and
  * HMR cleanup.
- * @param guard - synchronous check; a returned string denies the execution.
+ * @param guard - serially awaited check; a returned string denies the execution.
  * @returns the exact disposer that unregisters the guard.
  */
 guard(guard: ToolGuard): () => void

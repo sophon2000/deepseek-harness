@@ -38,6 +38,8 @@ interface TypertLookupDefinition {
 
 ## Invocation descriptors
 
+Generated LIB Host dispatch prefers a parameter's `strictCodec` for JSON arguments and lookup keys, rejecting undeclared request fields. Ordinary and result codecs retain their own behavior. SRC and manually registered descriptors without a strict request codec continue to use `codec`; an ordinary metadata parser is not evidence that Host request validation has been bypassed.
+
 An `InvocationDescriptor` is local reflection, not a wire message. Host and consumer builds generate corresponding descriptors; the request sends only the endpoint and named `args`. Strict codecs carry generated schema factories, while SRC codecs enforce JSON-safe inputs without structural type recovery. Unary result codecs can supply `encode()` for byte-containing subtrees and `decode()` for recursive native-byte validation; Client declarations narrow every `Uint8Array` to `ArrayBuffer` backing. Pure JSON results need neither byte detection nor Client decoding. Cancellation is an out-of-band carrier signal injected after business parameters and never enters `args`.
 
 `createTypertRemoteInfo` returns a lazy class instance implementing `TypertRemoteInfo`, which extends the mountable `TypertRemoteContribution`. Its `methods` index aliases the direct objects in `descriptors`: each `TypertRemoteMethod` adds named `input(options?)` and `invoke`, retains documentation on the method and its parameters, and uses `result` as its only output codec. Unary `mode` is absent; stream `mode` is `'stream'`. Context-only receivers remain in descriptors and scoped declarations. Registry queries return base descriptors; `isTypertRemoteMethod` narrows generated direct capabilities without recovering endpoint-specific generics.
@@ -86,6 +88,8 @@ interface InvocationParameterDescriptor {
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
   readonly codec: TypertCodec
+  /** Closed generated request codec used by Host dispatch; ordinary and result codecs retain their declared behavior. */
+  readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
   readonly acceptsUndefined?: true
 }
