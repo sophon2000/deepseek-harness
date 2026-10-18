@@ -15,6 +15,26 @@ const payload = {
 } as const
 
 describe('Desktop product descriptor', () => {
+  it.each([1, 90_000, 120_000])('retains a declared service readiness budget in both descriptors: %s', (readyTimeoutMs) => {
+    const service = { ...payload.service, readyTimeoutMs }
+    expect(parseDesktopProductPayload({ ...payload, service }).service).toEqual(service)
+    expect(parseDesktopRuntimeProduct({
+      id: payload.id, profileBundles: payload.profileBundles,
+      resourcesRoot: 'products/video-harness/resources', service,
+    }).service).toEqual(service)
+  })
+
+  it.each([null, false, '90000', 0, -1, 1.5, 120_001, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects an invalid service readiness budget at both file parsers: %s', (readyTimeoutMs) => {
+      const service = { ...payload.service, readyTimeoutMs }
+      expect(() => parseDesktopProductPayload({ ...payload, service })).toThrow('ready timeout')
+      expect(() => parseDesktopRuntimeProduct({
+        id: payload.id, profileBundles: payload.profileBundles,
+        resourcesRoot: 'products/video-harness/resources', service,
+      })).toThrow('ready timeout')
+    },
+  )
+
   it('retains one narrow service declaration in build and runtime metadata', () => {
     expect(parseDesktopProductPayload(payload).service).toEqual(payload.service)
     expect(parseDesktopRuntimeProduct({

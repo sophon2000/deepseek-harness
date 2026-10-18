@@ -1,4 +1,9 @@
 import { describe, expect, it, vi, type TestContext } from 'vitest'
+import { existsSync, watch, type FSWatcher } from 'node:fs'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { parseDesktopRuntimeProduct } from '../src/desktop-product.ts'
 import { DesktopHostProcess, DesktopHostUncleanExitError } from '../src/host-process.ts'
 import { DesktopProductHostProcess, isDesktopBackendUncleanExit } from '../src/product-host-process.ts'
 import { DesktopProductProcess, DesktopProductUncleanExitError } from '../src/product-process.ts'
@@ -17,6 +22,82 @@ function backend(test: TestContext) {
 }
 
 describe('Desktop product backend cleanup failures', () => {
+  it.for([
+    { readyTimeoutMs: 90_000, outcome: 'ready' },
+    { readyTimeoutMs: 120_000, outcome: 'ready' },
+    { readyTimeoutMs: 90_000, outcome: 'timeout' },
+    { readyTimeoutMs: 90_000, outcome: 'cancel' },
+    { readyTimeoutMs: undefined, outcome: 'timeout' },
+  ] as const)('enforces service budget $readyTimeoutMs and $outcome before starting the Host', async ({ readyTimeoutMs, outcome }, test) => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-product-budget-'))
+    const owned: { handle?: DesktopProductHostProcess; watcher?: FSWatcher; settled?: Promise<unknown> } = {}
+    test.onTestFinished(async () => {
+      owned.watcher?.close()
+      vi.useRealTimers()
+      try { await owned.handle?.stop(); await owned.settled }
+      finally { vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }) }
+    })
+    const resources = join(root, 'resources'), data = join(root, 'data', 'fixture')
+    await mkdir(resources); await mkdir(data, { recursive: true })
+    await writeFile(join(resources, 'service.mjs'), `
+      import { existsSync, watch, writeFileSync } from 'node:fs'
+      import { join } from 'node:path'
+      const release = join(process.cwd(), 'release')
+      const watcher = watch(process.cwd(), () => {
+        if (!existsSync(release)) return
+        watcher.close()
+        process.send({ type: 'ready', environment: { FIXTURE_URL: 'fixture' } })
+      })
+      process.on('message', message => {
+        if (message?.type === 'shutdown') { watcher.close(); process.disconnect() }
+      })
+      writeFileSync(join(process.cwd(), 'started'), '')
+    `)
+    const dataWatcher = watch(data)
+    owned.watcher = dataWatcher
+    const started = new Promise<void>((resolve, reject) => {
+      dataWatcher.on('change', () => { if (existsSync(join(data, 'started'))) resolve() })
+      dataWatcher.once('error', reject)
+    })
+    const product = parseDesktopRuntimeProduct({
+      id: 'fixture', profileBundles: ['fixture'], resourcesRoot: 'resources',
+      service: { entrypoint: 'service.mjs', exportedEnvironment: ['FIXTURE_URL'], readyTimeoutMs },
+    })
+    const hostStart = vi.spyOn(DesktopHostProcess.prototype, 'start').mockResolvedValue({ url: 'http://127.0.0.1:1234' })
+    vi.spyOn(DesktopHostProcess.prototype, 'stop').mockResolvedValue(undefined)
+    const failed = vi.fn()
+    const handle = new DesktopProductHostProcess(process.execPath, root, root, root, join(root, 'data'), product,
+      undefined, process.env, failed)
+    owned.handle = handle
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const settled = handle.start().then(value => ({ ready: value }), (error: unknown) => ({ error }))
+    owned.settled = settled
+    await started
+    await vi.advanceTimersByTimeAsync((readyTimeoutMs ?? 30_000) - 1)
+    expect(failed).not.toHaveBeenCalled()
+    expect(hostStart).not.toHaveBeenCalled()
+    if (outcome === 'timeout') {
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(settled).resolves.toMatchObject({ error: {
+        message: `desktop product service did not become ready within ${readyTimeoutMs ?? 30_000} ms`,
+      } })
+      expect(failed).toHaveBeenCalledOnce()
+      expect(hostStart).not.toHaveBeenCalled()
+      return
+    }
+    if (outcome === 'cancel') {
+      await handle.stop(true)
+      await expect(settled).resolves.toMatchObject({ error: { message: 'desktop product service startup was cancelled' } })
+      await vi.advanceTimersByTimeAsync(1)
+      expect(failed).not.toHaveBeenCalled()
+      expect(hostStart).not.toHaveBeenCalled()
+      return
+    }
+    await writeFile(join(data, 'release'), '')
+    await expect(settled).resolves.toEqual({ ready: { url: 'http://127.0.0.1:1234' } })
+    await expect(handle.stop(true)).resolves.toBeUndefined()
+  })
+
   it('resolves with no failures and clears both stopped processes', async (test) => {
     const fixture = backend(test)
     await fixture.process.start()

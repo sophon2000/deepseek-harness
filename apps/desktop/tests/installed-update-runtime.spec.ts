@@ -21,7 +21,7 @@ describe('installed-update runtime preparation', () => {
     await fixture(async (directory) => {
       const original = join(directory, 'source')
       const product = { id: 'fixture', profileBundles: ['fixture-bundle'], resourcesRoot: 'products/fixture/resources',
-        service: { entrypoint: 'service.mjs', exportedEnvironment: ['FIXTURE_URL'] } }
+        service: { entrypoint: 'service.mjs', exportedEnvironment: ['FIXTURE_URL'], readyTimeoutMs: 90_000 } }
       runtimeFixture(original, source.version, '24.17.0', product)
       const before = await readFile(join(original, 'desktop-runtime.json'))
       const run = await createInstalledUpdateRun(join(directory, 'runs'), versions, source)

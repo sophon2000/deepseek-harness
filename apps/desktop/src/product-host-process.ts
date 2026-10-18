@@ -47,7 +47,7 @@ export class DesktopProductHostProcess {
       if (this.product?.service !== undefined) {
         const productProcess = new DesktopProductProcess(
           this.node, this.productRuntimeDir, this.product, join(this.productsDataRoot, this.product.id),
-          this.environment, this.onFailure,
+          this.environment, this.onFailure, this.product.service.readyTimeoutMs,
         )
         this.productProcess = productProcess
         const ready = await productProcess.start()

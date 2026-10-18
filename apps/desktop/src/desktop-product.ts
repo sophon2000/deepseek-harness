@@ -18,6 +18,8 @@ export interface DesktopProductPayload {
 export interface DesktopProductService {
   readonly entrypoint: string
   readonly exportedEnvironment: readonly string[]
+  /** Ready IPC deadline in milliseconds, from 1 to 120000; omission uses 30000. */
+  readonly readyTimeoutMs?: number
 }
 
 /** Product configuration retained in the immutable runtime descriptor. */
@@ -67,9 +69,15 @@ function productService(value: unknown, label: string): DesktopProductService | 
   if (new Set(exportedEnvironment).size !== exportedEnvironment.length) {
     throw new Error(`desktop product: duplicate ${label} environment name`)
   }
+  const readyTimeoutMs = value.readyTimeoutMs
+  if (readyTimeoutMs !== undefined && (typeof readyTimeoutMs !== 'number'
+    || !Number.isSafeInteger(readyTimeoutMs) || readyTimeoutMs < 1 || readyTimeoutMs > 120_000)) {
+    throw new Error(`desktop product: invalid ${label} ready timeout; expected an integer from 1 to 120000 ms`)
+  }
   return {
     entrypoint: portablePath(value.entrypoint, `${label} entrypoint`),
     exportedEnvironment,
+    ...(readyTimeoutMs === undefined ? {} : { readyTimeoutMs }),
   }
 }
 
