@@ -72,6 +72,18 @@ describe('unique object-name prefix search', () => {
 })
 
 describe('maintained repository reference policy', () => {
+  it('distinguishes artifact byte counts from numeric commit identifiers', () => {
+    const numeric = [6344, 383].join('')
+    const commits = new Set([numeric])
+    for (const source of [`size = ${numeric},`, `"size": ${numeric}`, `{ size: ${numeric} }`]) {
+      expect(findRepositoryReferences('uv.lock', source, commits)).toEqual([])
+    }
+    for (const source of [numeric, `commit = ${numeric}`, `size = "${numeric}"`,
+      `https://github.com/example/repository/commit/${numeric}`, `size = ${numeric}, commit = ${numeric}`]) {
+      expect(findRepositoryReferences('uv.lock', source, commits)).toHaveLength(1)
+    }
+  })
+
   it('permits only the independent kit repository and its source URLs', () => {
     for (const suffix of ['', '.git', '/tree/main/packages/entry']) {
       expect(findRepositoryReferences('package.json', `${organizationUrl}/libreoffice-kit${suffix}`, new Set())).toEqual([])

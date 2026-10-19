@@ -1543,6 +1543,7 @@ export class ToolRuntime extends Service {
     }
     try {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
+      // oxlint-disable-next-line typescript/unbound-method -- Compare callback identity only; validation retains its tool receiver.
       const validatedArgs = tool?.validateArgs
       validateDefinitionArgs(tool, exec.arguments)
       const carrier = scopeTarget(this, exec.agent)
