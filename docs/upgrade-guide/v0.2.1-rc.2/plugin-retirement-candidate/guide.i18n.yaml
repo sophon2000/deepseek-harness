@@ -3,17 +3,17 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-rc.2/plugin-retirement-candidate/guide.md
 /:
-  en: b93ef102e5b7bf19
-  zh: 8e52d0fceb59fb18
+  en: a1559ba9c10ac771
+  zh: 015356aa673945b2
 /match-plugins-to-the-local-runtime-candidate:
   en: c16a947915fbae40
-  zh: a2462585704958a1
+  zh: 8146ee9ae6d515e4
 /match-plugins-to-the-local-runtime-candidate/change:
-  en: 9349967f497178e0
-  zh: ed31ff7ddf1933d0
-/match-plugins-to-the-local-runtime-candidate/change/approval-for-dynamically-resolved-tools:
-  en: 22afe628a141c15c
-  zh: 8aadeb39c20e5a69
+  en: 98901bcfe02ead5a
+  zh: 8b8e0255802a4bbc
+/match-plugins-to-the-local-runtime-candidate/change/dynamically-resolved-tools:
+  en: 433ec609e7b4ec6b
+  zh: 9c2b9dbe5016d328
 /match-plugins-to-the-local-runtime-candidate/migration:
-  en: 78f0e7a93b7ec7c1
-  zh: 61d8dd6960fdb761
+  en: 8931ff5aeda583ce
+  zh: 90335349280ecd9c

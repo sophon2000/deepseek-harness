@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-rc.2.vh.1.local.20261018.2/strict-context-uplink-admission/guide.md
+/:
+  en: 9446426c698dfd1b
+  zh: 422fd2690ff9c6f2
+/rebuild-strict-context-and-stream-admission:
+  en: c2055bc8525bfc9c
+  zh: 5f70ae4146efb232
+/rebuild-strict-context-and-stream-admission/change:
+  en: 4f091dd497250a0e
+  zh: f647f5e318da0c95
+/rebuild-strict-context-and-stream-admission/migration:
+  en: 5e933badc8d046af
+  zh: 6ac6dc6faa99bfaa

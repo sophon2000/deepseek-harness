@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-llm-deepseek",
   "description": "DeepSeek Messages adapter",
-  "version": "0.2.1-rc.2.vh.1.local.20261018.2",
+  "version": "0.2.1-rc.2.vh.1.local.20261019.3",
   "publishConfig": {
     "access": "public"
   },
