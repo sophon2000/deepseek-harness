@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-plugin-manager",
   "description": "Current-profile plugin and bundle management shared by dsh CLI, Web and agent tools",
-  "version": "0.2.1-rc.2.vh.1.local.20261019.3",
+  "version": "0.2.1-rc.2.vh.1.local.20261019.4",
   "publishConfig": {
     "access": "public"
   },
