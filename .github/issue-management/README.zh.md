@@ -10,6 +10,8 @@ description: "面向仓库维护者的 Issue 策略强制范围、Project 访问
 
 贡献者可以引用 Issue 作为背景，而无需让 PR（Pull Request）校验依赖 Project 可用性。解决型引用还会强制检查 Project Priority。必需的 `Issue policy` job 与独立的生命周期工作流使用受信任的默认分支代码。
 
+Issue policy 与 Issue lifecycle job 仅在 `github.repository` 和 `github.event.repository.full_name` 均等于配置的运营仓库 `deepseek-harness/deepseek-harness` 时运行。fork 与公开源码仓库不会自动启用 App 和 Project 集成。
+
 ## 目录
 
 - [PR 策略](#pull-request-policy)

@@ -4,6 +4,8 @@
 
 The [`weighted-approval` workflow](../workflows/weighted-approval.yml) publishes an approval score for branch rules. Reviewers are chosen manually; an eligible delegation command requests review from its recipient.
 
+The publisher and review-event jobs run only when both `github.repository` and `github.event.repository.full_name` equal the configured operational repository, `deepseek-harness/deepseek-harness`. Forks and public source repositories do not automatically opt into approval scoring.
+
 ## Table of Contents
 
 - [Approval scoring](#approval-scoring)
