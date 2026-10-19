@@ -409,6 +409,8 @@ export interface InvocationDescriptor {
       readonly context: string
       readonly wire: string
       readonly codec: TypertCodec
+      /** Generated closed-object identity codec preferred by Host admission. */
+      readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
     }
   /** Optional consuming-Context projection for one direct lookup parameter. */
   readonly scope?: {
@@ -428,6 +430,8 @@ export interface InvocationDescriptor {
   readonly uplink?: {
     /** Codec validating every uplink item before `uplink()` delivers it. */
     readonly codec: TypertCodec
+    /** Generated closed-object codec preferred before Host uplink delivery. */
+    readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   }
   /** Transport cancellation injected after business parameters instead of entering wire args. */
   readonly cancellation?: {

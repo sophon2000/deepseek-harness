@@ -761,7 +761,10 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
   if (mode !== undefined && mode !== 'stream') {
     throw new Error(`typert: invocation "${descriptor.id}" mode must be "stream"`)
   }
-  if (descriptor.uplink !== undefined) validateCodec(descriptor.uplink.codec, `${descriptor.id} uplink`)
+  if (descriptor.uplink !== undefined) {
+    validateCodec(descriptor.uplink.codec, `${descriptor.id} uplink`)
+    validateStrictCounterpart(descriptor.uplink.codec, descriptor.uplink.strictCodec, `${descriptor.id} uplink`)
+  }
   if (descriptor.scope !== undefined) {
     if (descriptor.invocation.kind !== 'direct') {
       throw new Error(`typert: invocation "${descriptor.id}" Context receiver cannot declare a direct scope projection`)
@@ -784,6 +787,15 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
       throw new Error(`typert: invocation "${descriptor.id}" repeats wire field "${descriptor.invocation.wire}"`)
     }
     validateCodec(descriptor.invocation.codec, `${descriptor.id} Context`)
+    validateStrictCounterpart(descriptor.invocation.codec, descriptor.invocation.strictCodec, `${descriptor.id} Context`)
+  }
+}
+
+function validateStrictCounterpart(codec: InvocationDescriptor['result'], strictCodec: InvocationDescriptor['result'] | undefined, subject: string): void {
+  if (strictCodec === undefined) return
+  validateCodec(strictCodec, `${subject} strict codec`)
+  if (strictCodec.mode !== 'strict' || codec.mode !== 'strict' || strictCodec.typeSymbol !== codec.typeSymbol) {
+    throw new Error(`typert: ${subject} strict codec must match its ordinary codec type`)
   }
 }
 

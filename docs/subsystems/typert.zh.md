@@ -38,7 +38,7 @@ interface TypertLookupDefinition {
 
 ## 调用 descriptor
 
-生成的 LIB Host 分发优先使用参数的 `strictCodec` 处理 JSON 实参与 lookup 键，拒绝未声明的请求字段。普通 codec 与结果 codec 保留各自行为。没有严格请求 codec 的 SRC 与手工注册 descriptor 继续使用 `codec`；元数据解析器采用普通策略并不表示 Host 请求校验已被绕过。
+生成的 LIB Host 分发优先使用 `strictCodec` 处理 JSON 实参、lookup 键、作用域 Context 标识及每条 Client 到 Host 的 uplink 消息，在 lookup、Context 解析或 uplink 交付前拒绝未声明字段。普通 codec 与结果 codec 保留各自行为。没有严格请求 codec 的 SRC 与手工注册 descriptor 继续使用 `codec`；元数据解析器采用普通策略并不表示 Host 请求校验已被绕过。
 
 `InvocationDescriptor` 是本地反射信息，不是 wire message。Host 与消费方构建会生成彼此对应的 descriptor；请求只发送 endpoint 与具名 `args`。strict codec 携带生成的 schema factory，SRC codec 则在不恢复结构类型的前提下强制要求输入为 JSON 安全值。一元结果 codec 可提供 `encode()` 处理含字节的子树，并通过 `decode()` 递归校验原生字节；Client 声明将每个 `Uint8Array` 限定为以 `ArrayBuffer` 为底层缓冲区。纯 JSON 结果无需字节识别或 Client 解码。取消通过带外 carrier signal 表达：它在业务参数之后注入，绝不进入 `args`。
 
@@ -118,6 +118,8 @@ interface InvocationDescriptor {
       readonly context: string
       readonly wire: string
       readonly codec: TypertCodec
+      /** Generated closed-object identity codec preferred by Host admission. */
+      readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
     }
   /** Optional consuming-Context projection for one direct lookup parameter. */
   readonly scope?: {
@@ -137,6 +139,8 @@ interface InvocationDescriptor {
   readonly uplink?: {
     /** Codec validating every uplink item before `uplink()` delivers it. */
     readonly codec: TypertCodec
+    /** Generated closed-object codec preferred before Host uplink delivery. */
+    readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   }
   /** Transport cancellation injected after business parameters instead of entering wire args. */
   readonly cancellation?: {

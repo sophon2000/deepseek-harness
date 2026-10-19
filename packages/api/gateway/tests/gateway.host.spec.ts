@@ -47,6 +47,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 
   interface TypertContextMap {
     gatewayFixture: TypertContext<string>
+    gatewayStructuredContext: TypertContext<{ readonly id: string; readonly metadata: { readonly known: string } }>
   }
 
   interface RemoteErrorDetailsMap {
@@ -88,6 +89,12 @@ class GoalService extends Service {
   rename(request: { readonly title: string }): unknown {
     this.calls.push('rename')
     return { title: request.title, scope: (this.ctx as MarkedContext).fixtureScope ?? 'root' }
+  }
+
+  @RemoteScope('gatewayStructuredContext')
+  renameStructured(request: { readonly title: string }): unknown {
+    this.calls.push('renameStructured')
+    return { title: request.title, scope: 'structured' }
   }
 
   @Remote
@@ -612,6 +619,33 @@ describe('TypertGatewayService', () => {
       args: { agentId: 'agent-1', request: { title: 'land' } },
     }), 'gateway/context-failed')
     expect(error.cause).toEqual(new Error('provider failed'))
+  })
+
+  it('rejects structured context unknown fields before resolving the receiver', async () => {
+    const { ctx } = await setup()
+    let resolves = 0
+    ctx.typert.contexts.registerHost('gatewayStructuredContext', {
+      wire: 'agentId', wireTypeSymbol: '@fixture/domain#StructuredContext',
+      resolve: () => { resolves++; return ctx.extend() },
+    })
+    const ordinary = strictCodec('@fixture/domain#StructuredContext', z.object({ id: z.string(), metadata: z.object({ known: z.string() }) }))
+    const closed = strictCodec('@fixture/domain#StructuredContext', z.strictObject({ id: z.string(), metadata: z.strictObject({ known: z.string() }) }))
+    registerStrict(ctx, [{ ...renameDescriptor(), id: '@fixture/gateway#goals/renameStructured', method: 'renameStructured',
+      invocation: { kind: 'context', context: 'gatewayStructuredContext', wire: 'agentId', codec: ordinary, strictCodec: closed },
+    }])
+    const valid = { id: 'agent-1', metadata: { known: 'x' } }
+    for (const identity of [{ ...valid, tenantId: 'forged' }, { ...valid, metadata: { known: 'x', tenantId: 'forged' } }]) {
+      await expectCode(ctx.typertGateway.invoke({ peer: ownerPeer(ctx), namespace: 'goals', method: 'renameStructured',
+        args: { agentId: identity, request: { title: 'safe' } },
+      }), 'gateway/input-invalid')
+    }
+    expect(resolves).toBe(0)
+    expect(rawGoalService(ctx).calls).toEqual([])
+    await expect(ctx.typertGateway.invoke({ peer: ownerPeer(ctx), namespace: 'goals', method: 'renameStructured',
+      args: { agentId: valid, request: { title: 'safe' } },
+    })).resolves.toEqual({ title: 'safe', scope: 'structured' })
+    expect(resolves).toBe(1)
+    expect(rawGoalService(ctx).calls).toEqual(['renameStructured'])
   })
 
   it('preserves a Host Context policy rejection for the active RPC adapter', async () => {
@@ -1613,7 +1647,7 @@ function contextProvider(context: Context) {
   }
 }
 
-function strictCodec(typeSymbol: string, schema: z.ZodType): InvocationDescriptor['result'] {
+function strictCodec(typeSymbol: string, schema: z.ZodType): Extract<InvocationDescriptor['result'], { readonly mode: 'strict' }> {
   return { mode: 'strict', typeSymbol, create: () => schema }
 }
 

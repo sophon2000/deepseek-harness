@@ -19,6 +19,8 @@ interface RuntimeValue {
 
 interface RuntimeDescriptor {
   readonly id: string
+  readonly invocation?: { readonly codec?: RuntimeValue; readonly strictCodec?: RuntimeValue }
+  readonly uplink?: { readonly codec: RuntimeValue; readonly strictCodec?: RuntimeValue }
   readonly mode?: 'stream'
   readonly description?: string
   readonly parameters: readonly {
@@ -89,6 +91,70 @@ function assertConsumerTypechecks(root: string, dts: string, source: string): vo
 }
 
 describe('Remote method metadata', { timeout: 60_000 }, () => {
+  it.each(['uplink', 'context'] as const)('keeps ordinary and strict %s codecs distinct at every nested boundary', async (boundary) => {
+    const root = fixture()
+    const shape = '{ readonly nested: { readonly id: string }; readonly rows: readonly { readonly value: string }[] }'
+    editFile(root, 'packages/domain/src/types.ts', source => `${source}\nexport type AdmissionShape = ${shape}\n`)
+    editFile(root, 'packages/domain/src/index.ts', source => `import type { AdmissionShape } from './types.ts'\n${source.replace('TypertContext<AgentId>', 'TypertContext<AdmissionShape>').replace('TypertLookup<Agent, AgentId>', 'TypertLookup<Agent, AdmissionShape>')}`)
+    editFile(root, 'packages/remote/src/index.ts', source => `import type { AdmissionShape } from '@fixture/domain/types'\nimport type { RemoteStream } from '@deepseek-ai/dsh-typert-protocol'\n${source.replace('  constructor() {', `  @Remote({ mode: 'stream' })
+  async *duplex(): RemoteStream<CreateGoalResult, AdmissionShape> { yield { ref: 'first' } }
+
+  constructor() {`)}`)
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    const valid = { nested: { id: 'identity' }, rows: [{ value: 'row' }] }
+    for (const source of [artifact!.js, artifact!.remote!.js]) {
+      const generated = await executableRemoteModule<Generated & { TYPERT?: { invocations: RuntimeDescriptor[] } }>(source)
+      const descriptors = generated.TYPERT?.invocations ?? generated.TYPERT_REMOTE.descriptors
+      const descriptor = descriptors.find(item => item.id.endsWith(boundary === 'uplink' ? '/duplex' : '/rename'))!
+      const codecs = boundary === 'uplink' ? descriptor.uplink! : descriptor.invocation!
+      expect(codecs.strictCodec).toBeDefined()
+      expect(codecs.codec!.create().parse(valid)).toEqual(valid)
+      expect(codecs.strictCodec!.create().parse(valid)).toEqual(valid)
+      for (const extra of [
+        { ...valid, authority: 'forged' },
+        { ...valid, nested: { ...valid.nested, projectId: 'forged' } },
+        { ...valid, rows: [{ ...valid.rows[0], path: '/private' }] },
+      ]) {
+        expect(codecs.codec!.create().parse(extra)).toEqual(valid)
+        expect(() => codecs.strictCodec!.create().parse(extra)).toThrow()
+      }
+      expect(() => codecs.codec!.create().parse({ nested: { id: 42 }, rows: [] })).toThrow()
+      expect(() => codecs.strictCodec!.create().parse({ nested: { id: 42 }, rows: [] })).toThrow()
+      // Result projection remains ordinary; tightening ingress must not change it.
+      const result = boundary === 'uplink' ? { ref: 'first' } : { renamed: true }
+      expect(descriptor.result.create().parse({ ...result, privatePath: '/private' })).toEqual(result)
+    }
+  })
+
+  it.each(['uplink', 'context'] as const)('merges indexed intersections before closing the %s codec', async (boundary) => {
+    const root = fixture()
+    const shape = 'Record<string, { base: string }> & { fixed: { own: string } }'
+    editFile(root, 'packages/domain/src/types.ts', source => `${source}\nexport type AdmissionShape = ${shape}\n`)
+    editFile(root, 'packages/domain/src/index.ts', source => `import type { AdmissionShape } from './types.ts'\n${source.replace('TypertContext<AgentId>', 'TypertContext<AdmissionShape>').replace('TypertLookup<Agent, AgentId>', 'TypertLookup<Agent, AdmissionShape>')}`)
+    editFile(root, 'packages/remote/src/index.ts', source => `import type { AdmissionShape } from '@fixture/domain/types'\nimport type { RemoteStream } from '@deepseek-ai/dsh-typert-protocol'\n${source.replace('  constructor() {', `  @Remote({ mode: 'stream' })
+  async *duplex(): RemoteStream<CreateGoalResult, AdmissionShape> { yield { ref: 'first' } }
+
+  constructor() {`)}`)
+    const [artifact] = new WorkspaceTypertGenerator(root).generate()
+    const valid = { fixed: { base: 'base', own: 'own' }, dynamic: { base: 'other' } }
+    for (const source of [artifact!.js, artifact!.remote!.js]) {
+      const generated = await executableRemoteModule<Generated & { TYPERT?: { invocations: RuntimeDescriptor[] } }>(source)
+      const descriptors = generated.TYPERT?.invocations ?? generated.TYPERT_REMOTE.descriptors
+      const descriptor = descriptors.find(item => item.id.endsWith(boundary === 'uplink' ? '/duplex' : '/rename'))!
+      const codecs = boundary === 'uplink' ? descriptor.uplink! : descriptor.invocation!
+      expect(codecs.strictCodec).toBeDefined()
+      for (const codec of [codecs.codec!, codecs.strictCodec!]) {
+        expect(codec.create().parse(valid)).toEqual(valid)
+        expect(() => codec.create().parse({ fixed: { own: 'missing-base' } })).toThrow()
+        expect(() => codec.create().parse({ fixed: { base: 'missing-own' } })).toThrow()
+      }
+      const extra = { ...valid, fixed: { ...valid.fixed, authority: 'forged' } }
+      expect(codecs.codec!.create().parse(extra)).toEqual(valid)
+      expect(() => codecs.strictCodec!.create().parse(extra)).toThrow()
+      expect(() => codecs.strictCodec!.create().parse({ ...valid, dynamic: { base: 'other', authority: 'forged' } })).toThrow()
+    }
+  })
+
   it('keeps selected and full-face artifacts identical when another package augments inputs and results', async () => {
     const root = fixture()
     const extension = join(root, 'packages/extension')

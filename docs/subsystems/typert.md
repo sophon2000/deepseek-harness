@@ -38,7 +38,7 @@ interface TypertLookupDefinition {
 
 ## Invocation descriptors
 
-Generated LIB Host dispatch prefers a parameter's `strictCodec` for JSON arguments and lookup keys, rejecting undeclared request fields. Ordinary and result codecs retain their own behavior. SRC and manually registered descriptors without a strict request codec continue to use `codec`; an ordinary metadata parser is not evidence that Host request validation has been bypassed.
+Generated LIB Host dispatch prefers `strictCodec` for JSON arguments, lookup keys, scoped Context identities, and each client-to-Host uplink item, rejecting undeclared fields before lookup, Context resolution, or uplink delivery. Ordinary and result codecs retain their own behavior. SRC and manually registered descriptors without a strict request codec continue to use `codec`; an ordinary metadata parser is not evidence that Host request validation has been bypassed.
 
 An `InvocationDescriptor` is local reflection, not a wire message. Host and consumer builds generate corresponding descriptors; the request sends only the endpoint and named `args`. Strict codecs carry generated schema factories, while SRC codecs enforce JSON-safe inputs without structural type recovery. Unary result codecs can supply `encode()` for byte-containing subtrees and `decode()` for recursive native-byte validation; Client declarations narrow every `Uint8Array` to `ArrayBuffer` backing. Pure JSON results need neither byte detection nor Client decoding. Cancellation is an out-of-band carrier signal injected after business parameters and never enters `args`.
 
@@ -118,6 +118,8 @@ interface InvocationDescriptor {
       readonly context: string
       readonly wire: string
       readonly codec: TypertCodec
+      /** Generated closed-object identity codec preferred by Host admission. */
+      readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
     }
   /** Optional consuming-Context projection for one direct lookup parameter. */
   readonly scope?: {
@@ -137,6 +139,8 @@ interface InvocationDescriptor {
   readonly uplink?: {
     /** Codec validating every uplink item before `uplink()` delivers it. */
     readonly codec: TypertCodec
+    /** Generated closed-object codec preferred before Host uplink delivery. */
+    readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   }
   /** Transport cancellation injected after business parameters instead of entering wire args. */
   readonly cancellation?: {

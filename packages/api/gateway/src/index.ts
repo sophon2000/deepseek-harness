@@ -828,7 +828,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
       {
         source: request.uplink ?? EMPTY_ASYNC_ITERABLE,
         window: request.uplinkWindow,
-        codec: descriptor.uplink?.codec ?? SRC_JSON_CODEC,
+        codec: descriptor.uplink?.strictCodec ?? descriptor.uplink?.codec ?? SRC_JSON_CODEC,
         endpoint,
         abort: (reason) => { control.abort(reason) },
       },
@@ -1018,7 +1018,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
         { field: invocation.wire },
       )
     }
-    const identity = decode(invocation.codec, args[invocation.wire], endpoint, invocation.wire)
+    const identity = decode(invocation.strictCodec ?? invocation.codec, args[invocation.wire], endpoint, invocation.wire)
     let context: Context | undefined
     try {
       context = await provider.resolve(identity)

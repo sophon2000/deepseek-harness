@@ -55,6 +55,13 @@ type AgentWireId = TypertContextWire<TypertContextMap['agent']>
 const agentId = (value: string): AgentWireId => value as AgentWireId
 
 class FeedService extends TypertRemoteService {
+  @Remote({ mode: 'stream' })
+  async *closedInput(): AsyncIterable<string> {
+    for await (const item of this.invocation().uplink<unknown>()) {
+      this.peeked.push(item)
+      yield JSON.stringify(item)
+    }
+  }
   readonly signals: AbortSignal[] = []
   readonly peeked: unknown[] = []
   readonly peers: PeerScope[] = []
@@ -860,6 +867,35 @@ describe('Typert Remote streams', () => {
     expect(socket.readyState).toBe(WebSocket.OPEN)
     socket.close()
     await once(socket, 'close')
+  })
+
+  it('rejects raw duplex unknown fields before delivery while accepting declared indexed keys', async () => {
+    const { ctx, service } = await setup(true)
+    const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+      headers: { cookie: browserCookie(ctx) },
+    })
+    await once(socket, 'open')
+    const frames: Record<string, unknown>[] = []
+    socket.on('message', (data) => { frames.push(JSON.parse(rawText(data)) as Record<string, unknown>) })
+    try {
+      const valid = { messageJson: '{}', metadata: { known: 'x' }, indexed: { fixed: 'base', dynamic: 3 } }
+      for (const [id, value] of [
+        ['unknown-top', { ...valid, actor: 'human' }],
+        ['unknown-nested', { ...valid, metadata: { known: 'x', tenantId: 'forged' } }],
+      ] as const) {
+        sendOpen(socket, id, 'feed/closedInput', {})
+        socket.send(JSON.stringify({ type: 'item', streamId: id, value }))
+        await vi.waitFor(() => {
+          expect(frames.find(frame => frame.streamId === id)).toMatchObject({ type: 'error', error: { code: 'gateway/input-invalid' } })
+        })
+      }
+      expect(service.peeked).toEqual([])
+      sendOpen(socket, 'valid-indexed', 'feed/closedInput', {})
+      socket.send(JSON.stringify({ type: 'item', streamId: 'valid-indexed', value: valid }))
+      socket.send(JSON.stringify({ type: 'end', streamId: 'valid-indexed' }))
+      await vi.waitFor(() => { expect(frames).toContainEqual({ type: 'end', streamId: 'valid-indexed' }) })
+      expect(service.peeked).toEqual([valid])
+    } finally { socket.close(); await once(socket, 'close') }
   })
 
   it('fails a stream whose buffered uplink exceeds the configured inbox bytes', async () => {
@@ -1684,6 +1720,18 @@ function descriptors(): InvocationDescriptor[] {
     ...(cancellable ? { cancellation: { parameter: 'signal' } } : {}),
   })
   return [
+    { ...stream('closedInput', [], z.string()), uplink: {
+      codec: { mode: 'strict', typeSymbol: '@fixture/feed#ClosedInput', create: () => z.object({
+        messageJson: z.string(),
+        metadata: z.object({ known: z.string() }),
+        indexed: z.object({ fixed: z.string() }).catchall(z.union([z.string(), z.number()])),
+      }) },
+      strictCodec: { mode: 'strict', typeSymbol: '@fixture/feed#ClosedInput', create: () => z.strictObject({
+        messageJson: z.string(),
+        metadata: z.strictObject({ known: z.string() }),
+        indexed: z.object({ fixed: z.string() }).catchall(z.union([z.string(), z.number()])),
+      }) },
+    } },
     withUplink('echo', [prefix]),
     withUplink('swallow', []),
     withUplink('ignore', [prefix], false),
