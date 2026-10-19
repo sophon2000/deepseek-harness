@@ -388,6 +388,8 @@ interface TypertRemoteNamespaceMap {}
 
 ## Host Gateway
 
+The public `TypertGateway.requiresTypedDefinitions` property reports the active business-admission policy. Typed admission captures `ctx.typert.local.registrationToken(endpoint)` before asynchronous resolution and checks that registration lifetime again before invocation; re-registering a cached descriptor cannot revive a request prepared under a withdrawn registration. See the [Gateway contract](../../packages/api/gateway/README.md) and [Registry registration lifetime](../../packages/typert/registry/README.md).
+
 Connection decodes its carrier envelope before calling `ctx.typertGateway`. The request carries exact named wire fields, the carrier's cancellation signal, and the Peer the call speaks for separately; every carrier and in-process caller names that Peer, and the Gateway refuses a disposed one with `gateway/peer-disposed`. For a non-owner call the Gateway resolves its resources and asks `ctx.remoteAccess.decide()` after argument validation and before any lookup or Context resolution; infrastructure and boundary failures ride `TypertGatewayError`, whose `gateway/*` codes are ordinary `RemoteError` codes, so the RPC adapter passes every structurally identified `RemoteError` through with its code and details intact and folds only unrecognized exceptions into `gateway/internal`.
 
 ```ts type-equiv
@@ -442,6 +444,8 @@ type TypertGatewayErrorCode =
 ```ts type-equiv
 /** Host dispatcher consumed by Connection adapters. */
 interface TypertGateway {
+  /** Whether this Gateway requires current typed definitions for business admission and dispatch. */
+  readonly requiresTypedDefinitions: boolean
   /** Carrier adapter shared by WebSocket and in-process transports. */
   readonly wireStream: TypertGatewayWireStream
   /**

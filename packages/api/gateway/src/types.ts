@@ -146,6 +146,8 @@ export type TypertGatewayErrorCode =
 
 /** Host dispatcher consumed by Connection adapters. */
 export interface TypertGateway {
+  /** Whether this Gateway requires current typed definitions for business admission and dispatch. */
+  readonly requiresTypedDefinitions: boolean
   /** Carrier adapter shared by WebSocket and in-process transports. */
   readonly wireStream: TypertGatewayWireStream
 

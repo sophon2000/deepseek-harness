@@ -745,6 +745,13 @@ export interface TypertLocalRegistry {
    */
   get(endpoint: string): InvocationDescriptor | undefined
   /**
+   * Read the identity of this endpoint's current registration lifetime.
+   * @param endpoint - canonical endpoint.
+   * @returns an opaque token stable until withdrawal, or `undefined` when absent;
+   * re-registration creates a new token even for the same descriptor object.
+   */
+  registrationToken(endpoint: string): object | undefined
+  /**
    * Report whether a strict definition has existed during this Typert Service lifetime.
    * @param endpoint - canonical endpoint.
    * @returns `true` after the endpoint has been registered at least once, even if withdrawn.

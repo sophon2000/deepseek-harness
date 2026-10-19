@@ -388,6 +388,8 @@ interface TypertRemoteNamespaceMap {}
 
 ## Host Gateway
 
+公开属性 `TypertGateway.requiresTypedDefinitions` 表示当前业务准入策略。类型化准入在异步解析前捕获 `ctx.typert.local.registrationToken(endpoint)`，并在调用前复查其注册生命周期；重新注册缓存描述符不能恢复在已撤回注册下准备的请求。参见 [Gateway 约定](../../packages/api/gateway/README.zh.md)与[Registry 注册生命周期](../../packages/typert/registry/README.zh.md)。
+
 Connection 会先解码 carrier envelope，再调用 `ctx.typertGateway`。请求将精确的具名 wire 字段、carrier 的取消 signal 与本次调用代表的 Peer 分开携带；每个载体与进程内调用方都显式给出该 Peer，Gateway 以 `gateway/peer-disposed` 拒绝已 dispose 的 Peer。对非 owner 调用，Gateway 在参数校验之后、任何 lookup 或 Context 解析之前解析其资源并询问 `ctx.remoteAccess.decide()`；基础设施与边界失败由 `TypertGatewayError` 承载，其 `gateway/*` 码就是普通的 `RemoteError` 码，因此 RPC 适配器会把每个经结构识别的 `RemoteError` 连同其 code 与 details 原样放行，只把无法识别的异常归并为 `gateway/internal`。
 
 ```ts type-equiv
@@ -442,6 +444,8 @@ type TypertGatewayErrorCode =
 ```ts type-equiv
 /** Host dispatcher consumed by Connection adapters. */
 interface TypertGateway {
+  /** Whether this Gateway requires current typed definitions for business admission and dispatch. */
+  readonly requiresTypedDefinitions: boolean
   /** Carrier adapter shared by WebSocket and in-process transports. */
   readonly wireStream: TypertGatewayWireStream
   /**

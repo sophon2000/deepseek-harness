@@ -43,6 +43,8 @@ Invocation information is available through existing `ctx.typert.local.get/list`
 
 ### Registering a contribution
 
+`ctx.typert.local.registrationToken(endpoint)` returns an opaque object for the current registration, or `undefined` while absent. Its identity stays stable until withdrawal. Registering the same cached descriptor again creates a new token, so consumers can detect a revoked registration across asynchronous work even when descriptor identity is unchanged.
+
 Generated artifacts register through the [loader](../loader/README.md) in Loader compositions; any other owner calls `ctx.typert.register(contribution)` directly and receives the exact disposer that withdraws it. Duplicate package-face identities, schema keys, invocation ids, or endpoints reject the whole batch before anything is committed.
 
 Harness offline integrations register an ordinary `TYPERT_REMOTE` contribution with `ctx.typert.remotes.register(contribution)` in their profile Context. `$mount(contribution)` already performs that registration, so registering and mounting the same contribution in the same registry duplicates it and fails. Keep offline metadata ownership separate from the live connection-and-mount Context. Independent offline consumers may instead read `TYPERT_REMOTE.methods` without any Registry. Registry state belongs to its Context and process, is not shared across processes, and neither registration nor querying opens a connection.

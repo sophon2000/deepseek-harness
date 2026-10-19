@@ -170,6 +170,10 @@ class DescriptorStore {
     return this.entries.get(endpoint)?.descriptor
   }
 
+  registrationToken(endpoint: string): object | undefined {
+    return this.entries.get(endpoint)?.owner
+  }
+
   hasSeen(endpoint: string): boolean {
     return this.history.has(endpoint)
   }
@@ -520,6 +524,7 @@ export class TypertRegistry extends Service implements TypertRegistryContract {
     const ctx = this.ctx
     return {
       get: endpoint => this.localStore.get(endpoint),
+      registrationToken: endpoint => this.localStore.registrationToken(endpoint),
       hasSeen: endpoint => this.localStore.hasSeen(endpoint),
       list: () => this.localStore.list(),
       subscribe: listener => this.localStore.subscribe(ctx, listener),

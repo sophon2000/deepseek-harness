@@ -95,6 +95,7 @@ interface ResolvedBinding {
 interface PreparedInvocation {
   readonly endpoint: string
   readonly descriptor: InvocationDescriptor
+  readonly registrationToken: object | undefined
   /** Service view bound to a Context carrying `invocation`, so the method reads it as `this.ctx.invocation`. */
   readonly receiver: object
   readonly args: readonly unknown[]
@@ -154,6 +155,8 @@ const SRC_JSON_CODEC: TypertCodec = { mode: 'src-json' }
 
 /** Gateway transport configuration. */
 export interface Config {
+  /** Require current registered typed codecs at admission and dispatch; false retains SRC compatibility. @default false */
+  readonly requireTypedDefinitions?: boolean
   /** WebSocket Ping interval from 1 through 2,147,483,647 milliseconds. @default 2000 */
   readonly websocketHeartbeatIntervalMs?: number
   /** Buffered uplink frame bytes one logical stream may hold before it fails with `gateway/uplink-overflow`. @default 262144 */
@@ -161,6 +164,7 @@ export interface Config {
 }
 
 interface ResolvedConfig extends Config {
+  readonly requireTypedDefinitions: boolean
   readonly websocketHeartbeatIntervalMs: number
   readonly streamInboxBytes: number
 }
@@ -209,6 +213,7 @@ export class TypertGatewayError extends RemoteError<TypertGatewayErrorCode> {
 export class TypertGatewayService extends Service implements TypertGateway {
   static inject = ['typert', 'remoteAccess']
   static Config: z<Config> = z.object({
+    requireTypedDefinitions: z.boolean().default(false),
     websocketHeartbeatIntervalMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS)
       .default(DEFAULT_WEBSOCKET_HEARTBEAT_INTERVAL_MS),
     streamInboxBytes: z.number().step(1).min(1).default(DEFAULT_STREAM_INBOX_BYTES),
@@ -222,9 +227,13 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 
   private srcClaims: ReadonlySet<string> | undefined
+  private readonly requireTypedDefinitions: boolean
   private remoteEvents: RegisteredRemoteEventSource | undefined
   private readonly remoteEventClients = new Map<RemoteEventClientId, RemoteEventClient>()
   private readonly pendingRemoteEvents = new Map<RemoteEventId, PendingRemoteEvent>()
+
+  /** Whether this Gateway requires current typed definitions; product startup can reject unsupported or disabled policy. */
+  get requiresTypedDefinitions(): boolean { return this.requireTypedDefinitions }
 
   /**
    * Register the Gateway against the active Typert registry.
@@ -236,6 +245,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'typertGateway')
     const resolved = config as ResolvedConfig
+    this.requireTypedDefinitions = resolved.requireTypedDefinitions
     ctx.on('internal/service', () => {
       this.srcClaims = undefined
     })
@@ -418,6 +428,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
 
     try {
+      if (this.requireTypedDefinitions) this.currentTypedDefinition(prepared.endpoint, prepared)
       return await Reflect.apply(prepared.method, prepared.receiver, prepared.args) as unknown
     } catch (error) {
       if (prepared.invocation.signal.aborted) throw remoteCancelled(prepared.endpoint, error)
@@ -453,6 +464,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     }
     let source: unknown
     try {
+      if (this.requireTypedDefinitions) this.currentTypedDefinition(prepared.endpoint, prepared)
       source = Reflect.apply(prepared.method, prepared.receiver, prepared.args) as unknown
     } catch (error) {
       await prepared.invocation.close()
@@ -780,6 +792,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     const endpoint = endpointOf(request.namespace, request.method)
     assertPeerLive(request.peer, endpoint)
     const descriptor = this.resolveDescriptor(request.namespace, request.method, endpoint)
+    const registrationToken = this.requireTypedDefinitions ? this.ctx.typert.local.registrationToken(endpoint) : undefined
     assertExactArguments(request.args, descriptor, endpoint)
     const validated = validateArguments(descriptor, request.args, endpoint)
     // Access precedes lookup resolution, so a refused call activates nothing.
@@ -851,6 +864,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     return {
       endpoint,
       descriptor,
+      registrationToken,
       receiver: callReceiver,
       args,
       method: method as (...args: never[]) => unknown,
@@ -859,6 +873,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   }
 
   private resolveDescriptor(namespace: string, method: string, endpoint: string): InvocationDescriptor {
+    if (this.requireTypedDefinitions) return this.currentTypedDefinition(endpoint)
     const strict = this.ctx.typert.local.get(endpoint)
     if (strict !== undefined) return strict
     if (this.ctx.typert.local.hasSeen(endpoint)) {
@@ -869,6 +884,22 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     }
     return this.resolveSrcDescriptor(namespace, method, endpoint)
+  }
+
+  /** Resolve a live typed definition, or require its registration lifetime captured before asynchronous lookups. */
+  private currentTypedDefinition(endpoint: string, expected?: PreparedInvocation): InvocationDescriptor {
+    const descriptor = this.ctx.typert.local.get(endpoint)
+    const token = this.ctx.typert.local.registrationToken(endpoint)
+    if (descriptor === undefined || token === undefined
+      || (expected !== undefined && (descriptor !== expected.descriptor || token !== expected.registrationToken))
+      || descriptor.result.mode !== 'strict'
+      || descriptor.parameters.some(parameter => parameter.codec.mode !== 'strict')
+      || (descriptor.invocation.kind === 'context' && descriptor.invocation.codec.mode !== 'strict')
+      || (descriptor.uplink !== undefined && descriptor.uplink.codec.mode !== 'strict')) {
+      throw new TypertGatewayError('gateway/definition-unavailable', endpoint,
+        'a current typed definition is required; missing, source-only or replaced definitions cannot dispatch')
+    }
+    return descriptor
   }
 
   private resolveSrcDescriptor(namespace: string, method: string, endpoint: string): InvocationDescriptor {
