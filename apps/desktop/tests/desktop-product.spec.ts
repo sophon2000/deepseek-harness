@@ -15,6 +15,29 @@ const payload = {
 } as const
 
 describe('Desktop product descriptor', () => {
+  it('retains resource preflight and required Host services without a background service', () => {
+    const { service, ...base } = payload
+    const preflight = { ...service, entrypoint: 'control/resources.mjs' }
+    const expected = { preflight, requiredServices: ['projectBff'] }
+    expect(parseDesktopProductPayload({ ...base, schemaVersion: 2, ...expected })).toMatchObject(expected)
+    expect(() => parseDesktopProductPayload({ ...base, ...expected })).toThrow('schema version 2')
+    expect(parseDesktopRuntimeProduct({
+      id: base.id, profileBundles: base.profileBundles,
+      resourcesRoot: 'products/video-harness/resources', ...expected,
+    })).toMatchObject(expected)
+  })
+
+  it('rejects ambiguous preparation and malformed required services', () => {
+    expect(() => parseDesktopProductPayload({ ...payload, preflight: payload.service })).toThrow('both')
+    for (const requiredServices of [['projectBff', 'projectBff'], [''], [null], 'projectBff']) {
+      expect(() => parseDesktopProductPayload({ ...payload, requiredServices })).toThrow('required services')
+    }
+    const { service, ...base } = payload
+    expect(() => parseDesktopProductPayload({
+      ...base, preflight: { ...service, entrypoint: '../resources.mjs' },
+    })).toThrow('invalid preflight entrypoint')
+  })
+
   it.each([1, 90_000, 120_000])('retains a declared service readiness budget in both descriptors: %s', (readyTimeoutMs) => {
     const service = { ...payload.service, readyTimeoutMs }
     expect(parseDesktopProductPayload({ ...payload, service }).service).toEqual(service)

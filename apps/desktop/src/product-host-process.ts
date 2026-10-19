@@ -44,10 +44,12 @@ export class DesktopProductHostProcess {
     if (this.stopped) throw new Error('desktop product backend is stopped')
     try {
       let hostEnvironment = this.environment
-      if (this.product?.service !== undefined) {
+      const mode = this.product?.preflight === undefined ? 'service' : 'preflight'
+      const preparation = this.product?.[mode]
+      if (preparation !== undefined && this.product !== undefined) {
         const productProcess = new DesktopProductProcess(
           this.node, this.productRuntimeDir, this.product, join(this.productsDataRoot, this.product.id),
-          this.environment, this.onFailure, this.product.service.readyTimeoutMs,
+          this.environment, this.onFailure, preparation.readyTimeoutMs, mode,
         )
         this.productProcess = productProcess
         const ready = await productProcess.start()
@@ -59,6 +61,7 @@ export class DesktopProductHostProcess {
       const host = new DesktopHostProcess(
         this.node, this.runtimeDir, this.projectDir, this.inspectPort, hostEnvironment, this.onFailure,
         this.primaryRuntime, this.packageManager, this.onPlatformSession,
+        this.product?.requiredServices,
       )
       this.hostProcess = host
       return await host.start()

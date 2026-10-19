@@ -5,13 +5,17 @@ import { isAbsolute, join } from 'node:path'
 
 /** Build-time descriptor supplied by a product payload directory. */
 export interface DesktopProductPayload {
-  readonly schemaVersion: 1
+  readonly schemaVersion: 1 | 2
   readonly id: string
   readonly packagesDirectory: string
   readonly resourcesDirectory: string
   readonly packageRoots: readonly string[]
   readonly profileBundles: readonly string[]
   readonly service?: DesktopProductService
+  /** Resource qualification must exit successfully before the Host starts; excludes service. */
+  readonly preflight?: DesktopProductService
+  /** Services that must be available before the Host reports ready; omission requires none. */
+  readonly requiredServices?: readonly string[]
 }
 
 /** One signed product-owned background service launched before the DSH Host. */
@@ -28,6 +32,8 @@ export interface DesktopRuntimeProduct {
   readonly profileBundles: readonly string[]
   readonly resourcesRoot: string
   readonly service?: DesktopProductService
+  readonly preflight?: DesktopProductService
+  readonly requiredServices?: readonly string[]
 }
 
 const PRODUCT_ID = /^[a-z0-9][a-z0-9._-]*$/u
@@ -81,9 +87,29 @@ function productService(value: unknown, label: string): DesktopProductService | 
   }
 }
 
+function preparation(value: Record<string, unknown>) {
+  if (value.service !== undefined && value.preflight !== undefined) {
+    throw new Error('desktop product: cannot declare both service and preflight')
+  }
+  const service = productService(value.service, 'service')
+  const preflight = productService(value.preflight, 'preflight')
+  const required = value.requiredServices
+  if (required !== undefined && (!Array.isArray(required) || required.length > 64
+    || !required.every(key => typeof key === 'string' && /^[A-Za-z][A-Za-z0-9._-]*$/u.test(key))
+    || new Set(required).size !== required.length)) {
+    throw new Error('desktop product: invalid required services')
+  }
+  return {
+    ...(service === undefined ? {} : { service }),
+    ...(preflight === undefined ? {} : { preflight }),
+    ...(required === undefined ? {} : { requiredServices: required.map((key: string) => key) }),
+  }
+}
+
 /** Validate a product payload descriptor without resolving any untrusted paths. */
 export function parseDesktopProductPayload(value: unknown): DesktopProductPayload {
-  if (!record(value) || value.schemaVersion !== 1 || typeof value.id !== 'string' || !PRODUCT_ID.test(value.id)) {
+  if (!record(value) || (value.schemaVersion !== 1 && value.schemaVersion !== 2)
+    || typeof value.id !== 'string' || !PRODUCT_ID.test(value.id)) {
     throw new Error('desktop product: invalid descriptor')
   }
   const packageRoots = packageNames(value.packageRoots, 'package roots')
@@ -91,15 +117,18 @@ export function parseDesktopProductPayload(value: unknown): DesktopProductPayloa
   if (!profileBundles.every(name => packageRoots.includes(name))) {
     throw new Error('desktop product: every profile bundle must be a package root')
   }
-  const service = productService(value.service, 'service')
+  const prepared = preparation(value)
+  if (value.schemaVersion === 1 && (prepared.preflight !== undefined || prepared.requiredServices !== undefined)) {
+    throw new Error('desktop product: preflight and required services require schema version 2')
+  }
   return {
-    schemaVersion: 1,
+    schemaVersion: value.schemaVersion,
     id: value.id,
     packagesDirectory: portablePath(value.packagesDirectory, 'packages directory'),
     resourcesDirectory: portablePath(value.resourcesDirectory, 'resources directory'),
     packageRoots,
     profileBundles,
-    ...(service === undefined ? {} : { service }),
+    ...prepared,
   }
 }
 
@@ -120,11 +149,11 @@ export function parseDesktopRuntimeProduct(value: unknown): DesktopRuntimeProduc
     throw new Error('desktop runtime: invalid product descriptor')
   }
   const profileBundles = packageNames(value.profileBundles, 'runtime profile bundles')
-  const service = productService(value.service, 'runtime service')
+  const prepared = preparation(value)
   return {
     id: value.id,
     profileBundles,
     resourcesRoot: portablePath(value.resourcesRoot, 'runtime resources root'),
-    ...(service === undefined ? {} : { service }),
+    ...prepared,
   }
 }

@@ -165,6 +165,7 @@ export class DesktopHostProcess {
    *   `office-skills` resources fail Host startup.
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
+   * @param requiredServices - Product services required before readiness; omission requires none.
    */
   constructor(
     private readonly node: string,
@@ -177,6 +178,7 @@ export class DesktopHostProcess {
     private readonly packageManager?: { readonly pnpm: string; readonly nodeBin: string },
 
     private readonly onPlatformSession?: (session: PlatformSession | null) => void,
+    private readonly requiredServices: readonly string[] = [],
   ) {}
 
   /**
@@ -193,7 +195,8 @@ export class DesktopHostProcess {
       this.runtimeDir,
       this.projectDir,
       this.primaryRuntime ?? join(this.runtimeDir, '..', 'runtime', 'primary-runtime'),
-      ...this.packageManager === undefined ? [] : [this.packageManager.pnpm, this.packageManager.nodeBin],
+      ...this.packageManager === undefined ? ['', ''] : [this.packageManager.pnpm, this.packageManager.nodeBin],
+      JSON.stringify(this.requiredServices),
     ], {
       cwd: this.projectDir,
       env: desktopNodeEnvironment(this.node, undefined, this.environment),

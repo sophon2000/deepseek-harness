@@ -34,10 +34,9 @@ export function verifyPackagedDesktopRuntime(context) {
   const resources = product === undefined
     ? undefined
     : portablePath(runtime, product.resourcesRoot, 'product resources root')
-  const service = resources !== undefined && record(product?.service)
-    ? portablePath(resources, product.service.entrypoint, 'product service entrypoint')
-    : undefined
-  for (const path of [...hostEntries, service]) {
+  const preparations = ['service', 'preflight'].map(key => resources !== undefined && record(product?.[key])
+    ? portablePath(resources, product[key].entrypoint, `product ${key} entrypoint`) : undefined)
+  for (const path of [...hostEntries, ...preparations]) {
     if (path !== undefined && !existsSync(path)) throw new Error(`desktop package: missing child-process entrypoint ${path}`)
   }
 }

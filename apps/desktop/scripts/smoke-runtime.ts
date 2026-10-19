@@ -35,10 +35,12 @@ export async function smokeDesktopRuntime(
     npm_config_userconfig: join(home, 'npmrc'), npm_config_globalconfig: join(home, 'npmrc'),
     npm_config_store_dir: join(home, 'store'), npm_config_enable_global_virtual_store: 'false',
   }
-  const product = runtime.product?.service === undefined
+  const preparationMode = runtime.product?.preflight === undefined ? 'service' : 'preflight'
+  const preparation = runtime.product?.[preparationMode]
+  const product = preparation === undefined || runtime.product === undefined
     ? undefined
     : new DesktopProductProcess(node, root, runtime.product, join(home, 'product'), hostEnvironment,
-      undefined, runtime.product.service.readyTimeoutMs)
+      undefined, preparation.readyTimeoutMs, preparationMode)
   let host: DesktopHostProcess | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -46,7 +48,8 @@ export async function smokeDesktopRuntime(
     const productEnvironment = product === undefined ? {} : (await product.start()).environment
     host = new DesktopHostProcess(node, root, profile, undefined, { ...hostEnvironment, ...productEnvironment },
       undefined, join(resourcesRuntime, 'primary-runtime'),
-      { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
+      { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') },
+      undefined, runtime.product?.requiredServices)
     createPluginProfile(profile, runtime.product?.profileBundles)
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(home, pluginName)

@@ -13,10 +13,12 @@ import * as desktopOffice from './office.ts'
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
+import { assertDesktopRequiredServices, parseDesktopRequiredServices } from './required-services.ts'
 
 async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
   const projectDir = process.argv[3] as string
+  const requiredServices = parseDesktopRequiredServices(process.argv[7])
   const installAnchor = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor)
   reportSkippedBundles('dsh', profile)
@@ -26,7 +28,7 @@ async function main(): Promise<void> {
     resolvedProfile: { profile, installAnchor },
     patchFiles: [],
     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
-    ...(process.argv[5] === undefined ? {} : {
+    ...(process.argv[5] === undefined || process.argv[5] === '' ? {} : {
       packageManager: {
         command: process.execPath,
         args: ['--expose-internals', process.argv[5]],
@@ -87,7 +89,14 @@ async function main(): Promise<void> {
     })().catch((error: unknown) => { console.error(error) })
   })
   process.once('disconnect', () => { void stop() })
-  const { ctx } = await application
+  const running = await application
+  const { ctx } = running
+  try {
+    assertDesktopRequiredServices(ctx, requiredServices)
+  } catch (error) {
+    await running.shutdown.shutdown(1)
+    throw error
+  }
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
   await ctx.plugin(desktopOffice, {

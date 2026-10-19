@@ -66,6 +66,8 @@ function prepareProductResources(): DesktopRuntimeProduct | undefined {
     profileBundles: product.profileBundles,
     resourcesRoot: relativeResourcesRoot,
     ...(product.service === undefined ? {} : { service: product.service }),
+    ...(product.preflight === undefined ? {} : { preflight: product.preflight }),
+    ...(product.requiredServices === undefined ? {} : { requiredServices: product.requiredServices }),
   }
 }
 

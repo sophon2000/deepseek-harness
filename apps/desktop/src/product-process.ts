@@ -1,4 +1,4 @@
-/** Generic lifecycle for one signed product-owned background service. */
+/** Lifecycle for a signed product service or an exiting resource preflight. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
@@ -65,6 +65,7 @@ export class DesktopProductProcess {
   private readyTimer: ReturnType<typeof setTimeout> | undefined
   private stopPromise: Promise<void> | undefined
   private uncleanExit: DesktopProductUncleanExitError | undefined
+  private prepared: DesktopProductReady | undefined
 
   constructor(
     private readonly node: string,
@@ -74,18 +75,19 @@ export class DesktopProductProcess {
     private readonly environment: NodeJS.ProcessEnv = process.env,
     private readonly onFailure?: (error: Error) => void,
     private readonly readyTimeoutMs = 30_000,
+    private readonly mode: 'service' | 'preflight' = 'service',
   ) {
-    if (product.service === undefined) throw new Error('desktop product service is not declared')
+    if (product[mode] === undefined) throw new Error(`desktop product ${mode} is not declared`)
     if (!Number.isSafeInteger(readyTimeoutMs) || readyTimeoutMs < 1) {
       throw new Error('desktop product service ready timeout must be a positive integer')
     }
   }
 
-  /** Start once and resolve after the product reports its exact allowlisted Host environment. */
+  /** A service resolves at ready; preflight additionally requires clean process and stdio closure. */
   async start(): Promise<DesktopProductReady> {
     if (this.stopping) throw new Error('desktop product service is stopped')
     if (this.child !== undefined) return this.readyPromise
-    const service = this.product.service
+    const service = this.product[this.mode]
     if (service === undefined) throw new Error('desktop product service is not declared')
     const resourcesRoot = runtimePath(this.runtimeDir, this.product.resourcesRoot)
     const entrypoint = runtimePath(resourcesRoot, service.entrypoint)
@@ -112,8 +114,16 @@ export class DesktopProductProcess {
     child.on('message', (message: unknown) => {
       const environment = readyEnvironment(message, service.exportedEnvironment)
       if (environment !== undefined) {
-        this.clearReadyTimer()
-        this.readyResolve({ environment })
+        if (this.mode === 'preflight' && this.prepared !== undefined) {
+          this.fail(new Error('desktop product sent duplicate readiness'))
+          child.kill('SIGTERM')
+          return
+        }
+        this.prepared = { environment }
+        if (this.mode === 'service') {
+          this.clearReadyTimer()
+          this.readyResolve(this.prepared)
+        }
         return
       }
       if (typeof message === 'object' && message !== null && 'type' in message
@@ -128,6 +138,12 @@ export class DesktopProductProcess {
     child.once('error', (error) => { this.fail(error) })
     this.exitPromise = new Promise<void>((resolve) => {
       child.once('close', (code, signal) => {
+        if (!this.stopping && this.mode === 'preflight' && code === 0 && signal === null && this.prepared !== undefined) {
+          this.clearReadyTimer()
+          this.readyResolve(this.prepared)
+          resolve()
+          return
+        }
         const suffix = this.stderr.trim() === '' ? '' : `: ${this.stderr.trim()}`
         if (!this.stopping) {
           this.fail(new Error(`desktop product service stopped (code=${String(code)}, signal=${String(signal)})${suffix}`))
