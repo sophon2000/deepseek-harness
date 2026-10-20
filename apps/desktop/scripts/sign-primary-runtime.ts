@@ -29,7 +29,7 @@ export async function signWindowsPrimaryRuntime(
 }
 
 /**
- * Seal application dependency hashes only after all Windows code is signed.
+ * Seal application dependency hashes after signing, retaining the verified target and product metadata.
  * @param root Materialized production dependency directory.
  * @param version Expected release version.
  * @param options Supervised signing dependencies and a smoke receiving the signed descriptor.
@@ -39,7 +39,7 @@ export async function signWindowsDesktopRuntime(root: string, version: string,
   options: WindowsCodeSigningOptions & { smoke: (descriptor: DesktopRuntimeDescriptor) => Promise<void> }): Promise<void> {
   const descriptor = await verifyDesktopRuntime(root, version)
   await signWindowsCode(root, options)
-  writeDesktopRuntime(root, descriptor.release, descriptor.sharedPackages.map(entry => entry.name))
+  writeDesktopRuntime(root, descriptor.release, descriptor.sharedPackages.map(entry => entry.name), descriptor, descriptor.product)
   const signed = await verifyDesktopRuntime(root, version)
   await options.smoke(signed)
   await verifyDesktopRuntime(root, version)

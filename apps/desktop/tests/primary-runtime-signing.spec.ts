@@ -5,8 +5,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { signWindowsPrimaryRuntime, signWindowsDesktopRuntime } from '../scripts/sign-primary-runtime.ts'
 import { inspectWindowsRuntimeSignature, preserveWindowsRuntimeSignature, windowsRuntimeCode, verifyWindowsCode, signWindowsCode } from '../scripts/windows-runtime-signature.mjs'
 import { runtimeFixture } from './runtime-fixture.ts'
-import { verifyDesktopRuntime } from '../src/runtime-tree.ts'
+import { verifyDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { createPackagingRun } from '../scripts/packaging-run.mjs'
+import type { DesktopRuntimeProduct } from '../src/desktop-product.ts'
 
 const roots: string[] = []
 const thumbprint = 'A'.repeat(40)
@@ -256,6 +257,35 @@ it('records signed dependency bytes before smoke and rejects changes after smoke
   await expect(signWindowsDesktopRuntime(root, '1.0.0', { ...options,
     smoke: async () => { await writeFile(join(root, 'dependency.node'), 'mutated') },
   })).rejects.toThrow('integrity')
+})
+
+it.each(['preflight', 'service'] as const)('preserves product %s and required services while resealing signed bytes', async (preparation) => {
+  const root = await fixture(['dependency.node'])
+  const product: DesktopRuntimeProduct = {
+    id: 'test-product', profileBundles: ['@test/product'], resourcesRoot: 'product-resources',
+    [preparation]: { entrypoint: 'product-resources/prepare.mjs', exportedEnvironment: ['PRODUCT_RUNTIME'], readyTimeoutMs: 60_000 },
+    requiredServices: ['projectBff'],
+  }
+  const before = runtimeFixture(root, '1.0.0', '24.17.0', product)
+  expect((await verifyDesktopRuntime(root, '1.0.0')).product).toEqual(product)
+  let signed = false
+  const smoke = vi.fn(async (descriptor: DesktopRuntimeDescriptor) => {
+    expect(descriptor.product).toEqual(product)
+    expect((await verifyDesktopRuntime(root, '1.0.0')).product).toEqual(product)
+  })
+  await signWindowsDesktopRuntime(root, '1.0.0', {
+    thumbprint, record: () => {}, inspect: async () => signed ? valid : unsigned,
+    sign: async ({ path }) => {
+      await writeFile(path, Buffer.concat([await readFile(path), Buffer.from('signature')]))
+      signed = true
+    }, smoke,
+  })
+  const after = await verifyDesktopRuntime(root, '1.0.0')
+  expect(smoke).toHaveBeenCalledOnce()
+  expect(after.product).toEqual(product)
+  expect(after.platform).toBe(before.platform)
+  expect(after.arch).toBe(before.arch)
+  expect(after.files).not.toEqual(before.files)
 })
 
 it('bounds public-key inspection to four files and drains a failed batch before returning', async () => {
