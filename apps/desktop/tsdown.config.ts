@@ -66,7 +66,7 @@ export default defineConfig([
           },
         }],
         root: fileURLToPath(new URL('.', import.meta.url)),
-        esbuild: { jsx: 'automatic' },
+        esbuild: { jsx: 'automatic', jsxDev: false },
         define: { 'process.env.NODE_ENV': JSON.stringify('production') },
         build: {
           outDir: 'lib/welcome',

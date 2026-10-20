@@ -70,6 +70,7 @@ const harness = await vi.hoisted(async () => {
   const menu = Object.assign(menuBuilder, { buildFromTemplate: menuBuilder, setApplicationMenu: vi.fn() })
   class FakeWindow extends EventEmitter {
     destroyed = false
+    preventUnload = false
     readonly urls: string[] = []
     readonly webContents = Object.assign(new EventEmitter(), {
       id: 42,
@@ -127,7 +128,13 @@ const harness = await vi.hoisted(async () => {
     close() {
       const event = { preventDefault: vi.fn() }
       this.emit('close', event)
-      if (event.preventDefault.mock.calls.length === 0) this.destroy()
+      if (event.preventDefault.mock.calls.length !== 0) return
+      if (this.preventUnload) {
+        const unload = { preventDefault: vi.fn() }
+        this.webContents.emit('will-prevent-unload', unload)
+        if (unload.preventDefault.mock.calls.length === 0) return
+      }
+      this.destroy()
     }
   }
   class FakeHost {
@@ -453,6 +460,17 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('reports an absent development mandatory policy only to the owned app frame', async () => {
+    harness.app.isPackaged = false
+    await readyForUpdate()
+    const sender = harness.windows[0]!.webContents
+    const status = harness.handlers.get(MANDATORY_IPC.status)
+    expect(status).toBeTypeOf('function')
+    expect(status!({ sender, senderFrame: sender.mainFrame })).toBeUndefined()
+    expect(() => status!({ sender: {}, senderFrame: sender.mainFrame })).toThrow('rejected sender')
+    expect(harness.handlers.has(MANDATORY_IPC.action)).toBe(false)
+  })
+
   it.each([true, false])('selects the package manager before Host startup (packaged=%s)', async (packaged) => {
     harness.app.isPackaged = packaged
     await readyForUpdate()
@@ -1246,17 +1264,17 @@ describe('desktop main startup', () => {
     return host
   }
 
-  it('hides the workspace before intentional Host shutdown can look like reconnection', async () => {
+  it('closes the workspace before intentional Host shutdown can look like reconnection', async () => {
     const host = await readyWorkspace()
     const window = harness.windows[0]!
     window.show.mockClear()
     window.focus.mockClear()
     harness.app.quit()
-    // The quit inspects the Host before hiding; nothing to interrupt means no dialog.
+    // The quit inspects the Host and closes the page before stopping it.
     await vi.advanceTimersByTimeAsync(0)
     expect(host.inspectQuit).toHaveBeenCalledOnce()
     expect(harness.dialog.showMessageBox).not.toHaveBeenCalled()
-    expect(window.hide).toHaveBeenCalledOnce()
+    expect(window.isDestroyed()).toBe(true)
     await host.stopping.promise
     harness.app.emit('second-instance')
     expect(window.show).not.toHaveBeenCalled()
@@ -1396,7 +1414,7 @@ describe('desktop main startup', () => {
     expect(host.inspectQuit).toHaveBeenCalledTimes(2)
     pending.resolve({ response: 0, checkboxChecked: false })
     await vi.advanceTimersByTimeAsync(0)
-    expect(window.hide).toHaveBeenCalledOnce()
+    expect(window.isDestroyed()).toBe(true)
     await host.stopping.promise
     host.exited.resolve()
     await harness.quitCompleted.promise
@@ -1472,6 +1490,61 @@ describe('desktop main startup', () => {
     disposal.resolve()
     await harness.quitCompleted.promise
     expect(harness.app.quit).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the window and Host usable when an unsaved page cancels quitting', async () => {
+    const host = await readyWorkspace()
+    const window = harness.windows[0]!
+    window.preventUnload = true
+    harness.dialog.showMessageBox.mockResolvedValue({ response: 1 })
+    harness.app.quit()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledWith(window, expect.objectContaining({ cancelId: 1, defaultId: 1 }))
+    expect(host.stop).not.toHaveBeenCalled()
+    expect(window.isDestroyed()).toBe(false)
+    expect(window.show).toHaveBeenCalled()
+    window.preventUnload = false
+    harness.app.quit()
+    await host.stopping.promise
+    host.exited.resolve()
+    await harness.quitCompleted.promise
+  })
+
+  it('closes an unsaved page only after explicit discard approval, before stopping the Host', async () => {
+    const host = await readyWorkspace()
+    const window = harness.windows[0]!
+    window.preventUnload = true
+    let approve!: (value: { response: number }) => void
+    harness.dialog.showMessageBox.mockImplementation(() => new Promise((resolve) => { approve = resolve }))
+    harness.app.quit()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(host.stop).not.toHaveBeenCalled()
+    expect(window.isDestroyed()).toBe(false)
+    harness.app.quit()
+    expect(harness.dialog.showMessageBox).toHaveBeenCalledOnce()
+    approve({ response: 0 })
+    await host.stopping.promise
+    expect(window.isDestroyed()).toBe(true)
+    host.exited.resolve()
+    await harness.quitCompleted.promise
+  })
+
+  it('keeps the Host available after the unsaved-page confirmation fails', async () => {
+    const host = await readyWorkspace()
+    const window = harness.windows[0]!
+    window.preventUnload = true
+    const failure = new Error('native confirmation failed')
+    harness.dialog.showMessageBox.mockRejectedValue(failure)
+    harness.app.quit()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(console.error).toHaveBeenCalledWith(failure)
+    expect(host.stop).not.toHaveBeenCalled()
+    expect(window.isDestroyed()).toBe(false)
+    window.preventUnload = false
+    harness.app.quit()
+    await host.stopping.promise
+    host.exited.resolve()
+    await harness.quitCompleted.promise
   })
 
   it('reports a Platform cleanup failure without ending the Host shutdown early', async () => {

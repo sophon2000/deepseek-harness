@@ -70,6 +70,12 @@ describe('desktop development project', () => {
     writeFileSync(join(dependencies, 'plain-dependency', 'package.json'), '{}\n')
     mkdirSync(join(dependencies, '@scope', 'dependency'))
     writeFileSync(join(dependencies, '@scope', 'dependency', 'package.json'), '{}\n')
+    const profilePackage = join(root, 'external-bundle')
+    mkdirSync(profilePackage)
+    writeFileSync(join(profilePackage, 'package.json'), JSON.stringify({
+      name: '@fixture/creative', version: '0.1.0', dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }))
+    writeFileSync(join(profilePackage, 'cordis.patch.yml'), '[]\n')
 
     const project = prepareDevelopmentProject({
       projectDir: join(root, 'development'),
@@ -78,6 +84,7 @@ describe('desktop development project', () => {
       dependencyDir: dependencies,
       release: release(),
       target: 'win-x64',
+      profilePackageDirs: [profilePackage],
     })
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh'))).toBe(realpathSync(cli))
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh-desktop-host'))).toBe(realpathSync(host))
@@ -96,7 +103,12 @@ describe('desktop development project', () => {
       dsh: project,
     })
     await manager.applyRelease()
+    expect(JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')).dsh.profile.bundles)
+      .toContain('@fixture/creative')
+    expect(realpathSync(join(project, 'node_modules/@fixture/creative'))).toBe(realpathSync(profilePackage))
     await manager.disableAllPlugins()
+    expect(JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')).dsh.profile.bundles)
+      .toContain('@fixture/creative')
     expect(readFileSync(join(cli, 'package.json'), 'utf8')).toBe('{"name":"@deepseek-ai/dsh","version":"1.2.3"}\n')
     expect(readFileSync(join(host, 'lib', 'index.js'), 'utf8')).toBe('')
 

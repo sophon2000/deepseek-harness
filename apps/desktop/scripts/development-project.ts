@@ -178,6 +178,12 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
     ...mirrorDependencyLinks(options.dependencyDir, destinationModules),
     ...mirrorWorkspaceDependencies([options.cliDir, options.hostDir], destinationModules),
   ]
+  for (const { packageDir, manifest } of profilePackages) {
+    const packageLink = join(destinationModules, ...manifest.name!.split('/'))
+    removeOwnedPath(packageLink)
+    linkDirectory(packageDir, packageLink)
+    names.push(manifest.name!)
+  }
   const dshLink = join(destinationModules, '@deepseek-ai', 'dsh')
   removeOwnedPath(dshLink)
   linkDirectory(options.cliDir, dshLink)
@@ -188,13 +194,13 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
     const manifest = readManifest(join(destinationModules, name, 'package.json'))
     return typeof manifest.version === 'string' ? [{ name, version: manifest.version, path: `node_modules/${name}` }] : []
   })
+  const profileBundles = profilePackages.filter(({ manifest }) => manifest.dsh?.bundle !== undefined)
+    .map(({ manifest }) => manifest.name!)
+  const resourcesRoot = 'products/desktop-development/resources'
+  if (profileBundles.length > 0) mkdirSync(join(options.projectDir, resourcesRoot), { recursive: true })
   const runtime: DesktopRuntimeDescriptor = { schemaVersion: 1, release: options.release,
-    ...desktopTargetPlatform(options.target), sharedPackages, files: [] }
+    ...desktopTargetPlatform(options.target), sharedPackages, files: [],
+    ...(profileBundles.length === 0 ? {} : { product: { id: 'desktop-development', profileBundles, resourcesRoot } }) }
   writeFileSync(join(options.projectDir, DESKTOP_RUNTIME_FILE), `${JSON.stringify(runtime, undefined, 2)}\n`)
-  for (const { packageDir, manifest } of profilePackages) {
-    const packageLink = join(destinationModules, ...manifest.name!.split('/'))
-    removeOwnedPath(packageLink)
-    linkDirectory(packageDir, packageLink)
-  }
   return options.projectDir
 }
