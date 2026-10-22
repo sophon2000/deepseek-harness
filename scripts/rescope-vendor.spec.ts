@@ -1,10 +1,58 @@
 /** Recorded npm evidence stays intact while authored files and exact edits remain checked. */
 
 import { describe, expect, it } from 'vitest'
-import { exactEditState, isRescopeExcluded } from './rescope-vendor.ts'
+import { createVendorPackageRewriter, exactEditState, isRescopeExcluded } from './rescope-vendor.ts'
 
 const ANCHOR = '\n## Sync procedure'
 const INSERTED = `\n15. **rescope**: one log entry.\n${ANCHOR}`
+
+const identifierFiles = [
+  'apps/cli/tests/optional-bundle-transitions.e2e.ts',
+  'apps/web/tests/agent-preset-selection.e2e.ts',
+  'apps/web/tests/developer-tools-settings.e2e.ts',
+  'docs/subsystems/schedule.md',
+  'docs/subsystems/schedule.zh.md',
+  'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.md',
+  'docs/upgrade-guide/v0.2.0-rc.2/schedule-bundle-retired/guide.zh.md',
+  'docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.md',
+  'docs/upgrade-guide/v0.2.1-alpha.1/subagent-preset-composition/guide.zh.md',
+  'docs/user/guide/schedule.md',
+  'docs/user/guide/schedule.zh.md',
+  'packages/bundle/web-app/cordis.patch.yml',
+  'packages/client/ui-agent-preset/src/client/CreatePluginMenuItem.tsx',
+  'packages/client/ui-agent-preset/tests/components.client.spec.tsx',
+  'packages/client/ui-agent-preset/tests/create-plugin-menu-item.client.spec.tsx',
+  'packages/client/ui-agent-preset/tests/section-store.client.spec.ts',
+  'packages/extensions/cordis-host-runner/tests/inspect-registry.spec.ts',
+  'snapshots/session/cordis-inspect-liveness/client-fixture.mjs',
+  'snapshots/session/cordis-inspect-timeout/client-fixture.mjs',
+]
+
+describe.each([false, true])('package-token rewrite reverse=%s', (reverse) => {
+  const rewrite = createVendorPackageRewriter(reverse)
+  const identifier = ['cor', 'dis'].join('')
+  const upstreamLoader = ['@cordisjs', 'plugin-loader'].join('/')
+  const scopedLoader = '@deepseek-ai/cordis-plugin-loader'
+  const fromLoader = reverse ? scopedLoader : upstreamLoader
+  const toLoader = reverse ? upstreamLoader : scopedLoader
+
+  it.each(identifierFiles)('preserves product identifiers but rewrites other vendor names in %s', (file) => {
+    const identifiers = [`'${identifier}'`, `"${identifier}/inspect"`, `name: ${identifier}`].join('\n')
+    const input = `${identifiers}\nimport '${fromLoader}'\n`
+    expect(isRescopeExcluded(file)).toBe(false)
+    expect(rewrite(input, file)).toEqual({ text: `${identifiers}\nimport '${toLoader}'\n`, lines: 1 })
+  })
+
+  it.each(['packages/example/src/index.ts', 'docs/example.md', 'packages/bundle/example/cordis.patch.yml'])(
+    'still rewrites package names and subpaths outside the exact exception files: %s', (file) => {
+      const from = reverse ? '@deepseek-ai/cordis' : identifier
+      const to = reverse ? identifier : '@deepseek-ai/cordis'
+      expect(rewrite(`import '${from}'\nimport '${from}/subpath'\nname: ${from}\n`, file)).toEqual({
+        text: `import '${to}'\nimport '${to}/subpath'\nname: ${to}\n`, lines: 3,
+      })
+    },
+  )
+})
 
 describe('rescope file selection', () => {
   it('preserves the recorded npm resolution', () => {
