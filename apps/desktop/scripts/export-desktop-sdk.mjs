@@ -63,6 +63,18 @@ export function desktopSdkPackageDirectory(name, from) {
 }
 
 /**
+ * Read published executable and declaration imports without consulting unpublished source files.
+ * @param directory - Extracted workspace package directory.
+ * @param pattern - Published output glob for runtime or declaration modules.
+ * @param includeTypes - Whether declaration-only imports participate.
+ * @returns Referenced bare package names, excluding Node builtins and local files.
+ */
+export function desktopSdkPublishedImports(directory, pattern, includeTypes = false) {
+  return globSync(pattern, { cwd: directory }).flatMap(path => moduleImports(readFileSync(join(directory, path), 'utf8'), path, includeTypes))
+    .filter(name => !name.startsWith('.') && !isBuiltin(name)).map(packageName)
+}
+
+/**
  * Resolve declaration-only imports through the same workspace and DefinitelyTyped inputs as the producer compiler.
  * @param name - Bare package referenced by a generated declaration.
  * @param owner - Package directory owning the declaration.
@@ -147,12 +159,12 @@ export function exportDesktopSdk(output, target) {
       }
       // Workspace declarations retain type-only imports that are absent from runtime dependencies.
       // Third-party packages own their published dependency graph; do not traverse unrelated test declarations.
-      const declarations = (workspacePackage ? globSync('**/*.d.ts', { cwd: targetDirectory }) : []).flatMap(path =>
-        moduleImports(readFileSync(join(targetDirectory, path), 'utf8'), path, true))
-        .filter(name => !name.startsWith('.') && !isBuiltin(name)).map(packageName)
+      const declarations = workspacePackage ? desktopSdkPublishedImports(targetDirectory, '**/*.d.ts', true) : []
+      // Client packages intentionally publish bundler externals as development inputs in this monorepo.
+      const runtimeImports = workspacePackage ? desktopSdkPublishedImports(targetDirectory, 'lib/**/*.js') : []
       for (const dependency of new Set([
         ...Object.keys(installed.dependencies ?? {}), ...Object.keys(installed.optionalDependencies ?? {}), ...Object.keys(installed.peerDependencies ?? {}),
-        ...declarations,
+        ...declarations, ...runtimeImports,
       ])) {
         if (dependency === installed.name) continue
         let resolved

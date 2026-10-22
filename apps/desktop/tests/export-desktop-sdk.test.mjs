@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { assertRuntimeSdkLayout, compileDesktopSdkModule, desktopSdkPackageDirectory, desktopSdkDeclarationDependency } from '../scripts/export-desktop-sdk.mjs'
+import { assertRuntimeSdkLayout, compileDesktopSdkModule, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPublishedImports } from '../scripts/export-desktop-sdk.mjs'
 
 test('compiled tooling uses executable local imports and the packed runtime API', () => {
   const result = compileDesktopSdkModule(`
@@ -52,5 +52,16 @@ test('generated declarations resolve workspace type imports and DefinitelyTyped 
       { name: '@scope/shared', directory: '/known/workspace' })
     assert.deepEqual(desktopSdkDeclarationDependency('markdown', root), { name: '@types/markdown', directory: realpathSync(types) })
     assert.throws(() => desktopSdkDeclarationDependency('absent-desktop-sdk-types', root), /missing dependency/u)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('published UI imports include bundler externals without leaking builtin or local modules', () => {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-ui-imports-'))
+  try {
+    mkdirSync(join(root, 'lib'))
+    writeFileSync(join(root, 'lib/index.js'), `import clsx from 'clsx'; import { jsx } from 'react/jsx-runtime'; import './atoms.css'; import 'node:fs'; export { icon } from '@scope/icons/all';`)
+    writeFileSync(join(root, 'lib/index.d.ts'), `import type { Root } from 'mdast'; export type Value = import('@scope/schema').Value;`)
+    assert.deepEqual(desktopSdkPublishedImports(root, 'lib/**/*.js'), ['clsx', 'react', '@scope/icons'])
+    assert.deepEqual(desktopSdkPublishedImports(root, 'lib/**/*.d.ts', true), ['mdast', '@scope/schema'])
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
