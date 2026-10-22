@@ -1,8 +1,9 @@
 import { tmpdir } from 'node:os'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { Arch, Platform } from 'electron-builder'
 import { Packager } from 'app-builder-lib'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 
 const { execute } = vi.hoisted(() => ({ execute: vi.fn(async () => undefined) }))
 vi.mock('node:child_process', async (importOriginal) => {
@@ -65,6 +66,8 @@ describe('installer preparation preserves application dependencies', () => {
   })
 
   it('names unsigned Windows artifacts so they cannot pass for release builds', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'desktop-builder-storage-')))
+    onTestFinished(() => { rmSync(root, { recursive: true, force: true }) })
     const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
     const config = createElectronBuilderConfig({
       DSH_DESKTOP_APP_ID: 'com.example.installer',
@@ -73,8 +76,10 @@ describe('installer preparation preserves application dependencies', () => {
       DSH_DESKTOP_TARGET_PLATFORM: 'win32',
       DSH_DESKTOP_TARGET_ARCH: 'x64',
       DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_BUILD_ROOT: join(root, 'external-build'),
     }, 'win32', 'x64')
     expect(config.artifactName).toBe('deepseek-harness-${version}-${os}-${arch}-unsigned.${ext}')
+    expect(config.directories.output).toBe(join(root, 'external-build', 'targets', 'win-x64', 'unsigned-artifacts'))
   })
 
   it('packages every preload entry point the shell loads', async () => {

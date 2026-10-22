@@ -54,11 +54,9 @@ export async function retainDesktopCi(env: NodeJS.ProcessEnv, appRoot = resolve(
     testReleaseId: preset === 'test' ? (settings.DOWNLOAD_TEST_RELEASE_ID || null) : null,
     qualification,
   }
-  const paths = desktopTargetBuildPaths(target)
-  // The CLI's checkout owns these paths; alternate app roots are used by fixtures.
+  const paths = desktopTargetBuildPaths(target, settings, appRoot)
   const mode = qualification === 'unsigned' ? 'unsigned-artifacts' : qualification === 'unnotarized' ? 'unnotarized-artifacts' : 'artifacts'
-  const artifacts = appRoot === resolve(import.meta.dirname, '..')
-    ? join(paths.root, mode) : join(appRoot, '.desktop-build', 'targets', target, mode)
+  const artifacts = join(paths.root, mode)
   const base = `deepseek-harness-${version}-${windows ? 'win-x64' : target}`
   const debugSuffix = qualification === 'unnotarized' ? '-unnotarized' : qualification === 'unsigned' ? '-unsigned' : ''
   const names = windows ? [`${base}${debugSuffix}.exe`] : [`${base}${debugSuffix}.dmg`, `${base}${debugSuffix}.zip`]

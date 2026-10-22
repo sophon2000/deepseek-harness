@@ -97,7 +97,11 @@ macOS arm64 命令要求 Apple Silicon。macOS x64 命令可以在 Intel macOS �
 
 macOS 正式发布和本地未签名 DMG 都通过 [electron-builder 配置](../scripts/electron-builder-config.mjs)中的 `dmg.format: 'ULMO'` 使用 LZMA 压缩。[构建时补丁](../../../patches/app-builder-lib@26.17.0.patch)为固定版本 builder 的校验规则和 TypeScript 声明添加此格式。
 
-每个目标都在 `apps/desktop/.desktop-build/targets/<target>/` 下持有自己的打包输入、已准备运行时、包集合、dsh 依赖树、pnpm 准备状态、未打包应用、更新元数据和最终产物。Electron 归档缓存继续由 `.desktop-build/downloads` 共享，因为每个归档文件名都包含版本、平台和架构，并且在解包前经过验证。目标构建绝不读取其他目标的可变准备状态。
+每个目标默认在 `apps/desktop/.desktop-build/targets/<target>/` 下持有自己的打包输入、已准备运行时、包集合、dsh 依赖树、pnpm 准备状态、未打包应用、更新元数据和最终产物。Electron 归档缓存默认为 `.desktop-build/downloads`，归档在解包前经过验证。目标构建绝不读取其他目标的可变准备状态。
+
+构建工具环境变量可选择 checkout 外的短路径：`DSH_DESKTOP_BUILD_ROOT` 替换 `.desktop-build`，同时迁移 `packaging-runs`、`upload-records` 和开发用 primary runtime；`DSH_DESKTOP_DOWNLOAD_CACHE` 选择共享下载目录；`DSH_DESKTOP_PNPM_STORE_ROOT` 将打包依赖保留在 `<store>/<target>`，供后续运行复用。值必须为非空绝对目录，不能指向文件系统根、Desktop 源码目录或其祖先，缓存之间及缓存与可变目标目录之间不能重叠。校验缓存位置时解析现有 junction；准备步骤开始前，会拒绝可变目标目录和按目标划分的 store 子目录中的重定向路径。使用可信本地存储，共用目标根的构建须串行。pnpm 管理 store 完整性；每次运行仍创建自己的安装目录、解析并验证锁文件、装配资源并执行原有运行时检查。不指定 store 时，清理仍删除临时 store；指定后清理保留持久 store。准备步骤不会跳过。
+
+这些变量由启动进程提供，不写入发行 dotenv 或 preset 文件。为兼容 electron-builder，Windows ASAR 装配仍使用临时 `apps/desktop/.desktop-build/asar-source-*`，并在装配结束时删除。开发工程、资格验证证据及普通源码构建输出保持原有位置。
 
 <a id="windows-actions"></a>
 

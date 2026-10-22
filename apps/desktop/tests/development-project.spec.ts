@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { readProfileManifest } from '@deepseek-ai/dsh-app-boot'
 import { prepareDevelopmentProject } from '../scripts/development-project.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { DesktopProjectManager } from '../src/project-manager.ts'
@@ -103,11 +104,11 @@ describe('desktop development project', () => {
       dsh: project,
     })
     await manager.applyRelease()
-    expect(JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')).dsh.profile.bundles)
+    expect(readProfileManifest('desktop test', manager.paths.profile).dsh?.profile?.bundles)
       .toContain('@fixture/creative')
     expect(realpathSync(join(project, 'node_modules/@fixture/creative'))).toBe(realpathSync(profilePackage))
     await manager.disableAllPlugins()
-    expect(JSON.parse(readFileSync(join(manager.paths.profile, 'package.json'), 'utf8')).dsh.profile.bundles)
+    expect(readProfileManifest('desktop test', manager.paths.profile).dsh?.profile?.bundles)
       .toContain('@fixture/creative')
     expect(readFileSync(join(cli, 'package.json'), 'utf8')).toBe('{"name":"@deepseek-ai/dsh","version":"1.2.3"}\n')
     expect(readFileSync(join(host, 'lib', 'index.js'), 'utf8')).toBe('')

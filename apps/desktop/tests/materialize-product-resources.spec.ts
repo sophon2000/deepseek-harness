@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -10,6 +10,7 @@ it('materializes Python executable aliases and directory aliases as physical sig
     const source = join(root, 'source')
     mkdirSync(join(source, 'bin'), { recursive: true })
     writeFileSync(join(source, 'bin/python3.12'), 'standalone interpreter\n', { mode: 0o755 })
+    chmodSync(join(source, 'bin/python3.12'), 0o755)
     symlinkSync('python3.12', join(source, 'bin/python'))
     symlinkSync('bin', join(source, 'alias'))
     const target = join(root, 'target')

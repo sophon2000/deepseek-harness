@@ -1,10 +1,57 @@
 /** Source-independent tooling checks for the Desktop SDK exporter. */
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, globSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
-import { assertRuntimeSdkLayout, compileDesktopSdkModule, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPublishedImports } from '../scripts/export-desktop-sdk.mjs'
+import { assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports } from '../scripts/export-desktop-sdk.mjs'
+
+test('real preparation tooling exports an executable workspace helper without source imports', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-tooling-'))
+  try {
+    const dependencies = new Set()
+    const exportModule = createDesktopSdkToolingExporter(root, name => dependencies.add(name))
+    exportModule(resolve(import.meta.dirname, '../scripts/prepare-dsh.ts'))
+    const entry = readFileSync(join(root, 'apps/desktop/scripts/prepare-dsh.js'), 'utf8')
+    assert.match(entry, /from ['"]\.\/desktop-preparation-workspace\.js['"]/u)
+    assert.ok(dependencies.has('@deepseek-ai/dsh-tool-workspace-dependencies'))
+    const modules = globSync('**/*.{js,mjs}', { cwd: root })
+    assert.ok(modules.includes('apps/desktop/scripts/desktop-build-paths.mjs'))
+    for (const filename of modules) {
+      assert.doesNotMatch(readFileSync(join(root, filename), 'utf8'), /(?:from\s*|import\s*)['"][^'"]+\.ts['"]/u, filename)
+    }
+    const helper = await import(pathToFileURL(join(root, 'apps/desktop/scripts/desktop-preparation-workspace.js')).href)
+    const workspace = helper.createDesktopPreparationWorkspace({})
+    try {
+      assert.ok(existsSync(workspace.directory))
+      assert.equal(workspace.store, join(workspace.directory, 'store'))
+    } finally { workspace.cleanup() }
+    assert.equal(existsSync(workspace.directory), false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('packed inventory locates copied tarballs independently of an external producer build root', () => {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-packed-'))
+  try {
+    const packed = join(root, 'external-build', 'targets/mac-arm64/packed')
+    const sdk = join(root, 'sdk')
+    for (const family of ['dsh', 'vendor', 'landlock']) {
+      const file = join(packed, family, 'fixture.tgz')
+      mkdirSync(join(packed, family), { recursive: true })
+      writeFileSync(file, family)
+      const archived = desktopSdkPackedPath(file, packed, 'mac-arm64')
+      assert.equal(archived, `apps/desktop/.desktop-build/targets/mac-arm64/packed/${family}/fixture.tgz`)
+    }
+    cpSync(packed, join(sdk, 'apps/desktop/.desktop-build/targets/mac-arm64/packed'), { recursive: true })
+    for (const family of ['dsh', 'vendor', 'landlock']) {
+      const archived = desktopSdkPackedPath(join(packed, family, 'fixture.tgz'), packed, 'mac-arm64')
+      assert.equal(readFileSync(join(sdk, archived), 'utf8'), family)
+    }
+    assert.throws(() => desktopSdkPackedPath(join(packed, '../outside.tgz'), packed, 'mac-arm64'), /outside packed directory/u)
+    assert.throws(() => desktopSdkPackedPath(packed, packed, 'mac-arm64'), /outside packed directory/u)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 test('compiled tooling uses executable local imports and the packed runtime API', () => {
   const result = compileDesktopSdkModule(`

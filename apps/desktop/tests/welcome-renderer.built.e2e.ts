@@ -7,10 +7,11 @@ import type { WelcomeApi } from '../src/welcome-api.ts'
 
 it('mounts the built welcome entry without contacting a provider', { retry: 0 }, () => {
   const dom = new JSDOM('<body><div id="root"></div></body>', { runScripts: 'outside-only' })
-  onTestFinished(() => dom.window.close())
+  onTestFinished(() => { dom.window.close() })
   dom.window.matchMedia = media => ({
     matches: false, media, onchange: null,
     addEventListener() {}, removeEventListener() {},
+    // oxlint-disable-next-line typescript/no-deprecated -- MediaQueryList still requires its legacy methods on test implementations.
     addListener() {}, removeListener() {}, dispatchEvent: () => true,
   })
   const api: WelcomeApi = {

@@ -19,11 +19,13 @@ node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-dire
 
 输出目录必须不存在。导出失败会留下部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码提交与树、脏输入摘要、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。
 
-`shell-build/node_modules` 包含编译壳所需的精确 DSH 包、其声明导入以及上游壳的五个生产依赖。`shell-dependencies.json` 记录根包、包归档路径、版本和摘要。发行方拥有固定的 TypeScript、tsdown、Vite、React 与 Electron builder 配置，不应假定本 SDK 提供这些编译工具链。SDK 为打包消费方保留固定 Electron builder 依赖闭包，并在导出的 app 目录中链接最小应用的生产依赖。
+`shell-build/node_modules` 包含编译壳所需的精确 DSH 包、其声明导入以及上游壳的五个生产依赖。`shell-dependencies.json` 记录根包、相对 SDK 归档的包路径、版本和摘要，不依赖生产者构建存储位置。发行方拥有固定的 TypeScript、tsdown、Vite、React 与 Electron builder 配置，不应假定本 SDK 提供这些编译工具链。SDK 为打包消费方保留固定 Electron builder 依赖闭包，并在导出的 app 目录中链接最小应用的生产依赖。
 
 SDK 生成的 `@deepseek-ai/dsh-desktop-runtime-contract` 包将 fork 现有实现编译为 JavaScript 与声明，导出 `./runtime-tree`、`./release`、`./host-protocol`、`./desktop-product`、`./core-package-set` 和 `./project-profile`。壳适配器导入这些 API，不重复实现描述符校验。`@deepseek-ai/dsh-desktop-host/protocol` 提供共享 Host 事件、控制请求、校验器和协议版本。主题 CSS 与许可字体使用 `@deepseek-ai/dsh-client-ui-theme/styles/*`，基础组件使用包根导出。
 
 执行 `node <sdk>/prepare.mjs --product <payload-root> --output <new-build-directory> --app-id <application-id> [--runtime-lock <qualified-pnpm-lock.yaml>]`。它仅组合运行时与最小应用清单，不编译核心或打包源码。发行方随后把自己的壳写入 `apps/desktop`，准备 `runtime/cli`，并在打包前封存完整构建输入。可在运行时准备后指定壳版本；运行时验证仍使用 SDK 固定的 DSH 版本。
+
+准备过程忽略生产者存储覆盖变量 `DSH_DESKTOP_BUILD_ROOT`、`DSH_DESKTOP_DOWNLOAD_CACHE` 和 `DSH_DESKTOP_PNPM_STORE_ROOT`。构建与下载路径保持在新的输出目录内，安装存储使用临时目录。
 
 首次发现运行会解析第三方依赖。已提供运行时锁时绝不回退解析：冻结生产安装前先核验核心包和补丁身份。每次运行都在安装前将已验证锁保留为 `<build-directory>/runtime-pnpm-lock.yaml`，仅在准备与验证成功后提升它。源码侧对应变量是 `DSH_DESKTOP_RUNTIME_LOCK` 和 `DSH_DESKTOP_RUNTIME_LOCK_OUTPUT`。产品资源链接必须无环且指向资源树内，并在完整性封存前物化。
 

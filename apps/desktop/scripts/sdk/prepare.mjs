@@ -23,6 +23,7 @@ const environment = {
   DSH_DESKTOP_RUNTIME_LOCK_OUTPUT: join(output, 'runtime-pnpm-lock.yaml'),
 }
 delete environment.DSH_DESKTOP_RUNTIME_LOCK
+for (const key of ['DSH_DESKTOP_BUILD_ROOT', 'DSH_DESKTOP_DOWNLOAD_CACHE', 'DSH_DESKTOP_PNPM_STORE_ROOT']) delete environment[key]
 if (values['runtime-lock'] !== undefined) environment.DSH_DESKTOP_RUNTIME_LOCK = resolve(values['runtime-lock'])
 for (const script of ['prepare-package-set.js', 'prepare-dsh.js']) {
   const result = spawnSync(process.execPath, [join(output, 'apps/desktop/scripts', script)], { cwd: output, env: environment, stdio: 'inherit' })

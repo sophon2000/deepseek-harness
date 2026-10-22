@@ -10,16 +10,19 @@ const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
 it.each([
-  ['mac-arm64', 'notarized'], ['win-x64', 'signed'], ['mac-arm64', 'unnotarized'], ['win-x64', 'unsigned'],
-] as const)('retains the complete %s %s release without signing or upload credentials', async (target, qualification) => {
+  ['mac-arm64', 'notarized', false], ['win-x64', 'signed', false], ['mac-arm64', 'unnotarized', false], ['win-x64', 'unsigned', false],
+  ['mac-arm64', 'notarized', true], ['win-x64', 'unsigned', true],
+] as const)('retains the complete %s %s release with external build root=%s without signing or upload credentials', async (target, qualification, external) => {
   const root = await mkdtemp(join(tmpdir(), 'retain-ci-'))
   roots.push(root)
   const appRoot = join(root, 'checkout')
   const config = join(root, 'packaging')
   const debug = qualification === 'unsigned' || qualification === 'unnotarized'
-  const artifacts = join(appRoot, '.desktop-build', 'targets', target, debug ? `${qualification}-artifacts` : 'artifacts')
+  const buildRoot = external ? join(root, 'external-build') : join(appRoot, '.desktop-build')
+  const artifacts = join(buildRoot, 'targets', target, debug ? `${qualification}-artifacts` : 'artifacts')
   await mkdir(artifacts, { recursive: true })
   await mkdir(join(config, 'presets'), { recursive: true })
+  await mkdir(appRoot, { recursive: true })
   await writeFile(join(appRoot, 'package.json'), '{"version":"1.0.0"}')
   await writeFile(join(config, 'presets/test.env'), `DSH_DESKTOP_AUTO_UPDATE_ENV=test\nDOWNLOAD_TEST_RELEASE_ID=${'a'.repeat(32)}\n`)
   const names = debug ? (target === 'win-x64' ? [`deepseek-harness-1.0.0-win-x64-${qualification}.exe`]
@@ -28,6 +31,7 @@ it.each([
     : ['deepseek-harness-1.0.0-mac-arm64.dmg', 'deepseek-harness-1.0.0-mac-arm64.zip', 'deepseek-harness-1.0.0-mac-arm64.zip.blockmap', 'mac-arm64-release.json', 'nightly-mac.yml']
   await Promise.all(names.map(name => writeFile(join(artifacts, name), 'fixture')))
   const env = {
+    ...(external ? { DSH_DESKTOP_BUILD_ROOT: buildRoot } : {}),
     DSH_PACKAGING_CONFIG_DIR: config, DSH_PACKAGING_PRESET: 'test', DSH_DESKTOP_TARGET_PLATFORM: target === 'win-x64' ? 'win32' : 'darwin',
     DSH_DESKTOP_TARGET_ARCH: target === 'win-x64' ? 'x64' : 'arm64', PACKAGE_SOURCE_REF: 'master', PACKAGE_SOURCE_SHA: 'b'.repeat(40), PACKAGE_VERSION: '1.0.0',
     PACKAGE_SIGNING: qualification === 'unsigned' ? 'unsigned' : 'signed', PACKAGE_SKIP_NOTARIZATION: qualification === 'unnotarized' ? 'true' : 'false', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '2',

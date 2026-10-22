@@ -113,6 +113,53 @@ function packageName(specifier) {
 }
 
 /**
+ * Locate a producer tarball inside the SDK's copied target tree.
+ * @param file - Tarball in the producer's packed directory, including an external build root.
+ * @param packedRoot - Producer target's packed directory.
+ * @param target - Target directory name inside the SDK.
+ * @returns Portable archive-relative tarball path; files outside the packed directory are rejected.
+ */
+export function desktopSdkPackedPath(file, packedRoot, target) {
+  const local = relative(packedRoot, file)
+  if (local === '' || local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) {
+    throw new Error(`Desktop SDK: tarball outside packed directory: ${file}`)
+  }
+  return join('apps/desktop/.desktop-build/targets', target, 'packed', local).split(sep).join('/')
+}
+
+/**
+ * Create the recursive compiler for an SDK's executable tooling closure.
+ * @param destination - SDK root receiving modules in their repository-relative locations.
+ * @param linkDependency - Link a bare package name from its importing source directory into the SDK.
+ * @returns Function that exports an entry and its local imports once, rejecting missing or external modules.
+ */
+export function createDesktopSdkToolingExporter(destination, linkDependency) {
+  const exportedModules = new Set()
+  const exportModule = source => {
+    const local = relative(repository, source)
+    if (local.startsWith('..') || isAbsolute(local)) throw new Error(`Desktop SDK: module outside repository: ${source}`)
+    if (exportedModules.has(local)) return
+    exportedModules.add(local)
+    const extension = extname(source)
+    if (!['.ts', '.mjs', '.js', '.cjs'].includes(extension)) { copy(source, join(destination, local)); return }
+    const sourceText = readFileSync(source, 'utf8').replaceAll('../../../packages/skill/tool-workspace-dependencies/src/index.ts', '@deepseek-ai/dsh-tool-workspace-dependencies')
+    const compiled = extension === '.ts' ? compileDesktopSdkModule(sourceText, source) : sourceText
+    const emitted = local.replace(/\.ts$/u, '.js')
+    mkdirSync(dirname(join(destination, emitted)), { recursive: true })
+    writeFileSync(join(destination, emitted), compiled)
+    for (const specifier of moduleImports(sourceText, source)) {
+      if (specifier.startsWith('node:') || ['fs', 'path', 'os', 'crypto', 'util', 'child_process', 'module', 'events', 'stream', 'url'].includes(specifier)) continue
+      if (specifier.startsWith('.')) {
+        const required = resolve(dirname(source), specifier)
+        if (existsSync(required)) exportModule(required)
+        else throw new Error(`Desktop SDK: missing tooling module ${required}`)
+      } else linkDependency(packageName(specifier), dirname(source))
+    }
+  }
+  return exportModule
+}
+
+/**
  * Build a source-free, relocatable export from the exact prepared target owned by this checkout.
  * @param output - New SDK directory, retained as partial output if export fails.
  * @param target - Prepared build target; currently mac-arm64 only.
@@ -191,28 +238,7 @@ export function exportDesktopSdk(output, target) {
     if (!existsSync(link)) symlinkSync(relative(dirname(link), targetDirectory), link, 'dir')
     return json(join(targetDirectory, 'package.json')).version
   }
-  const exportedModules = new Set()
-  const exportModule = source => {
-    const local = relative(repository, source)
-    if (local.startsWith('..') || isAbsolute(local)) throw new Error(`Desktop SDK: module outside repository: ${source}`)
-    if (exportedModules.has(local)) return
-    exportedModules.add(local)
-    const extension = extname(source)
-    if (!['.ts', '.mjs', '.js', '.cjs'].includes(extension)) { copy(source, join(destination, local)); return }
-    const sourceText = readFileSync(source, 'utf8').replaceAll('../../../packages/skill/tool-workspace-dependencies/src/index.ts', '@deepseek-ai/dsh-tool-workspace-dependencies')
-    const compiled = extension === '.ts' ? compileDesktopSdkModule(sourceText, source) : sourceText
-    const emitted = local.replace(/\.ts$/u, '.js')
-    mkdirSync(dirname(join(destination, emitted)), { recursive: true })
-    writeFileSync(join(destination, emitted), compiled)
-    for (const specifier of moduleImports(sourceText, source)) {
-      if (specifier.startsWith('node:') || ['fs', 'path', 'os', 'crypto', 'util', 'child_process', 'module', 'events', 'stream', 'url'].includes(specifier)) continue
-      if (specifier.startsWith('.')) {
-        const required = resolve(dirname(source), specifier)
-        if (existsSync(required)) exportModule(required)
-        else throw new Error(`Desktop SDK: missing tooling module ${required}`)
-      } else linkPackage(packageName(specifier), dirname(source), destination)
-    }
-  }
+  const exportModule = createDesktopSdkToolingExporter(destination, (name, from) => linkPackage(name, from, destination))
   for (const filename of ['LICENSE', 'pnpm-lock.yaml']) copy(join(repository, filename), join(destination, filename))
   const originalWorkspace = yaml.load(readFileSync(join(repository, 'pnpm-workspace.yaml'), 'utf8'))
   const workspaceManifests = globSync(originalWorkspace.packages.map(pattern => `${pattern}/package.json`), { cwd: repository })
@@ -262,7 +288,7 @@ export function exportDesktopSdk(output, target) {
     }),
   })
   const packages = Object.fromEntries([...packedPackages.entries()].map(([name, { file, manifest }]) => [name, {
-    version: manifest.version, tarball: relative(repository, file).split(sep).join('/'), sha256: hash(readFileSync(file)),
+    version: manifest.version, tarball: desktopSdkPackedPath(file, join(paths.root, 'packed'), target), sha256: hash(readFileSync(file)),
   }]))
   writeJson(join(destination, 'shell-dependencies.json'), { schemaVersion: 'dsh.shell-dependencies/1', roots: shellRoots, packages,
     nodeModules: 'shell-build/node_modules', contract: { name: contractName, directory: relative(destination, contractRoot).split(sep).join('/') } })

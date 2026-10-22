@@ -1,10 +1,50 @@
 /** Resolve build-owned Desktop paths without sharing mutable state across release targets. */
 
-import { join, resolve } from 'node:path'
+import { existsSync, realpathSync, statSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
-const BUILD_ROOT = join(APP_ROOT, '.desktop-build')
 const SUPPORTED_TARGETS = new Set(['mac-arm64', 'mac-x64', 'win-x64'])
+
+function canonicalDirectory(path) {
+  let existing = resolve(path)
+  const suffix = []
+  while (!existsSync(existing)) {
+    const parent = dirname(existing)
+    if (parent === existing) throw new Error('desktop build paths: filesystem root is unavailable')
+    suffix.unshift(basename(existing))
+    existing = parent
+  }
+  if (!statSync(existing).isDirectory()) throw new Error('desktop build paths: directory path contains a file')
+  return resolve(realpathSync.native(existing), ...suffix)
+}
+
+function contains(parent, child) {
+  const path = relative(parent, child)
+  return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`))
+}
+
+function overlaps(left, right) {
+  return contains(left, right) || contains(right, left)
+}
+
+function mutableDirectory(path) {
+  if (relative(path, canonicalDirectory(path)) !== '') {
+    throw new Error('desktop build paths: mutable build directories must not contain symbolic links or junctions')
+  }
+  return path
+}
+
+function configuredDirectory(env, name, fallback, appRoot) {
+  const value = env[name]
+  if (value === undefined) return canonicalDirectory(fallback)
+  if (value.trim() === '' || !isAbsolute(value)) throw new Error(`desktop build paths: ${name} must be an absolute directory`)
+  const directory = canonicalDirectory(value)
+  if (dirname(directory) === directory || contains(directory, canonicalDirectory(appRoot))) {
+    throw new Error(`desktop build paths: ${name} cannot be a filesystem root or an ancestor of the desktop source`)
+  }
+  return directory
+}
 
 /**
  * Resolve the fixed build target selected by a packaging environment.
@@ -38,26 +78,43 @@ function assertSupportedTarget(target) {
 /**
  * Return the mutable preparation and artifact directories owned by one release target.
  * @param {'mac-arm64' | 'mac-x64' | 'win-x64'} target - Supported Desktop target name.
- * @returns {{ root: string, artifacts: string, unsignedArtifacts: string, unnotarizedArtifacts: string, runtime: string, packageSet: string, dsh: string, dshPnpm: string, electron: string, packedDsh: string, packedVendor: string, packedLandlock: string, downloads: string }} Target paths plus the shared immutable download cache.
+ * @param {NodeJS.ProcessEnv} env - Optional absolute build and cache directory overrides.
+ * @param {string} appRoot - Desktop source directory used for defaults and source protection.
+ * @returns {{ buildRoot: string, packagingRuns: string, uploadRecords: string, root: string, artifacts: string, unsignedArtifacts: string, unnotarizedArtifacts: string, runtime: string, packageSet: string, dsh: string, dshPnpm: string, electron: string, packedDsh: string, packedVendor: string, packedLandlock: string, downloads: string, pnpmStore?: string }} Target paths and persistent caches; caches never overlap mutable target directories.
  */
-export function desktopTargetBuildPaths(target) {
+export function desktopTargetBuildPaths(target, env = process.env, appRoot = APP_ROOT) {
   assertSupportedTarget(target)
-  const root = join(BUILD_ROOT, 'targets', target)
-  const packed = join(root, 'packed')
+  const buildRoot = configuredDirectory(env, 'DSH_DESKTOP_BUILD_ROOT', join(appRoot, '.desktop-build'), appRoot)
+  const downloads = configuredDirectory(env, 'DSH_DESKTOP_DOWNLOAD_CACHE', join(buildRoot, 'downloads'), appRoot)
+  const storeRoot = env.DSH_DESKTOP_PNPM_STORE_ROOT === undefined ? undefined
+    : configuredDirectory(env, 'DSH_DESKTOP_PNPM_STORE_ROOT', '', appRoot)
+  const targets = mutableDirectory(join(buildRoot, 'targets'))
+  for (const cache of [downloads, ...(storeRoot === undefined ? [] : [storeRoot])]) {
+    if (overlaps(cache, targets)) throw new Error('desktop build paths: caches must not overlap mutable target directories')
+  }
+  if (storeRoot !== undefined && overlaps(storeRoot, downloads)) {
+    throw new Error('desktop build paths: download and pnpm caches must be separate directories')
+  }
+  const root = mutableDirectory(join(targets, target))
+  const packed = mutableDirectory(join(root, 'packed'))
   return {
+    buildRoot,
+    packagingRuns: join(buildRoot, 'packaging-runs'),
+    uploadRecords: join(buildRoot, 'upload-records'),
     root,
-    artifacts: join(root, 'artifacts'),
-    unsignedArtifacts: join(root, 'unsigned-artifacts'),
-    unnotarizedArtifacts: join(root, 'unnotarized-artifacts'),
-    runtime: join(root, 'runtime'),
-    packageSet: join(root, 'package-set'),
-    dsh: join(root, 'dsh'),
-    dshPnpm: join(root, 'dsh-pnpm'),
-    electron: join(root, 'electron'),
-    packedDsh: join(packed, 'dsh'),
-    packedVendor: join(packed, 'vendor'),
-    packedLandlock: join(packed, 'landlock'),
-    downloads: join(BUILD_ROOT, 'downloads'),
+    artifacts: mutableDirectory(join(root, 'artifacts')),
+    unsignedArtifacts: mutableDirectory(join(root, 'unsigned-artifacts')),
+    unnotarizedArtifacts: mutableDirectory(join(root, 'unnotarized-artifacts')),
+    runtime: mutableDirectory(join(root, 'runtime')),
+    packageSet: mutableDirectory(join(root, 'package-set')),
+    dsh: mutableDirectory(join(root, 'dsh')),
+    dshPnpm: mutableDirectory(join(root, 'dsh-pnpm')),
+    electron: mutableDirectory(join(root, 'electron')),
+    packedDsh: mutableDirectory(join(packed, 'dsh')),
+    packedVendor: mutableDirectory(join(packed, 'vendor')),
+    packedLandlock: mutableDirectory(join(packed, 'landlock')),
+    downloads,
+    ...(storeRoot === undefined ? {} : { pnpmStore: mutableDirectory(join(storeRoot, target)) }),
   }
 }
 
@@ -87,7 +144,7 @@ export function resolveDesktopTargetBuildPaths(
   hostPlatform = process.platform,
   hostArch = process.arch,
 ) {
-  return desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
+  return desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch), env)
 }
 
 /**

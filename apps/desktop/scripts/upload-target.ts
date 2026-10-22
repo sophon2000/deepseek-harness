@@ -5,6 +5,7 @@ import { parseArgs } from 'node:util'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import { createDesktopCos } from './desktop-cos.ts'
 import { resolveDesktopUploadConfig } from './desktop-auto-update-environment.mjs'
+import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createDesktopUploadPlan, type DesktopUploadPlan } from './desktop-upload-plan.ts'
 import { desktopReleaseTag, tagDesktopRelease } from './desktop-release-tag.ts'
@@ -91,7 +92,7 @@ export async function uploadDesktopTarget(args: string[]): Promise<void> {
     secretKey: requiredEnvironmentValue(environment, plan.secretKeyEnvName),
   })
   process.stdout.write(`desktop upload: ${plan.target} ${plan.version} -> ${plan.publicUrl}\n`)
-  await uploadDesktopRelease(plan, cos, resolve(import.meta.dirname, '../.desktop-build/upload-records'))
+  await uploadDesktopRelease(plan, cos, desktopTargetBuildPaths(name, environment).uploadRecords)
   if (plan.environment === 'production' && !values.latest) recordProductionRelease(plan)
 }
 

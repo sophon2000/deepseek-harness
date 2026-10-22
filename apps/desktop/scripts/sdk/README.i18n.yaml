@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/scripts/sdk/README.md
 /desktop-runtime-sdk-export:
-  en: 59dc442d129c176f
-  zh: 03629a8a78b17223
+  en: d5fb38edddf8be10
+  zh: 377e208a80f38075

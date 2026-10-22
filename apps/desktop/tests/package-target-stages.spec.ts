@@ -1,4 +1,6 @@
-import { writeFileSync } from 'node:fs'
+import { realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { packageTarget, parseDesktopPackageInvocation } from '../scripts/package-target.ts'
 import { withMacOSNotarizationProxy } from '../scripts/macos-notarization-proxy.ts'
@@ -76,6 +78,27 @@ it('initializes shared storage only after acquiring the preflight stage lock', a
     expect(prepareWindowsSignatureCacheDirectory).toHaveBeenCalledOnce()
   })
   await packageTarget(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64'), environment, run)
+})
+
+it('propagates external storage to every stage and writes packed payloads and release records there', async () => {
+  const { run, stages } = supervisor()
+  const temporaryRoot = realpathSync(tmpdir())
+  const storage = {
+    DSH_DESKTOP_BUILD_ROOT: join(temporaryRoot, 'desktop-stage-fixture-build'),
+    DSH_DESKTOP_DOWNLOAD_CACHE: join(temporaryRoot, 'desktop-stage-fixture-downloads'),
+    DSH_DESKTOP_PNPM_STORE_ROOT: join(temporaryRoot, 'desktop-stage-fixture-store'),
+  }
+  await packageTarget(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64'), { ...environment, ...storage }, run)
+  for (const call of run.run.mock.calls) expect(call[3].env).toMatchObject(storage)
+  const targetRoot = join(storage.DSH_DESKTOP_BUILD_ROOT, 'targets', 'win-x64')
+  const dshPack = run.run.mock.calls.find(call => call[0].startsWith('run release:pack --family dsh'))!
+  expect(dshPack[2]).toContain(join(targetRoot, 'packed', 'dsh'))
+  const vendorPack = run.run.mock.calls.find(call => call[0].startsWith('run release:pack --family vendor'))!
+  expect(vendorPack[2]).toContain(join(targetRoot, 'packed', 'vendor'))
+  expect(String(vi.mocked(writeFileSync).mock.calls[0]![0])).toContain(join(targetRoot, 'artifacts'))
+  expect(stages).toContain('run prepare:packages')
+  expect(stages).toContain('run prepare:dsh --defer-runtime-smoke')
+  expect(stages.at(-1)).toBe('exec tsx scripts/smoke-packaged-runtime.ts')
 })
 
 it.each(['preflight:windows-signing', 'run build:official', 'run sign:primary-runtime', 'run prepare:dsh --defer-runtime-smoke', 'run sign:primary-runtime --dsh',
