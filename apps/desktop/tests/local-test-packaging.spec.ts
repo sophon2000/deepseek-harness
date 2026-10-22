@@ -68,8 +68,10 @@ describe('explicit local desktop test packaging', () => {
       const environment = localTestPackageEnvironment({ DSH_DESKTOP_PRODUCT_ROOT: root })
       for (const registry of ['http://registry.example', 'https://user:pass@registry.example', 'https://registry.example/path',
         'https://registry.example/?query=1', 'https://registry.example/#fragment', 'not-a-url']) {
-        expect(() => validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_NPM_REGISTRY: registry },
-          { platform: 'win32', arch: 'x64' }, { unsigned: true })).toThrow('HTTPS origin')
+        expect(() => {
+          validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_NPM_REGISTRY: registry },
+            { platform: 'win32', arch: 'x64' }, { unsigned: true })
+        }).toThrow('HTTPS origin')
       }
       for (const registry of [undefined, 'https://registry.npmjs.org']) {
         validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_NPM_REGISTRY: registry },
