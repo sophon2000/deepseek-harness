@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-ptc-runtime-node",
   "description": "Node PTC execution with per-call sandboxed processes or in-memory REPL state",
-  "version": "0.2.1-rc.2.vh.1.local.20261019.4",
+  "version": "0.2.1-rc.2.vh.2.local.20261022.1",
   "publishConfig": {
     "access": "public"
   },

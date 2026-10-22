@@ -27,6 +27,13 @@ kind: "package-reference"
 
 在需要运行子进程的组合中挂载一个 subprocess 提供方，并从拥有该命令的能力调用 `ctx.subprocess`。常用路径是显式的：解析可执行文件、用完全明确的请求 spawn、读取你要的输出，并在工作完成时终止受管范围。
 
+<a id="recoverable-operations"></a>
+### 可恢复操作
+
+`operationProvider({ stateDirectory })` 选择显式启用的持久操作所有权。`create(ownerKey)` 不启动进程，每次创建全新 scope，绝不 adopt 相同 owner 的旧 scope。任何探测或 worker 调用 `scope.spawn(spec)` 前，先将返回的描述符与资源预留一起持久保存。操作在顺序子进程和空闲间隔之间保持开放。
+
+正常完成、取消和冷恢复都要求永久执行 `scope.seal()` 或 `provider.recover(descriptor, independentlyExpectedOwnerKey)`，然后在释放资源预留前调用 `provider.verify(proof, descriptor, independentlyExpectedOwnerKey)`。只有 `sealed-quiescent` 携带证明；`active`、`unverifiable` 和 `unsupported` 都保留资源预留。证明对象属于单个 provider 实例，不能从 JSON 恢复，也绝不来自客户端。缺少描述符的 legacy 数据仍不可验证。丢弃 provider 前调用 `provider.dispose()`。
+
 ### 挂载服务
 
 每个组合由唯一一个提供方注册 `ctx.subprocess`；把它与经由它 spawn 的消费方放在一起加载——bash 执行器、LSP 主机、PTY shell 后端或进程外 subagent 后端。加载第二个提供方会快速失败（每个上下文只有一个服务，这是 Cordis 的标准行为）。

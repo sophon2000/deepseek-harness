@@ -19,6 +19,10 @@ int wmain()
   P(offsetof(PROCESS_INFORMATION, dwProcessId));
   P(CREATE_SUSPENDED);
   P(CREATE_UNICODE_ENVIRONMENT);
+  P(EXTENDED_STARTUPINFO_PRESENT);
+  P(PROC_THREAD_ATTRIBUTE_JOB_LIST);
+  P(sizeof(STARTUPINFOEXW));
+  P(offsetof(STARTUPINFOEXW, lpAttributeList));
   P(STARTF_USESTDHANDLES);
   P(STARTF_USESHOWWINDOW);
   P(SW_HIDE);
@@ -46,6 +50,10 @@ int wmain()
   static_assert(sizeof(HANDLE) == 8, "HANDLE size");
   static_assert(CREATE_SUSPENDED == 0x4, "suspended process flag");
   static_assert(CREATE_UNICODE_ENVIRONMENT == 0x400, "Unicode environment flag");
+  static_assert(EXTENDED_STARTUPINFO_PRESENT == 0x80000, "extended startup flag");
+  static_assert(PROC_THREAD_ATTRIBUTE_JOB_LIST == 0x2000D, "atomic Job list attribute");
+  static_assert(sizeof(STARTUPINFOEXW) == 112, "extended startup size");
+  static_assert(offsetof(STARTUPINFOEXW, lpAttributeList) == 104, "attribute-list offset");
   static_assert(STARTF_USESTDHANDLES == 0x100, "std handles flag");
   static_assert(STARTF_USESHOWWINDOW == 0x1, "initial window visibility flag");
   static_assert(SW_HIDE == 0, "hidden window value");

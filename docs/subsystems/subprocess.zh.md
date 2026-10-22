@@ -250,6 +250,12 @@ interface SubprocessOutcome {
 
 `terminalEnvironment(signal?)` 返回 `SubprocessTerminalEnvironment`：执行环境平台（`posix` 或 `windows`）与可选的 `defaultShell`。这些事实来自提供方，而非 Web 服务器或浏览器。`resolveExecutable` 验证候选 shell；`SubprocessExecutableNotFoundError` 表示可执行文件不存在，提供方与传输故障仍作为错误报告。
 
+## 可恢复操作所有权
+
+`operationProvider({ stateDirectory })` 返回 provider，提供创建全新操作的 `create(ownerKey)`、冷恢复 `recover(descriptor, expectedOwnerKey, signal?)`、签发实例专属的 `verify(proof, descriptor, expectedOwnerKey)` 和等待完成的 `dispose()`。创建出的 scope 暴露持久描述符、普通 `spawn(spec)` 和永久 `seal(signal?)`。可信消费者必须在任何关联启动前持久保存描述符，并根据持久 home、project、domain 和 receipt 身份独立派生期望 owner。多个命令可以共享一个操作；直接退出和原生范围暂时为空都不会关闭准入。
+
+`SubprocessOperationRecovery` 区分携带不可序列化证明的 `sealed-quiescent`、携带封闭状态和 busy/aborted/draining 原因的 `active`、携带完整性/存储/原生原因的 `unverifiable`，以及携带 provider 身份的 `unsupported`。只有在持久排除后续启动后取得、并由签发 provider 验证的新原生证明，才能授权消费者协调。没有描述符的 legacy 记录仍不可验证。正常成功和取消在释放资源预留前同样要求永久 seal。Windows 存储、boot 身份和 Job-list 限制见 [本地 provider](../../packages/subprocess/subprocess-local/README.zh.md)。
+
 ## 服务行为
 
 抽象的 [`SubprocessRuntime`](../../packages/subprocess/subprocess/src/index.ts) Service Definition 规定执行世界坐标、可执行文件查找、普通 `spawn` 与 `spawnTerminal`。[`LocalSubprocessRuntime`](../../packages/subprocess/subprocess-local/src/index.ts) 以平台选择的 managed range、按处置方式接线、凭据清除、`node-pty`、平台进程检查，以及先终止再等待退出的资源释放提供这些能力。Service Definition 约定见 [`dsh-subprocess`](../../packages/subprocess/subprocess/README.zh.md)，本地机制见 [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.zh.md)。
@@ -278,6 +284,13 @@ Implementations must honor these semantics:
 - spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.
 
 ```ts cordis-catalog
+/**
+ * Select opt-in durable operation ownership without launching processes.
+ * @param _options - trusted storage configuration, unused by an unsupported provider.
+ * @returns an unsupported provider unless this execution world implements recovery.
+ */
+operationProvider(_options: SubprocessOperationProviderOptions): SubprocessOperationProvider
+
 /**
  * Resolve one configured executable in this provider's execution world.
  * Absolute paths are verified; bare names use the provider's scrubbed PATH

@@ -2,6 +2,7 @@
 
 export { ERROR_INSUFFICIENT_BUFFER } from './abi.ts'
 export * from './errors.ts'
+export * from './operation-native.ts'
 export {
   allocPtrSlot,
   allocUint32,
@@ -26,6 +27,7 @@ export {
   probeCurrentTokenJobSupport,
   spawnInheritedJobProcess,
   spawnCurrentTokenJobProcess,
+  spawnCurrentTokenOperationProcess,
   spawnPipedProcess,
   terminateJob,
   waitForProcessExit,

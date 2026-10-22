@@ -306,6 +306,15 @@ describe('package payload constraints', () => {
     ])
   })
 
+  it('requires the shared operation runtime chunk in the local subprocess payload', () => {
+    const dir = 'packages/subprocess/subprocess-local'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest,
+      files: manifest.files!.filter(file => file !== 'lib/windows-operations-*.js'),
+    } })).toEqual([expect.stringContaining('package.json files must be')])
+  })
+
   it('accepts the Agent Team icon payload and rejects its omission', () => {
     const dir = 'packages/experimental/agent-team-profile'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']

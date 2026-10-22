@@ -3122,6 +3122,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis\' standard duplicate-service behavior).\n\nImplementations must honor these semantics:\n\n- Executable paths belong to one execution world shared with the mounted filesystem provider.\n- spawn returns a live handle synchronously. Target identity remains provider-private; `done` resolves with the spawned command\'s exit facts and may reject for spawn or provider failures.\n- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another\'s output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.\n- SubprocessHandle.terminate (and the spec\'s abort signal) starts the provider\'s documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its signalling and observability limits.\n- Disposal of the service terminates all still-running managed processes and awaits their exit.\n- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.',
     methods: [
       {
+        signature: 'operationProvider(_options: SubprocessOperationProviderOptions): SubprocessOperationProvider',
+        description: 'Select opt-in durable operation ownership without launching processes.',
+        parameters: [{ name: '_options', description: 'trusted storage configuration, unused by an unsupported provider.' }],
+        returns: 'an unsupported provider unless this execution world implements recovery.',
+      },
+      {
         signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
         description: 'Resolve one configured executable in this provider\'s execution world. Absolute paths are verified; bare names use the provider\'s scrubbed PATH plus explicit environment overrides. Relative paths containing separators are rejected: the resolution base is undefined, so providers fail loud instead of guessing.',
         parameters: [{ name: 'command', description: 'absolute executable path or bare PATH name.' }, { name: 'env', description: 'explicit environment entries used for lookup.' }, { name: 'signal', description: 'aborts remote or local lookup.' }],
@@ -7938,6 +7944,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubprocessHandle {\n    readonly stdin: Writable | undefined;\n    readonly stdout: Readable | undefined;\n    readonly stderr: Readable | undefined;\n    readonly control: Duplex | undefined;\n    readonly collected: SubprocessCollectedOutputs;\n    readonly done: Promise<SubprocessOutcome>;\n    terminate(): void;\n    waitForExit(signal?: AbortSignal): Promise<boolean>;\n}',
   },
   {
+    name: 'SubprocessOperationDescriptor',
+    declaration: 'export interface SubprocessOperationDescriptor {\n    readonly providerKind: string;\n    readonly providerVersion: number;\n    readonly locator: SubprocessOperationLocator;\n    readonly ownerKey: SubprocessOperationOwnerKey;\n}',
+  },
+  {
+    name: 'SubprocessOperationLocator',
+    declaration: 'export type SubprocessOperationLocator = Branded<\'SubprocessOperationLocator\'>;',
+  },
+  {
+    name: 'SubprocessOperationOwnerKey',
+    declaration: 'export type SubprocessOperationOwnerKey = Branded<\'SubprocessOperationOwnerKey\'>;',
+  },
+  {
+    name: 'SubprocessOperationProvider',
+    declaration: 'export interface SubprocessOperationProvider {\n    create(ownerKey: SubprocessOperationOwnerKey): Promise<{\n        readonly kind: \'created\';\n        readonly scope: SubprocessOperationScope;\n    } | Extract<SubprocessOperationRecovery, {\n        kind: \'unsupported\';\n    }>>;\n    recover(descriptor: SubprocessOperationDescriptor | undefined, expectedOwnerKey: SubprocessOperationOwnerKey, signal?: AbortSignal): Promise<SubprocessOperationRecovery>;\n    verify(proof: SubprocessQuiescenceProof, descriptor: SubprocessOperationDescriptor, expectedOwnerKey: SubprocessOperationOwnerKey): boolean;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'SubprocessOperationProviderOptions',
+    declaration: 'export interface SubprocessOperationProviderOptions {\n    readonly stateDirectory: string;\n}',
+  },
+  {
+    name: 'SubprocessOperationRecovery',
+    declaration: 'export type SubprocessOperationRecovery = {\n    readonly kind: \'sealed-quiescent\';\n    readonly proof: SubprocessQuiescenceProof;\n} | {\n    readonly kind: \'active\';\n    readonly sealed: boolean;\n    readonly reason: \'busy\' | \'aborted\' | \'draining\';\n} | {\n    readonly kind: \'unverifiable\';\n    readonly reason: SubprocessRecoveryFailure;\n    readonly detail: string;\n} | {\n    readonly kind: \'unsupported\';\n    readonly providerKind: string;\n    readonly providerVersion: number;\n};',
+  },
+  {
+    name: 'SubprocessOperationScope',
+    declaration: 'export interface SubprocessOperationScope {\n    readonly descriptor: SubprocessOperationDescriptor;\n    spawn(spec: SubprocessSpawnSpec): SubprocessHandle;\n    seal(signal?: AbortSignal): Promise<SubprocessOperationRecovery>;\n}',
+  },
+  {
     name: 'SubprocessOutcome',
     declaration: 'export interface SubprocessOutcome {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n}',
   },
@@ -7952,6 +7986,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubprocessOutputReader',
     declaration: 'export interface SubprocessOutputReader {\n    readFrom(fromByte: number): SubprocessOutputRead;\n}',
+  },
+  {
+    name: 'SubprocessQuiescenceProof',
+    declaration: 'export interface SubprocessQuiescenceProof {\n    readonly [proofBrand]: true;\n}',
+  },
+  {
+    name: 'SubprocessRecoveryFailure',
+    declaration: 'export type SubprocessRecoveryFailure = \'legacy-no-scope\' | \'identity-mismatch\' | \'boot-mismatch\' | \'store-failure\' | \'native-failure\';',
   },
   {
     name: 'SubprocessSpawnSpec',
