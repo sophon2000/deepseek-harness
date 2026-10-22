@@ -77,6 +77,12 @@ describe('desktop development project', () => {
       name: '@fixture/creative', version: '0.1.0', dsh: { bundle: { patch: './cordis.patch.yml' } },
     }))
     writeFileSync(join(profilePackage, 'cordis.patch.yml'), '[]\n')
+    const supportingPackages = ['contracts', 'host', 'remotes', 'client'].map((name) => {
+      const directory = join(root, name)
+      mkdirSync(directory)
+      writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: `@fixture/${name}`, version: '0.1.0' }))
+      return directory
+    })
 
     const project = prepareDevelopmentProject({
       projectDir: join(root, 'development'),
@@ -85,7 +91,7 @@ describe('desktop development project', () => {
       dependencyDir: dependencies,
       release: release(),
       target: 'win-x64',
-      profilePackageDirs: [profilePackage],
+      profilePackageDirs: [...supportingPackages, profilePackage],
     })
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh'))).toBe(realpathSync(cli))
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh-desktop-host'))).toBe(realpathSync(host))
@@ -107,6 +113,11 @@ describe('desktop development project', () => {
     expect(readProfileManifest('desktop test', manager.paths.profile).dsh?.profile?.bundles)
       .toContain('@fixture/creative')
     expect(realpathSync(join(project, 'node_modules/@fixture/creative'))).toBe(realpathSync(profilePackage))
+    for (const directory of supportingPackages) {
+      const name = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')).name as string
+      expect(realpathSync(join(project, 'node_modules', name))).toBe(realpathSync(directory))
+      expect(manifest.dependencies[name]).toBe('0.1.0')
+    }
     await manager.disableAllPlugins()
     expect(readProfileManifest('desktop test', manager.paths.profile).dsh?.profile?.bundles)
       .toContain('@fixture/creative')

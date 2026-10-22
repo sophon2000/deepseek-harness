@@ -190,6 +190,8 @@ macOS and Linux GUI launches inherit only the session manager's environment, wit
 
 ## Develop
 
+Product-owned shells may run `node --import tsx/esm apps/desktop/scripts/prepare-development.ts --project-dir FRESH_PATH --output FRESH_JSON --primary-runtime-dir PREPARED_RUNTIME --profile-package BUILT_PACKAGE` from this source checkout. Repeat `--profile-package` for every external package. This development-only adapter requires existing CLI, Host and desktop declaration/JavaScript artifacts plus a native, version-matched primary runtime; it does not build or launch the upstream shell, download runtimes, or register protocols. The JSON receipt supplies the disposable profile, runtime, pnpm and shell dependency locations, including re-exports of the existing runtime APIs. The caller owns cleanup of fresh outputs and the Electron lifecycle. This source adapter is not a production SDK interface.
+
 The development application menu offers Reload Page (Cmd+R on macOS, Ctrl+R elsewhere) and Restart App and Host. Restart waits for Host shutdown before relaunching Electron and starting a new Host; neither action rebuilds source files.
 
 `dev:desktop` builds the current Host, client bundles, Web frontend, and Electron shell, projects the built CLI and private Desktop Host packages with their workspace dependencies into a disposable desktop npm project, and launches Electron without resolving dsh from npm:
