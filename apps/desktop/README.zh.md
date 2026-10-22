@@ -36,7 +36,7 @@ Desktop 在原生应用中运行 Harness 工作区。本参考文档说明应用
 
 Desktop 绑定 `127.0.0.1`，即 Electron 为就绪 URL 与 WebSocket 凭据过滤器拨号的地址。WebSocket 流按 Host 监听器使用 `ws:` 或 `wss:`；附加凭据要求 authority 与 scheme 均匹配。
 
-产品载荷 schema 2 支持在创建 Host 前运行并退出的资源 `preflight`，以及在 Desktop 就绪前检查 `requiredServices`。后台 `service` 载荷保留现有生命周期。[迁移指南](../../docs/upgrade-guide/v0.2.1-rc.2.vh.1.local.20261019.3/desktop-resource-preflight/guide.zh.md)说明就绪、环境和兼容性要求。
+DSH Electron 壳直接启动共享 Host；Video 产品预检、后台服务和必需服务就绪检查由 `video-desktop` 管理。Desktop SDK 保留产品载荷 schema 2、运行时准备和产品进程冒烟验证，供消费方自己的壳使用。
 
 应用菜单第一项“**关于 DeepSeek Harness**”打开 Electron 原生关于面板，展示应用图标、产品名称和当前安装的发布版本。菜单文案跟随桌面壳的语言。macOS 的隐藏、隐藏其他、显示全部和退出条目使用本地化文案，隐藏和退出条目包含 DeepSeek Harness 产品名称。这些条目保留原生动作和快捷键。macOS 从应用包读取图标，因此未打包的开发启动会显示 Electron 图标；Windows 使用随包分发的 PNG。
 

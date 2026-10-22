@@ -9,7 +9,6 @@ import type { MenuItemConstructorOptions, MessageBoxOptions } from 'electron'
 import { DESKTOP_IPC, type DesktopUpdateState } from '../src/ipc.ts'
 import { MANDATORY_IPC } from '../src/mandatory-update-ipc.ts'
 import { DesktopHostFatalError, DesktopHostUncleanExitError } from '../src/host-process.ts'
-import { DesktopProductUncleanExitError } from '../src/product-process.ts'
 import { en, zh } from '../src/locale.ts'
 import { DesktopUpdatePreparationError } from '../src/update-error.ts'
 import { writeCrashReport } from '../src/crash-report.ts'
@@ -152,8 +151,7 @@ const harness = await vi.hoisted(async () => {
       return this.exited.promise
     })
     constructor(
-      readonly node: string, readonly runtime: string, readonly productRuntime: string, readonly profile: string,
-      readonly productsDataRoot: string, readonly product?: unknown,
+      readonly node: string, readonly runtime: string, readonly profile: string,
       readonly inspectPort?: number, readonly environment?: NodeJS.ProcessEnv, readonly onFailure?: (error: Error) => void,
       readonly primaryRuntime?: string,
       readonly packageManager?: { pnpm: string; nodeBin: string },
@@ -326,8 +324,9 @@ vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
   readDesktopLoginShellEnvironment: harness.loginShell,
 }))
-vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' } }) }))
-vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile', products: 'desktop-test-products' }) }))
+const runtime = vi.hoisted(() => ({ product: undefined as { id: string } | undefined }))
+vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' }, product: runtime.product }) }))
+vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease
@@ -337,13 +336,7 @@ vi.mock('../src/project-manager.ts', () => ({
 }))
 vi.mock('../src/host-process.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/host-process.ts')>(),
-}))
-vi.mock('../src/product-process.ts', async importOriginal => ({
-  ...await importOriginal<typeof import('../src/product-process.ts')>(),
-}))
-vi.mock('../src/product-host-process.ts', async importOriginal => ({
-  ...await importOriginal<typeof import('../src/product-host-process.ts')>(),
-  DesktopProductHostProcess: harness.FakeHost,
+  DesktopHostProcess: harness.FakeHost,
 }))
 vi.mock('../src/update-dialog.ts', () => ({ DesktopUpdateDialog: class {
   get isOpen() { return harness.shellDialog.isOpen }
@@ -413,6 +406,7 @@ function applicationMenuItems(): MenuItemConstructorOptions[] {
 }
 
 beforeEach(() => {
+  runtime.product = undefined
   vi.resetModules()
   vi.clearAllMocks()
   harness.dialog.showMessageBox.mockReset()
@@ -460,6 +454,24 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('rejects packaged product runtimes before profile preparation or Host creation', async () => {
+    runtime.product = { id: 'video' }
+    await import('../src/main.ts')
+    await harness.dialogShown.promise
+    expect(harness.applyRelease).not.toHaveBeenCalled()
+    expect(harness.hosts).toHaveLength(0)
+    const options = harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions
+    expect(options.detail).toContain('use the product-owned desktop application')
+  })
+
+  it('keeps development profiles usable with a synthetic product descriptor', async () => {
+    runtime.product = { id: 'development' }
+    harness.app.isPackaged = false
+    await readyForUpdate()
+    expect(harness.applyRelease).toHaveBeenCalledTimes(1)
+    expect(harness.hosts).toHaveLength(1)
+  })
+
   it('reports an absent development mandatory policy only to the owned app frame', async () => {
     harness.app.isPackaged = false
     await readyForUpdate()
@@ -2019,8 +2031,8 @@ describe('desktop main startup', () => {
     }
   })
 
-  it.each([false, true].flatMap(mandatory => ['host', 'product', 'both'].map(child => ({ mandatory, child }))))
-  ('restores a confirmed non-graceful $child exit without approving installation, mandatory: $mandatory', async ({ mandatory, child }) => {
+  it.each([false, true])
+  ('restores a confirmed non-graceful Host exit without approving installation, mandatory: %s', async (mandatory) => {
     if (mandatory) {
       harness.embeddedPolicy = { origin: 'https://policy.example.com', allowedPageOrigins: ['https://downloads.example.com'] }
       vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 40005, data: {
@@ -2035,9 +2047,7 @@ describe('desktop main startup', () => {
     if (mandatory) await answerMandatory('install')
     await host.stopping.promise
     const hostFailure = new DesktopHostUncleanExitError('Task teardown failed after child exit')
-    const productFailure = new DesktopProductUncleanExitError('Task teardown failed after child exit')
-    host.exited.reject(child === 'host' ? hostFailure : child === 'product' ? productFailure
-      : new AggregateError([hostFailure, productFailure], 'Task teardown failed after child exit'))
+    host.exited.reject(hostFailure)
     await rejected
     expect(host.updateTasks.mock.calls).toEqual([['inspect'], ['lock']])
     harness.dialog.showMessageBox.mockResolvedValue({ response: 1 })
@@ -2336,7 +2346,6 @@ describe('desktop main startup', () => {
     expect(harness.hosts[0]).toMatchObject({
       node: process.execPath,
       runtime: join(process.resourcesPath, 'dsh'),
-      productRuntime: join(process.resourcesPath, 'dsh'),
       primaryRuntime: join('desktop-test-resources', 'runtime', 'primary-runtime'),
       profile: 'desktop-test-profile',
     })

@@ -36,7 +36,7 @@ The desktop application is an Electron shell around the complete dsh Web applica
 
 Desktop binds `127.0.0.1`, the address Electron dials for the ready URL and the WebSocket credential filter. WebSocket streams use `ws:` or `wss:` according to the Host listener; credentials require matching authority and scheme.
 
-Product payload schema 2 supports an exiting resource `preflight` before Host creation and a `requiredServices` gate before Desktop readiness. Background `service` payloads keep their existing lifecycle. The [migration guide](../../docs/upgrade-guide/v0.2.1-rc.2.vh.1.local.20261019.3/desktop-resource-preflight/guide.md) describes the readiness, environment and compatibility requirements.
+The DSH Electron shell starts the shared Host directly; Video product preflight, background services, and required-service readiness are owned by `video-desktop`. The Desktop SDK retains product payload schema 2, runtime preparation, and product-process smoke validation for consumer-owned shells.
 
 The first application-menu command, **About DeepSeek Harness**, opens Electron's native About panel with the application icon, product name, and installed release version. The menu follows the Desktop shell locale. On macOS, Hide, Hide Others, Show All, and Quit use localized labels; Hide and Quit include the DeepSeek Harness product name. These commands retain their native actions and shortcuts. macOS reads the icon from its application bundle, so an unpackaged development launch displays Electron's icon; Windows receives the packaged PNG.
 

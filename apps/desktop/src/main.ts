@@ -24,9 +24,8 @@ import {
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
-import { DesktopHostFatalError } from './host-process.ts'
+import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
-import { DesktopProductHostProcess, isDesktopBackendUncleanExit } from './product-host-process.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { DesktopBackendController } from './backend-controller.ts'
@@ -150,7 +149,6 @@ interface RuntimeResources {
   readonly node: string
   readonly pnpm: string
   readonly dsh: string
-  readonly productRuntime: string
 }
 
 function runtimeResources(): RuntimeResources {
@@ -162,8 +160,7 @@ function runtimeResources(): RuntimeResources {
       : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
     ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(process.resourcesPath, 'dsh'))
-  const productRuntime = dsh
-  return { node, nodeBin, pnpm, dsh, productRuntime }
+  return { node, nodeBin, pnpm, dsh }
 }
 
 function developmentPrimaryRuntime(): string {
@@ -326,6 +323,9 @@ async function main(): Promise<void> {
   const resources = runtimeResources()
   const paths = resolveDesktopPaths()
   const development = !app.isPackaged
+  if (!development && readDesktopRuntime(resources.dsh).product !== undefined) {
+    throw new Error('DSH Desktop cannot launch a product runtime; use the product-owned desktop application.')
+  }
   const primaryRuntime = development
     ? developmentPrimaryRuntime()
     : join(process.resourcesPath, 'runtime', 'primary-runtime')
@@ -450,8 +450,7 @@ async function main(): Promise<void> {
     () => locale.id === 'zh-CN' ? 'zh_CN' : 'en_US', process.platform === 'win32' ? 'win32' : 'darwin')
   const backend = new DesktopBackendController((onFailure) => {
     const hostInspectPort = developmentHostInspectPort(development)
-    const host = new DesktopProductHostProcess(resources.node, resources.dsh, resources.productRuntime, activeProject,
-      paths.products, development ? undefined : readDesktopRuntime(resources.dsh).product,
+    const host = new DesktopHostProcess(resources.node, resources.dsh, activeProject,
       hostInspectPort, { ...hostEnvironment, DSH_CLIENT_VERSION: desktopClientVersion() }, onFailure,
       primaryRuntime, resources, (next) => { platformView.setSession(next) })
     return {
@@ -508,7 +507,7 @@ async function main(): Promise<void> {
         stopAccount?.()
         try { await host.stop(requireCleanStop) }
         catch (error) {
-          if (!requireCleanStop || !isDesktopBackendUncleanExit(error)) throw error
+          if (!requireCleanStop || !(error instanceof DesktopHostUncleanExitError)) throw error
           // Backend cleanup succeeded; installation still rejects the unsuccessful task teardown.
           updateStopFailure = error
         }
