@@ -1,0 +1,37 @@
+# Bilingual-pair consistency record for 2026-10-22-operation-cold-recovery.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-10-22-operation-cold-recovery.md
+/agent-note-recoverable-local-subprocess-operations:
+  en: 2dbd20f8bf6b0400
+  zh: fa71cffc6f2d3192
+/agent-note-recoverable-local-subprocess-operations/problem:
+  en: f09291d665cdc3d7
+  zh: 46dc6206a3b660ce
+/agent-note-recoverable-local-subprocess-operations/proposal:
+  en: 808834698df1b0d9
+  zh: 84126117b9251474
+/agent-note-recoverable-local-subprocess-operations/proposal/interface-draft:
+  en: 84717e65d5b6ec27
+  zh: 4ff1c48f39cfbd7c
+/agent-note-recoverable-local-subprocess-operations/proposal/windows-admission-and-observation:
+  en: e887cea052d1b16f
+  zh: 063f2e7e93d53b19
+/agent-note-recoverable-local-subprocess-operations/proposal/current-capability-audit:
+  en: 50872c7817bdf346
+  zh: 5fcbb23139adf684
+/agent-note-recoverable-local-subprocess-operations/proposal/host-coordination:
+  en: 33a98006bfa49c94
+  zh: f84f2525476a5154
+/agent-note-recoverable-local-subprocess-operations/proposal/microsoft-references:
+  en: ae41e69e2546caa7
+  zh: fd58536b1974fa17
+/agent-note-recoverable-local-subprocess-operations/alternatives-considered:
+  en: acc6cf3c35db28ff
+  zh: adb1fc1d7f6134df
+/agent-note-recoverable-local-subprocess-operations/acceptance-criteria:
+  en: f45149f8689d903e
+  zh: 6846445ea0f28152
+/agent-note-recoverable-local-subprocess-operations/risks:
+  en: bad768018ae4c08c
+  zh: a884d35bb7047ffb
