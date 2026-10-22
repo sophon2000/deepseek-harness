@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 import { build } from 'vite'
 import { fileURLToPath } from 'node:url'
-import { readFileSync } from 'node:fs'
+import { copyFileSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { repositoryClientBuildEnvironment, resolveClientBuildEnvironment } from '../../scripts/client-build-environment.ts'
 import { packagedImportsPlugin } from './scripts/desktop-bundle-imports.mjs'
@@ -21,6 +21,8 @@ const mainProcessImports = { packages: new Set(['electron', ...Object.keys(manif
 const preloadImports = { packages: new Set(['electron', 'events', 'timers', 'url']), nodeBuiltins: false }
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../..', import.meta.url))
+// The pure schema is shared with plain-Node packaging scripts and compiled Host inputs.
+copyFileSync(new URL('./src/local-test-package.mjs', import.meta.url), new URL('./lib/types/local-test-package.mjs', import.meta.url))
 
 /** Use the client environment this build already received, otherwise the repository's own version and commit. */
 const clientEnvironment = resolveClientBuildEnvironment(process.env.DSH_CLIENT_VERSION === undefined

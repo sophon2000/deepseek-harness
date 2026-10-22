@@ -3,8 +3,9 @@ import type { AfterPackContext, BeforePackContext } from 'app-builder-lib'
 /** Electron-builder fields asserted by the Desktop release tests. */
 export interface DesktopElectronBuilderConfig {
   readonly appId: string
+  readonly productName: 'DeepSeek Harness' | 'Video Harness Local Test'
   readonly artifactName: string
-  readonly protocols: readonly [{ readonly name: 'DeepSeek Harness'; readonly schemes: readonly ['dsh'] }]
+  readonly protocols: readonly [{ readonly name: 'DeepSeek Harness' | 'Video Harness Local Test'; readonly schemes: readonly ['dsh'] | readonly ['videoharness-localtest'] }]
   readonly directories: {
     readonly output: string
   }

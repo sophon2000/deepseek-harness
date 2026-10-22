@@ -13,6 +13,8 @@ import { DesktopProductUncleanExitError } from '../src/product-process.ts'
 import { en, zh } from '../src/locale.ts'
 import { DesktopUpdatePreparationError } from '../src/update-error.ts'
 import { writeCrashReport } from '../src/crash-report.ts'
+import { LOCAL_TEST_METADATA } from '../src/local-test-package.mjs'
+import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 
 type InvokeEvent = { sender?: unknown; senderFrame: { url: string } }
 type InvokeHandler = (event: InvokeEvent, ...args: unknown[]) => unknown
@@ -52,6 +54,7 @@ const harness = await vi.hoisted(async () => {
   let embeddedPolicy: unknown
   let closeWindowsOnQuit = false
   let updateState: DesktopUpdateState = { phase: 'idle' }
+  let updateEnabled: (() => boolean) | undefined
   let platformDisposeDeferred: ReturnType<typeof deferred> | undefined
   // The native Platform view owns persistent browser storage; Desktop startup tests replace it so
   // each quit can control when that cleanup settles.
@@ -162,9 +165,11 @@ const harness = await vi.hoisted(async () => {
     getVersion: () => '1.0.0',
     getAppPath: (): string => 'desktop-test-app',
     setAppLogsPath: vi.fn(),
+    setName: vi.fn(), setAppUserModelId: vi.fn(),
+    setPath: vi.fn<(name: string, path: string) => void>(),
     getPath: vi.fn<(name: string) => string>(),
     setAboutPanelOptions: vi.fn<(options: Electron.AboutPanelOptionsOptions) => void>(),
-    requestSingleInstanceLock: () => true,
+    requestSingleInstanceLock: vi.fn(() => true),
     setAsDefaultProtocolClient: vi.fn(),
     exit: vi.fn(),
     relaunch: vi.fn(),
@@ -214,6 +219,8 @@ const harness = await vi.hoisted(async () => {
     ipcOn: vi.fn<(channel: string, listener: (event: { sender: unknown; senderFrame: unknown }, ...args: unknown[]) => void) => void>(),
     get updateState() { return updateState },
     set updateState(value: DesktopUpdateState) { updateState = value },
+    get updateEnabled() { return updateEnabled },
+    set updateEnabled(value: (() => boolean) | undefined) { updateEnabled = value },
     get prepareUpdate() { return prepareUpdate! },
     set prepareUpdate(value: () => Promise<boolean>) { prepareUpdate = value },
     get publishUpdate() { return publishUpdate! },
@@ -253,6 +260,7 @@ const harness = await vi.hoisted(async () => {
       prepareUpdate = undefined
       publishUpdate = undefined
       updateState = { phase: 'idle' }
+      updateEnabled = undefined
       updateCheck.mockReset().mockImplementation(async () => updateState)
       loginShell.mockReset().mockImplementation(base => readLoginShell(base))
       updateDownload.mockReset().mockImplementation(async () => updateState)
@@ -315,6 +323,17 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     return encoding === undefined ? original.readFile(path) : original.readFile(path, encoding)
   }) }
 })
+vi.mock('node:fs', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs')>()
+  return { ...original, readFileSync: vi.fn((
+    path: Parameters<typeof original.readFileSync>[0], options?: Parameters<typeof original.readFileSync>[1],
+  ) => {
+    if (path === join('desktop-test-app', 'package.json')) {
+      return JSON.stringify({ dshDesktopAppId: 'com.deepseek.dsh', dshMandatoryUpdatePolicy: harness.embeddedPolicy })
+    }
+    return original.readFileSync(path, options)
+  }) }
+})
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
   readDesktopLoginShellEnvironment: harness.loginShell,
@@ -349,9 +368,11 @@ vi.mock('../src/update-dialog.ts', () => ({ DesktopUpdateDialog: class {
   dispose() {}
 } }))
 vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: class {
-  constructor(publish: (state: DesktopUpdateState) => DesktopUpdateState, beforeRestart: () => Promise<boolean>) {
+  constructor(publish: (state: DesktopUpdateState) => DesktopUpdateState, beforeRestart: () => Promise<boolean>,
+    _updater?: unknown, enabled?: () => boolean) {
     harness.prepareUpdate = beforeRestart
     harness.publishUpdate = publish
+    harness.updateEnabled = enabled
   }
   get state() { return harness.updateState }
   readonly check = harness.updateCheck
@@ -453,6 +474,47 @@ afterEach(async () => {
 })
 
 describe('desktop main startup', () => {
+  it('isolates the local-test identity before logs and instance ownership and keeps Host homes isolated after shell loading', async () => {
+    const fs = await import('node:fs')
+    vi.mocked(fs.readFileSync).mockReturnValueOnce(JSON.stringify({
+      name: LOCAL_TEST_METADATA.name, productName: LOCAL_TEST_METADATA.productName,
+      dshDesktopAppId: LOCAL_TEST_METADATA.appId, dshLocalTest: LOCAL_TEST_METADATA,
+    }))
+    const runtime = await import('../src/runtime-tree.ts')
+    vi.spyOn(runtime, 'readDesktopRuntime').mockReturnValue({
+      schemaVersion: 1, platform: 'win32', arch: 'x64', sharedPackages: [], files: [],
+      release: { schemaVersion: 1, version: '1.0.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+        nodeVersion: '24.19.0', pnpmVersion: '11.28.5' },
+      product: { id: 'video-harness', resourcesRoot: 'product-resources', profileBundles: ['@video-harness/profile'],
+        preflight: { entrypoint: 'control/desktop-local-preflight.mjs',
+          exportedEnvironment: ['VIDEO_HARNESS_PROJECT_MODE', 'VIDEO_HARNESS_DSH_HOME'] }, requiredServices: ['projectBff'] },
+    })
+    const root = harness.app.getPath('userData')
+    const paths = new Map([['appData', root], ['userData', root], ['logs', join(root, 'logs')]])
+    harness.app.getPath.mockImplementation(name => paths.get(name) ?? `desktop-test-${name}`)
+    harness.app.setPath.mockImplementation((name, path) => { paths.set(name, path) })
+    vi.stubGlobal('process', { ...process, resourcesPath: root })
+    for (const key of ['DSH_HOME', 'DSH_AGENTS_HOME', 'VIDEO_HARNESS_DSH_HOME']) vi.stubEnv(key, 'formal-home')
+    harness.loginShell.mockImplementation(async base => ({ environment: { ...base,
+      DSH_TEST_LOGIN_SHELL: 'login',
+      DSH_HOME: 'shell-formal-home', DSH_AGENTS_HOME: 'shell-formal-agents', VIDEO_HARNESS_DSH_HOME: 'shell-formal-video' }, failures: [] }))
+    const host = await readyForUpdate()
+    const userData = join(root, LOCAL_TEST_METADATA.homeName)
+    expect(harness.app.getPath('userData')).toBe(userData)
+    expect(harness.app.setName).toHaveBeenCalledWith(LOCAL_TEST_METADATA.productName)
+    expect(harness.app.setAppUserModelId).toHaveBeenCalledWith(LOCAL_TEST_METADATA.appId)
+    expect(harness.app.setPath.mock.invocationCallOrder.at(-1)).toBeLessThan(harness.app.setAppLogsPath.mock.invocationCallOrder[0]!)
+    expect(harness.app.setAppLogsPath.mock.invocationCallOrder[0])
+      .toBeLessThan(harness.app.requestSingleInstanceLock.mock.invocationCallOrder[0]!)
+    expect(harness.app.setAsDefaultProtocolClient).toHaveBeenCalledWith(LOCAL_TEST_METADATA.protocol)
+    expect(host.environment).toMatchObject({ DSH_HOME: join(userData, 'dsh'), DSH_AGENTS_HOME: join(userData, 'agents'),
+      VIDEO_HARNESS_DSH_HOME: join(userData, 'dsh') })
+    expect(harness.updateEnabled?.()).toBe(false)
+    writeFileSync(join(root, 'app-update.yml'), 'provider: generic\n')
+    expect(harness.updateEnabled?.()).toBe(false)
+    expect(testAuth.login).not.toHaveBeenCalled()
+  })
+
   it.each([true, false])('selects the package manager before Host startup (packaged=%s)', async (packaged) => {
     harness.app.isPackaged = packaged
     await readyForUpdate()

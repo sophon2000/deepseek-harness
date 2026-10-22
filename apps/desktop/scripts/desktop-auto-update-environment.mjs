@@ -141,6 +141,7 @@ function httpsOrigin(value, name) {
  * @throws {Error} When the test deployment lacks a valid HTTPS origin or a 32-character lowercase hexadecimal release ID.
  */
 export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
+  if (env.DSH_DESKTOP_PACKAGE_FLAVOR !== undefined) throw new Error('local-test: no release or update publication channel')
   const channel = resolveDesktopUpdateChannel(env)
   const environment = resolveDesktopAutoUpdateEnvironment(env)
   const target = resolveDesktopAutoUpdateTarget(platform, arch)

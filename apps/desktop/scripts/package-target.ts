@@ -23,6 +23,7 @@ import { DESKTOP_BUILD_VERSION_ENV, resolveDesktopBuildVersion, validateDesktopB
 import { suggestDesktopBuildVersion } from './desktop-build-version-discovery.ts'
 import { desktopBuildCommitEnvironment, readDesktopBuildCommit, resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { requireDesktopToolchain } from './desktop-toolchain-preflight.ts'
+import { localTestPackageEnvironment } from './local-test-packaging.mjs'
 import { withMacOSNotarizationProxy } from './macos-notarization-proxy.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
@@ -193,6 +194,8 @@ export function resolveDesktopPackageTarget(
 }
 
 interface DesktopPackageInvocation {
+  /** Explicit per-user local product flavor, never an update release. */
+  readonly localTest?: true
   readonly target: DesktopPackageTarget
   readonly directory: boolean
   readonly prepareOnly: boolean
@@ -233,10 +236,14 @@ export function parseDesktopPackageInvocation(
       'skip-notarization': { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
       'build-version': { type: 'string' },
+      'local-test': { type: 'boolean', default: false },
     },
   })
   if (positionals.length > 1) throw new Error('desktop package: expected at most one target')
   const name = positionals[0] ?? hostTargetName(hostPlatform, hostArch)
+  if (values['local-test'] && (name !== 'win-x64' || (!values.unsigned && !values['prepare-only']) || values['skip-notarization'])) {
+    throw new Error('local-test: requires unsigned Windows packaging or explicit preparation')
+  }
   if (values.unsigned && values['prepare-only']) throw new Error('desktop package: --unsigned cannot use --prepare-only')
   if (values['skip-notarization'] && (name === 'win-x64' || values.unsigned || values['prepare-only'])) {
     throw new Error('desktop package: --skip-notarization requires a signed macOS build, without --prepare-only')
@@ -246,10 +253,11 @@ export function parseDesktopPackageInvocation(
     throw new Error('desktop package: --build-version requires a value')
   }
   return {
+    ...(values['local-test'] ? { localTest: true as const } : {}),
     target: resolveDesktopPackageTarget(name, hostPlatform, hostArch),
     directory: values.dir,
     prepareOnly: values['prepare-only'],
-    unsigned: values.unsigned,
+    unsigned: values.unsigned || values['local-test'],
     skipNotarization: values['skip-notarization'],
     check: values.check,
     requestedBuildVersion,
@@ -343,11 +351,13 @@ async function main(): Promise<void> {
   if (invocation.skipNotarization) {
     process.stdout.write('desktop package: skipping notarization and stapling; internal debugging only, not qualified for distribution or update publishing\n')
   }
-  const environment = target.platform === 'darwin' && invocation.unsigned
-    ? localMacOSPackageEnvironment()
-    : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
-      unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
-    })
+  if (!invocation.localTest && process.env.DSH_DESKTOP_PACKAGE_FLAVOR !== undefined) throw new Error('local-test: requires explicit --local-test')
+  const environment = invocation.localTest ? localTestPackageEnvironment(process.env)
+    : target.platform === 'darwin' && invocation.unsigned
+      ? localMacOSPackageEnvironment()
+      : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
+        unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
+      })
   const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   // Release settings come from the selected configuration files, so the version this run publishes is an
   // argument; the environment variable below only carries it to the child processes that build.
@@ -366,6 +376,7 @@ async function main(): Promise<void> {
   const run = createPackagingRun(join(APP_ROOT, '.desktop-build', 'packaging-runs'), {
     target: target.name, unsigned: invocation.unsigned, skipNotarization: invocation.skipNotarization,
     directory: invocation.directory, prepareOnly: invocation.prepareOnly,
+    ...(invocation.localTest ? { flavor: 'local-test' } : {}),
     version: buildVersion, productVersion, node: process.version,
     commit: packaged.commit,
     dirty: packaged.dirty,

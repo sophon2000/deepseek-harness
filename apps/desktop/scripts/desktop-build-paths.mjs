@@ -110,10 +110,14 @@ export function developmentRuntimeDirectory(
 /**
  * Select the output directory and filename suffix for one packaging mode.
  * @param {{ artifacts: string, unsignedArtifacts: string, unnotarizedArtifacts: string }} paths Target artifact directories.
- * @param {{ unsigned: boolean, skipNotarization: boolean }} mode Validated packaging mode.
+ * @param {{ unsigned: boolean, skipNotarization: boolean, localTest?: boolean }} mode Validated packaging mode.
  * @returns {{ directory: string, suffix: string }} Matching artifact destination and filename marker.
  */
 export function desktopArtifactOutput(paths, mode) {
+  if (mode.localTest) {
+    if (!mode.unsigned || mode.skipNotarization) throw new Error('local-test: unsigned output required')
+    return { directory: join(paths.unsignedArtifacts, 'local-test'), suffix: '-local-test-unsigned' }
+  }
   if (mode.unsigned) return { directory: paths.unsignedArtifacts, suffix: '-unsigned' }
   if (mode.skipNotarization) return { directory: paths.unnotarizedArtifacts, suffix: '-unnotarized' }
   return { directory: paths.artifacts, suffix: '' }
