@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -80,6 +80,23 @@ describe('local-test desktop isolation', () => {
     expect(() => configureLocalTestIsolation(input)).toThrow('requires a packaged application')
     expect(input.app.setPath).not.toHaveBeenCalled()
     expect(readdirSync(input.root)).toEqual([])
+  })
+
+  it('passes a canonical OS data path to product preflight while retaining the local-test namespace', () => {
+    const input = fixture()
+    const physicalAppData = join(input.root, 'physical-app-data')
+    const osAppDataAlias = join(input.root, 'os-app-data')
+    mkdirSync(physicalAppData)
+    symlinkSync(physicalAppData, osAppDataAlias, process.platform === 'win32' ? 'junction' : 'dir')
+    input.paths.set('appData', osAppDataAlias)
+    configureLocalTestIsolation(input)
+    const canonical = realpathSync(join(physicalAppData, LOCAL_TEST_METADATA.homeName))
+    expect(input.paths.get('userData')).toBe(canonical)
+    expect(input.paths.get('sessionData')).toBe(join(canonical, 'session-data'))
+    expect(input.environment.DSH_HOME).toBe(join(canonical, 'dsh'))
+    expect(input.environment.DSH_AGENTS_HOME).toBe(join(canonical, 'agents'))
+    expect(input.environment.VIDEO_HARNESS_DSH_HOME).toBe(join(canonical, 'dsh'))
+    expect(readdirSync(physicalAppData)).toEqual([LOCAL_TEST_METADATA.homeName])
   })
 
   it.each(['', 'session-data', 'Crashpad', 'dsh', 'agents'])('rejects a redirected test data directory %s before changing paths', (child) => {

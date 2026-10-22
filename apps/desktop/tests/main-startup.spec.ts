@@ -513,6 +513,11 @@ describe('desktop main startup', () => {
     writeFileSync(join(root, 'app-update.yml'), 'provider: generic\n')
     expect(harness.updateEnabled?.()).toBe(false)
     expect(testAuth.login).not.toHaveBeenCalled()
+    expect(invoke(MANDATORY_IPC.status, 'app')).toMatchObject({
+      policy: { blocking: false, checking: false }, deferred: false,
+    })
+    expect(() => invoke(MANDATORY_IPC.status, 'foreign')).toThrow()
+    expect(harness.handlers.has(MANDATORY_IPC.action)).toBe(false)
   })
 
   it.each([true, false])('selects the package manager before Host startup (packaged=%s)', async (packaged) => {

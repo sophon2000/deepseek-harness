@@ -1,7 +1,7 @@
 /** Startup isolation for explicitly marked, packaged local single-user builds. */
 
-import { lstatSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { lstatSync, mkdirSync, realpathSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import type { App } from 'electron'
 import { assertLocalTestRuntimeProduct, readLocalTestPackage, type LocalTestMetadata } from './local-test-package.mjs'
 import { readDesktopRuntime } from './runtime-tree.ts'
@@ -37,7 +37,24 @@ export function configureLocalTestIsolation(input: LocalTestIsolationInput): Loc
   }
   const { product } = readDesktopRuntime(join(input.resourcesPath, 'dsh'))
   assertLocalTestRuntimeProduct(product)
-  const userData = join(app.getPath('appData'), metadata.homeName)
+  const requestedUserData = join(app.getPath('appData'), metadata.homeName)
+  for (const directory of [requestedUserData, ...['session-data', 'Crashpad', 'dsh', 'agents'].map(name => join(requestedUserData, name))]) {
+    const existing = lstatSync(directory, { throwIfNoEntry: false })
+    if (existing !== undefined && (existing.isSymbolicLink() || !existing.isDirectory())) {
+      throw new Error(`desktop local test: data directory must not be a link or non-directory: ${directory}`)
+    }
+  }
+  mkdirSync(requestedUserData, { recursive: true })
+  // Windows packaged launchers may virtualize Roaming without a reparse point.
+  // Pass the actual OS-owned directory to the product's strict canonical-path checks.
+  const userData = realpathSync(requestedUserData)
+  const requestedIdentity = lstatSync(requestedUserData, { bigint: true })
+  const canonicalIdentity = lstatSync(userData, { bigint: true })
+  if (basename(userData) !== metadata.homeName || requestedIdentity.isSymbolicLink()
+    || !requestedIdentity.isDirectory() || canonicalIdentity.isSymbolicLink() || !canonicalIdentity.isDirectory()
+    || requestedIdentity.dev !== canonicalIdentity.dev || requestedIdentity.ino !== canonicalIdentity.ino) {
+    throw new Error('desktop local test: canonical data directory identity differs')
+  }
   const sessionData = join(userData, 'session-data')
   const crashDumps = join(userData, 'Crashpad')
   const dshHome = join(userData, 'dsh')
@@ -45,7 +62,7 @@ export function configureLocalTestIsolation(input: LocalTestIsolationInput): Loc
   for (const directory of [userData, sessionData, crashDumps, dshHome, agentsHome]) {
     const existing = lstatSync(directory, { throwIfNoEntry: false })
     if (existing !== undefined && (existing.isSymbolicLink() || !existing.isDirectory())) {
-      throw new Error(`desktop local test: data directory must not be a link or non-directory: ${directory}`)
+      throw new Error(`desktop local test: canonical data directory must not be a link or non-directory: ${directory}`)
     }
   }
   for (const directory of [userData, sessionData, crashDumps]) mkdirSync(directory, { recursive: true })

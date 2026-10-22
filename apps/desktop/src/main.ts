@@ -52,7 +52,8 @@ import { desktopErrorState } from './startup-error.ts'
 import { readDesktopLoginShellEnvironment, resolveDesktopLoginShellConfig } from './login-shell-environment.ts'
 import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig, type DesktopPolicyState } from './mandatory-update-policy.ts'
 import { desktopClientMetadata, desktopClientVersion } from './client-metadata.ts'
-import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
+import { DesktopMandatoryUpdateWindow, type MandatoryUpdateView } from './mandatory-update-window.ts'
+import { MANDATORY_IPC } from './mandatory-update-ipc.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { readDesktopSettings } from './settings.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
@@ -1340,6 +1341,13 @@ async function main(manifest: unknown, localTest: LocalTestMetadata | undefined)
     void mandatoryPolicy.check('launch').then((state) => {
       if (app.isPackaged && state.error === 'authentication-required' && !isQuitting()) queuePolicyAuthentication()
     }).catch((error: unknown) => { console.error(error) })
+  } else if (localTest !== undefined) {
+    // The Windows preload still queries its overlay; no test update service exists.
+    ipcMain.handle(MANDATORY_IPC.status, (event): MandatoryUpdateView => {
+      assertProductSender(event)
+      return { locale, policy: { blocking: false, checking: false }, update: updates.state, deferred: false }
+    })
+    app.once('will-quit', () => { ipcMain.removeHandler(MANDATORY_IPC.status) })
   }
   automaticCheck()
   await reconcileBackend().catch(() => undefined)
