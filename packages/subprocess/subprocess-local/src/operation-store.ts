@@ -132,7 +132,9 @@ function recordValue(value: unknown): WindowsOperationRecord {
 
 /** Provider-owned private storage, pinned against ancestor rename and reparse replacement. */
 export class WindowsOperationStore {
+  /** Pinned absolute local store path used by authenticated records and runner admission. */
   readonly root: string
+  /** Installation identity derived from this machine's DPAPI-protected random key. */
   readonly machine: string
   private readonly pins: NativePtr[] = []
   private key: Buffer = Buffer.alloc(0)
@@ -155,7 +157,7 @@ export class WindowsOperationStore {
       for (const ancestor of parents) this.pins.push(checkedFile(api, ancestor, false, false, true))
       let created = false
       if (create) {
-        const result = withSecurity(api, `O:${this.sid}D:P(A;OICI;FA;;;${this.sid})`, attributes => {
+        const result = withSecurity(api, `O:${this.sid}D:P(A;OICI;FA;;;${this.sid})`, (attributes) => {
           const success = api.createDirectory(this.root, attributes) !== 0
           return { success, error: api.getLastError() }
         })
@@ -178,8 +180,12 @@ export class WindowsOperationStore {
 
   /** Release only handles owned by this store instance. */
   dispose(): void {
-    for (const handle of this.pins.splice(0).reverse()) close(this.api, handle)
+    const failures: unknown[] = []
+    for (const handle of this.pins.splice(0).reverse()) {
+      try { close(this.api, handle) } catch (error) { failures.push(error) }
+    }
     this.key.fill(0)
+    if (failures.length > 0) throw new AggregateError(failures, 'Operation store handle release failed')
   }
 
   /**
@@ -188,7 +194,7 @@ export class WindowsOperationStore {
    * @returns an exclusively initialized kill-on-close Job handle.
    */
   createJob(name: string): NativePtr {
-    const job = withSecurity(this.api, `O:${this.sid}D:P(A;;GA;;;${this.sid})`, attributes => {
+    const job = withSecurity(this.api, `O:${this.sid}D:P(A;;GA;;;${this.sid})`, (attributes) => {
       const handle = this.api.createNamedJob(attributes, name)
       const error = this.api.getLastError()
       if (isNullPtr(handle)) throwLastError(this.api, 'CreateJobObjectW')
@@ -231,7 +237,11 @@ export class WindowsOperationStore {
    * @param expected - independently derived consumer owner.
    * @returns the authenticated identity for this installation and root.
    */
-  authenticate(handle: NativePtr, descriptor: SubprocessOperationDescriptor, expected: SubprocessOperationOwnerKey): WindowsOperationRecord {
+  authenticate(
+    handle: NativePtr,
+    descriptor: SubprocessOperationDescriptor,
+    expected: SubprocessOperationOwnerKey,
+  ): WindowsOperationRecord {
     const value: unknown = JSON.parse(read(this.api, handle).toString('utf8'))
     if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid operation envelope')
     const envelope = value as Record<string, unknown>

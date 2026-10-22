@@ -320,7 +320,9 @@ class WindowsJobRunner {
       }
       const spawned = request.operation === undefined
         ? this.internals.spawnCurrentTokenJobProcess(this.api, options)
-        : await (this.internals.launchWindowsOperationTarget ?? launchWindowsOperationTarget)(request.operation, options, () => this.finished || this.terminateRequested)
+        : await (this.internals.launchWindowsOperationTarget ?? launchWindowsOperationTarget)(
+          request.operation, options, () => this.finished || this.terminateRequested,
+        )
       this.processHandle = spawned.process
       this.jobHandle = spawned.job
       for (const fileDescriptor of request.control === 'pipe' ? [4, 5, 6, SUBPROCESS_CONTROL_FD] : [4, 5, 6]) {

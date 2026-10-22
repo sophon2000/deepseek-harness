@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import koffi from 'koffi'
-import { loadWin32OperationBindings, closeHandleChecked, type NativePtr, type Win32OperationBindings } from '@deepseek-ai/dsh-win32-process'
+import { loadWin32OperationBindings as loadOperationBindings, closeHandleChecked, type NativePtr, type Win32OperationBindings } from '@deepseek-ai/dsh-win32-process'
 import { UnsupportedSubprocessOperations } from '@deepseek-ai/dsh-subprocess'
-import type { SubprocessOperationOwnerKey, SubprocessOperationProvider, SubprocessOperationRecovery, SubprocessOperationScope, SubprocessQuiescenceProof } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessOperationDescriptor, SubprocessOperationOwnerKey, SubprocessOperationProvider, SubprocessOperationRecovery, SubprocessOperationScope, SubprocessQuiescenceProof } from '@deepseek-ai/dsh-subprocess'
 import { WindowsOperationProvider, launchWindowsOperationTarget } from '../src/windows-operations.ts'
 import { WindowsOperationStore } from '../src/operation-store.ts'
 import { launchWindowsJob } from '../src/windows-job.ts'
@@ -18,6 +18,16 @@ const owner = 'test-home-nonce/project/render/receipt' as SubprocessOperationOwn
 const foreignOwner = 'test-home-nonce/project/render/other-receipt' as SubprocessOperationOwnerKey
 const providers: SubprocessOperationProvider[] = []
 const directories: string[] = []
+const expectedDisposalFailures = new Set<SubprocessOperationProvider>()
+
+interface TestOperationBindings extends Win32OperationBindings {
+  openProcess(access: number, inherit: number, pid: number): NativePtr | null
+}
+
+function loadWin32OperationBindings(): TestOperationBindings {
+  const openProcess = koffi.load('kernel32.dll').func('__stdcall', 'OpenProcess', 'void *', ['uint32', 'int', 'uint32'])
+  return { ...loadOperationBindings(), openProcess: openProcess as TestOperationBindings['openProcess'] }
+}
 
 function provider(api = loadWin32OperationBindings(), root?: string): WindowsOperationProvider {
   const parent = root ?? mkdtempSync(join(process.cwd(), 'operation-native-test-'))
@@ -74,7 +84,7 @@ function crashHost(mode: string) {
   })
   const killHost = async (): Promise<void> => {
     if (host.exitCode !== null || host.signalCode !== null) return
-    const exited = new Promise<void>(resolve => { host.once('exit', () => { resolve() }) })
+    const exited = new Promise<void>((resolve) => { host.once('exit', () => { resolve() }) })
     host.kill('SIGKILL')
     await exited
   }
@@ -99,13 +109,41 @@ function crashHost(mode: string) {
 }
 
 afterEach(async () => {
-  for (const p of providers.splice(0)) await p.dispose().catch((_expectedInjectedFailure) => {
-    // Fault-injection cases intentionally leave unverifiable seals; disposal still closes owned Jobs.
-  })
+  for (const p of providers.splice(0)) {
+    if (expectedDisposalFailures.delete(p)) await expect(p.dispose()).rejects.toThrow('could not prove quiescence')
+    else await p.dispose()
+  }
   for (const path of directories.splice(0)) rmSync(path, { recursive: true })
 })
 
 describe.skipIf(process.platform !== 'win32')('native Windows operation recovery', () => {
+  it('loads the actual service from cordis.yml and verifies a real operation through its public factory', async () => {
+    const parent = mkdtempSync(join(process.cwd(), 'operation-native-test-'))
+    directories.push(parent)
+    const config = join(parent, 'cordis.yml')
+    const result = join(parent, 'result.json')
+    writeFileSync(config, `- id: operations\n  name: ${JSON.stringify(pathToFileURL(fileURLToPath(new URL('../src/index.ts', import.meta.url))).href)}\n`)
+    const child = spawn(process.execPath, ['--import', import.meta.resolve('tsx/esm'),
+      fileURLToPath(new URL('./fixtures/operation-loader-host.ts', import.meta.url)), config, join(parent, 'store'), result], {
+      cwd: process.cwd(), windowsHide: true, env: targetEnvironment(spec()), stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+    child.stderr.on('data', (bytes: Buffer) => { stderr += bytes.toString() })
+    try {
+      const exit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+        child.once('error', reject)
+        child.once('exit', (code, signal) => { resolve({ code, signal }) })
+      })
+      expect(exit, stderr).toEqual({ code: 0, signal: null })
+      expect(JSON.parse(readFileSync(result, 'utf8'))).toEqual({ exitCode: 0, output: 'loader-operation', verified: true })
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = new Promise<void>((resolve) => { child.once('exit', () => { resolve() }) })
+        child.kill('SIGKILL')
+        await exited
+      }
+    }
+  })
   it('creates without launching, persists identity, and issues only instance-bound proof', async () => {
     const p = provider()
     const s = await scope(p)
@@ -203,8 +241,11 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
   it('withholds proof on a failed native query', async () => {
     const native = loadWin32OperationBindings()
     const p = provider({ ...native, queryInformationJobObject: () => 0, getLastError: () => 5 })
+    expectedDisposalFailures.add(p)
     const s = await scope(p)
-    const retained = native.openJob(0x0F, 0, JSON.parse(JSON.parse(readFileSync(join(directories[0]!, 'store', `${s.descriptor.locator}.admission`), 'utf8')).payload).job)!
+    const envelope = JSON.parse(readFileSync(join(directories[0]!, 'store', `${s.descriptor.locator}.admission`), 'utf8')) as { payload: string }
+    const record = JSON.parse(envelope.payload) as { job: string }
+    const retained = native.openJob(0x0F, 0, record.job)!
     try { expect(await p.recover(s.descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' }) }
     finally { closeHandleChecked(native, retained, 'test retained query owner') }
   })
@@ -230,6 +271,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     const native = loadWin32OperationBindings()
     let fail = false
     const p = provider({ ...native, writeOperationFile: (...args) => fail ? 0 : native.writeOperationFile(...args) })
+    expectedDisposalFailures.add(p)
     const s = await scope(p)
     fail = true
     expect(await p.recover(s.descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'store-failure' })
@@ -261,11 +303,83 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     await quiescent(native, s)
   })
 
+  it('retains integrity failure without opening any Job when authenticated identity bytes are changed', async () => {
+    const native = loadWin32OperationBindings()
+    let opens = 0
+    const p = provider({ ...native, openJob: (...args) => { opens++; return native.openJob(...args) } })
+    expectedDisposalFailures.add(p)
+    const s = await scope(p)
+    const path = join(directories[0]!, 'store', `${s.descriptor.locator}.admission`)
+    const envelope = JSON.parse(readFileSync(path, 'utf8')) as { payload: string; mac: string }
+    const data = JSON.parse(envelope.payload) as Record<string, unknown>
+    data.ownerKey = foreignOwner
+    envelope.payload = JSON.stringify(data)
+    writeFileSync(path, JSON.stringify(envelope))
+    expect(await p.recover(s.descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'identity-mismatch' })
+    expect(opens).toBe(0)
+  })
+
+  it('rejects an existing broad directory without changing its ACL or launching anything', async () => {
+    const parent = mkdtempSync(join(process.cwd(), 'operation-native-test-'))
+    directories.push(parent)
+    mkdirSync(join(parent, 'store'))
+    const p = provider(loadWin32OperationBindings(), parent)
+    await expect(p.create(owner)).rejects.toThrow('DACL is not private')
+    expect(existsSync(join(parent, 'store', 'machine-key'))).toBe(false)
+  })
+
+  it('aborts observation without reopening a later committed seal', async () => {
+    const p = provider()
+    const s = await scope(p)
+    const aborted = AbortSignal.abort('test wait cancellation')
+    expect(await s.seal(aborted)).toMatchObject({ kind: 'active', sealed: false, reason: 'aborted' })
+    const first = s.spawn(spec())
+    expect((await first.done).exitCode).toBe(0)
+    expect(await first.waitForExit()).toBe(true)
+    await quiescent(p, s)
+    expect(await s.seal(aborted)).toMatchObject({ kind: 'active', reason: 'aborted' })
+    expect(() => s.spawn(spec())).toThrow('sealed')
+    await quiescent(p, s)
+  })
+
+  it('terminates two concurrent launches under the same permanent operation seal', async () => {
+    const p = provider()
+    const s = await scope(p)
+    const handles = [s.spawn(spec('console.log("ready");setInterval(()=>{},1000)')),
+      s.spawn(spec('console.log("ready");setInterval(()=>{},1000)'))]
+    for (const handle of handles) {
+      await expect.poll(() => handle.collected.stdout?.readFrom(0).text.includes('ready'), { timeout: 5000 }).toBe(true)
+    }
+    await quiescent(p, s)
+    for (const handle of handles) {
+      expect((await handle.done).exitCode).toBe(1)
+      expect(await handle.waitForExit()).toBe(true)
+    }
+  })
+
+  it('never consults a reused or unrelated PID to recover a legacy or unsupported locator', async () => {
+    const native = loadWin32OperationBindings()
+    const p = provider({ ...native, openProcess: () => { throw new Error('PID lookup is forbidden in recovery') } })
+    const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { windowsHide: true, stdio: 'ignore', env: targetEnvironment(spec()) })
+    try {
+      await new Promise<void>((resolve, reject) => { unrelated.once('spawn', resolve); unrelated.once('error', reject) })
+      expect(await p.recover(undefined, owner)).toMatchObject({ kind: 'unverifiable', reason: 'legacy-no-scope' })
+      expect(await p.recover({ providerKind: 'legacy-pid', providerVersion: 0,
+        locator: String(unrelated.pid) as SubprocessOperationScope['descriptor']['locator'], ownerKey: owner }, owner)).toMatchObject({ kind: 'unsupported' })
+      expect(unrelated.exitCode).toBeNull()
+      expect(unrelated.killed).toBe(false)
+    } finally {
+      const exited = new Promise<void>((resolve) => { unrelated.once('exit', () => { resolve() }) })
+      unrelated.kill('SIGKILL')
+      await exited
+    }
+  })
+
   it('cold-recovers a durable reservation after the Host dies before launching any runner', async () => {
     const fixture = crashHost('reservation-only')
     try {
       await fixture.message('reserved')
-      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8'))
+      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8')) as SubprocessOperationDescriptor
       await fixture.kill()
       const cold = provider(loadWin32OperationBindings(), fixture.parent)
       const result = await cold.recover(descriptor, owner)
@@ -274,14 +388,80 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     } finally { await fixture.cleanup() }
   })
 
+  it('cold-recovers the default runner and target when Host death closes their parent-owned Jobs', async () => {
+    const fixture = crashHost('live-default')
+    const api = loadWin32OperationBindings()
+    let child: NativePtr | null = null
+    let runner: NativePtr | null = null
+    try {
+      await fixture.message('reserved')
+      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8')) as SubprocessOperationDescriptor
+      fixture.host.send('launch')
+      const message = await fixture.message('runner')
+      await expect.poll(() => existsSync(fixture.checkpoint), { timeout: 5000 }).toBe(true)
+      child = api.openProcess(0x101001, 0, Number(readFileSync(fixture.checkpoint, 'utf8')))
+      runner = api.openProcess(0x101001, 0, message.pid as number)
+      expect(child).toBeTruthy()
+      expect(runner).toBeTruthy()
+      expect(api.waitForSingleObject(child!, 0)).toBe(258)
+      await fixture.kill()
+      expect(api.waitForSingleObject(runner!, 5000)).toBe(0)
+      expect(api.waitForSingleObject(child!, 5000)).toBe(0)
+      const cold = provider(api, fixture.parent)
+      const result = await quiescent(cold, { descriptor })
+      expect(cold.verify(result.proof, descriptor, owner)).toBe(true)
+    } finally {
+      await fixture.cleanup()
+      if (runner) closeHandleChecked(api, runner, 'default runner observation')
+      if (child) closeHandleChecked(api, child, 'default target observation')
+    }
+  })
+
+  it('withholds proof when the native boot layout is unsupported', async () => {
+    const native = loadWin32OperationBindings()
+    const p = provider(native)
+    const s = await scope(p)
+    let opens = 0
+    const unknown = provider({ ...native,
+      systemInformation: (_cls, _information, _length, returned) => { returned.writeUInt32LE(16); return 0 },
+      openJob: (...args) => { opens++; return native.openJob(...args) },
+    }, directories[0])
+    expect(await unknown.recover(s.descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
+    expect(opens).toBe(0)
+    await quiescent(p, s)
+  })
+
+  it('releases admission and withholds proof if closing the native observation handle fails', async () => {
+    const native = loadWin32OperationBindings()
+    let observation: NativePtr | null = null
+    let failed = false
+    const p = provider({ ...native,
+      openJob: (...args) => { observation = native.openJob(...args); return observation },
+      closeHandle: (handle) => {
+        if (handle === observation && !failed) { failed = true; return 0 }
+        return native.closeHandle(handle)
+      },
+    })
+    const s = await scope(p)
+    try {
+      expect(await p.recover(s.descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
+      const store = new WindowsOperationStore(native, join(directories[0]!, 'store'), false)
+      try {
+        const lock = store.lock(s.descriptor.locator)
+        closeHandleChecked(native, lock, 'admission after observation close failure')
+      } finally { store.dispose() }
+    } finally { if (observation) closeHandleChecked(native, observation, 'injected unclosed observation handle') }
+    await quiescent(p, s)
+  })
+
   it('recovers when Host and runner die after atomic creation but before initial resume', async () => {
     const fixture = crashHost('atomic-crash')
     const api = loadWin32OperationBindings()
-    let child: ReturnType<Win32OperationBindings['openProcess']> = null
-    let runner: ReturnType<Win32OperationBindings['openProcess']> = null
+    let child: ReturnType<TestOperationBindings['openProcess']> = null
+    let runner: ReturnType<TestOperationBindings['openProcess']> = null
     try {
       await fixture.message('reserved')
-      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8'))
+      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8')) as SubprocessOperationDescriptor
       fixture.host.send('launch')
       const runnerMessage = await fixture.message('runner')
       await expect.poll(() => existsSync(fixture.checkpoint), { timeout: 5000 }).toBe(true)
@@ -295,10 +475,12 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
       expect(api.waitForSingleObject(child!, 0)).toBe(258)
       expect(api.waitForSingleObject(runner!, 0)).toBe(258)
       const kernel = koffi.load('kernel32.dll')
-      const openThread = kernel.func('__stdcall', 'OpenThread', 'void *', ['uint32', 'int', 'uint32'])
-      const suspendThread = kernel.func('__stdcall', 'SuspendThread', 'uint32', ['void *'])
+      const openThread = kernel.func('__stdcall', 'OpenThread', 'void *', ['uint32', 'int', 'uint32']) as
+        (access: number, inherit: number, id: number) => NativePtr | null
+      const suspendThread = kernel.func('__stdcall', 'SuspendThread', 'uint32', ['void *']) as (handle: NativePtr) => number
       const thread = openThread(0x42, 0, creation.creatorThread)
       expect(thread).toBeTruthy()
+      if (thread === null) throw new Error('Unable to retain fixture creator thread')
       try { expect(suspendThread(thread)).not.toBe(0xFFFFFFFF) }
       finally { api.closeHandle(thread) }
       const before = provider(api, fixture.parent)
@@ -324,7 +506,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     const fixture = crashHost('seal-crash')
     try {
       await fixture.message('reserved')
-      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8'))
+      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8')) as SubprocessOperationDescriptor
       fixture.host.send('seal')
       await expect.poll(() => existsSync(fixture.checkpoint), { timeout: 5000 }).toBe(true)
       expect(readFileSync(fixture.checkpoint, 'utf8')).toBe('durable-seal-committed')
@@ -339,10 +521,10 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
   it('proves a permanently sealed empty Job while a runner is paused after releasing launch admission', async () => {
     const fixture = crashHost('tail-proof')
     const api = loadWin32OperationBindings()
-    let runner: ReturnType<Win32OperationBindings['openProcess']> = null
+    let runner: ReturnType<TestOperationBindings['openProcess']> = null
     try {
       await fixture.message('reserved')
-      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8'))
+      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8')) as SubprocessOperationDescriptor
       fixture.host.send('launch')
       const runnerMessage = await fixture.message('runner')
       await expect.poll(() => existsSync(fixture.checkpoint), { timeout: 5000 }).toBe(true)

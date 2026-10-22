@@ -587,7 +587,11 @@ export function spawnCurrentTokenJobProcess(
  * @param operationJob - authenticated, already-open operation Job under the durable admission lock.
  * @returns runner-owned per-child Job and process handles; the operation Job remains caller-owned.
  */
-export function spawnCurrentTokenOperationProcess(api: Win32OperationBindings, options: CurrentTokenProcessSpawnOptions, operationJob: NativePtr): SpawnedJobProcess {
+export function spawnCurrentTokenOperationProcess(
+  api: Win32OperationBindings,
+  options: CurrentTokenProcessSpawnOptions,
+  operationJob: NativePtr,
+): SpawnedJobProcess {
   const environment = encodeWindowsEnvironment(options.env)
   return spawnJobProcess(api, options, () => targetCarrierHandles(api, options.stdio), 'CreateProcessW', (startup, info) =>
     api.createProcessW(options.applicationName, buildCommandLine(options.command, options.args), null, null, 1,

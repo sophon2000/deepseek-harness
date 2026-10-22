@@ -28,7 +28,7 @@ function pauseNativeCreator(): void {
 
 const [mode, storePath, descriptorPath, checkpoint] = process.argv.slice(2)
 if (mode === 'runner' || mode === 'runner-tail') {
-  const currentThreadId = koffi.load('kernel32.dll').func('__stdcall', 'GetCurrentThreadId', 'uint32', [])
+  const currentThreadId = koffi.load('kernel32.dll').func('__stdcall', 'GetCurrentThreadId', 'uint32', []) as () => number
   const native = loadWin32OperationBindings()
   const selection = consumeRunnerSelection()
   if (selection === undefined || storePath === undefined) throw new Error('Missing runner selection or checkpoint')
@@ -51,7 +51,7 @@ if (mode === 'runner' || mode === 'runner-tail') {
         if (args[0].endsWith('.admission')) admission = handle
         return handle
       },
-      closeHandle: handle => {
+      closeHandle: (handle) => {
         const result = native.closeHandle(handle)
         if (mode === 'runner-tail' && childPid !== undefined && handle === admission && result !== 0) {
           admission = null
@@ -94,7 +94,7 @@ if (mode === 'runner' || mode === 'runner-tail') {
         return runner
       },
     }), prepareManagedProcessBinding())
-  }, { ...native, flushFile: handle => {
+  }, { ...native, flushFile: (handle) => {
     const result = native.flushFile(handle)
     if (pauseSeal && result !== 0) {
       writeFileSync(checkpoint, 'durable-seal-committed', { flush: true })
@@ -106,7 +106,7 @@ if (mode === 'runner' || mode === 'runner-tail') {
   const scope = created.scope
   writeFileSync(descriptorPath, JSON.stringify(scope.descriptor), { flag: 'wx', flush: true })
   process.send?.({ type: 'reserved', descriptor: scope.descriptor })
-  process.on('message', value => {
+  process.on('message', (value) => {
     if (value === 'seal') { pauseSeal = true; void scope.seal(); return }
     if (value !== 'launch') return
     const code = mode === 'atomic-crash' ? 'setTimeout(()=>{},30000)' : mode === 'tail-proof' ? 'process.exit(0)' :
@@ -114,6 +114,6 @@ if (mode === 'runner' || mode === 'runner-tail') {
     const handle = scope.spawn({ argv: [process.execPath, '-e', code], cwd: process.cwd(), graceMs: 1000,
       stdio: { stdin: 'ignore', stdout: { maxBytes: 1024 }, stderr: { maxBytes: 1024 } } })
     void handle.done.catch((error: unknown) => { process.send?.({ type: 'target-error', detail: String(error) }) })
-    void handle.waitForExit().catch((_crashExpected) => {})
+    void handle.waitForExit().catch((_crashExpected: unknown) => {})
   })
 }

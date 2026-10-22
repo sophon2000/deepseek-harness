@@ -12,14 +12,14 @@
   en: 808834698df1b0d9
   zh: 84126117b9251474
 /agent-note-recoverable-local-subprocess-operations/proposal/interface-draft:
-  en: 84717e65d5b6ec27
-  zh: 4ff1c48f39cfbd7c
+  en: cf5f7894ec1940ac
+  zh: 879f6688ab808261
 /agent-note-recoverable-local-subprocess-operations/proposal/windows-admission-and-observation:
-  en: e887cea052d1b16f
-  zh: 063f2e7e93d53b19
-/agent-note-recoverable-local-subprocess-operations/proposal/current-capability-audit:
-  en: 50872c7817bdf346
-  zh: 5fcbb23139adf684
+  en: a3b00405c21a8e51
+  zh: 6ec8900377bac1b7
+/agent-note-recoverable-local-subprocess-operations/proposal/baseline-capability-audit:
+  en: 5bc62d707bbe643a
+  zh: 1a330df3bdf1c621
 /agent-note-recoverable-local-subprocess-operations/proposal/host-coordination:
   en: 33a98006bfa49c94
   zh: f84f2525476a5154
@@ -30,8 +30,8 @@
   en: acc6cf3c35db28ff
   zh: adb1fc1d7f6134df
 /agent-note-recoverable-local-subprocess-operations/acceptance-criteria:
-  en: f45149f8689d903e
-  zh: 6846445ea0f28152
+  en: 761574d27cda90b9
+  zh: 9e106c205470da5f
 /agent-note-recoverable-local-subprocess-operations/risks:
   en: bad768018ae4c08c
   zh: a884d35bb7047ffb

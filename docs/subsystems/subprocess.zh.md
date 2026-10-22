@@ -285,6 +285,13 @@ Implementations must honor these semantics:
 
 ```ts cordis-catalog
 /**
+ * Select opt-in durable operation ownership without launching processes.
+ * @param _options - trusted storage configuration, unused by an unsupported provider.
+ * @returns an unsupported provider unless this execution world implements recovery.
+ */
+operationProvider(_options: SubprocessOperationProviderOptions): SubprocessOperationProvider
+
+/**
  * Resolve one configured executable in this provider's execution world.
  * Absolute paths are verified; bare names use the provider's scrubbed PATH
  * plus explicit environment overrides. Relative paths containing separators

@@ -2,6 +2,7 @@
 
 import { controlPipe } from './control-spawn.ts'
 import { spawn } from 'node:child_process'
+import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import { devNull } from 'node:os'
 import type { Readable, Writable } from 'node:stream'
@@ -30,7 +31,7 @@ import type { WindowsOperationLaunch } from './windows-operations.ts'
 /** Test seams for runner launch and dynamic capability checks. */
 export interface WindowsJobInternals {
   operation?: WindowsOperationLaunch
-  spawn?: typeof spawn
+  spawn?: (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess
   runnerInvocation?: RunnerInvocation
   resolveRunnerInvocation?: () => RunnerInvocation
   runnerAvailable?: (invocation: RunnerInvocation) => boolean

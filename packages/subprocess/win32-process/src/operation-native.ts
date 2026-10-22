@@ -1,6 +1,6 @@
 /** Native primitives for private durable operation stores and atomic Job-list creation. */
 
-import { extendWin32ProcessBindings, isNullPtr, throwLastError, type NativePtr } from './ffi.ts'
+import { extendWin32ProcessBindings, isNullPtr, throwLastError, type CurrentTokenProcessBindings, type NativePtr } from './ffi.ts'
 import { requireKoffi } from './koffi.ts'
 import * as abi from './abi.ts'
 
@@ -9,9 +9,13 @@ export interface Win32OperationExtension {
   createNamedJob(attributes: Buffer | null, name: string): NativePtr | null
   openJob(access: number, inherit: number, name: string): NativePtr | null
   initializeAttributes(list: NativePtr | null, count: number, flags: number, size: Buffer): number
-  updateAttribute(list: NativePtr, flags: number, attribute: number, value: Buffer | NativePtr, size: number, previous: null, returned: null): number
+  updateAttribute(
+    list: NativePtr, flags: number, attribute: number, value: Buffer | NativePtr, size: number, previous: null, returned: null,
+  ): number
   deleteAttributes(list: NativePtr): void
-  createFile(path: string, access: number, share: number, security: null, disposition: number, flags: number, template: null): NativePtr | null
+  createFile(
+    path: string, access: number, share: number, security: null, disposition: number, flags: number, template: null,
+  ): NativePtr | null
   createDirectory(path: string, security: Buffer): number
   fileInformation(handle: NativePtr, information: Buffer): number
   readOperationFile(handle: NativePtr, buffer: Buffer, length: number, read: Buffer, overlapped: null): number
@@ -30,12 +34,11 @@ export interface Win32OperationExtension {
   localFree(pointer: NativePtr): NativePtr | null
   systemInformation(cls: number, information: Buffer, length: number, returned: Buffer): number
   processSession(pid: number, session: Buffer): number
-  openProcess(access: number, inherit: number, pid: number): NativePtr | null
   driveType(root: string): number
 }
 
 /** Complete current-token binding table for recoverable operations. */
-export type Win32OperationBindings = ReturnType<typeof loadWin32OperationBindings>
+export type Win32OperationBindings = CurrentTokenProcessBindings & Win32OperationExtension
 
 /**
  * Decode an output slot containing a native, null-terminated UTF-16 string pointer.
@@ -50,7 +53,7 @@ export function decodeWindowsStringPointer(slot: Buffer): string {
  * Load operation-specific native APIs without launching probes or changing system state.
  * @returns current-token bindings extended with file, security, identity, and Job-list APIs.
  */
-export function loadWin32OperationBindings() {
+export function loadWin32OperationBindings(): Win32OperationBindings {
   return extendWin32ProcessBindings<Win32OperationExtension>(({ kernel32, advapi32, bind }) => {
     const koffi = requireKoffi()
     const pointer = koffi.pointer('void')
@@ -81,7 +84,6 @@ export function loadWin32OperationBindings() {
       localFree: bind(kernel32, 'LocalFree', pointer, [pointer]),
       systemInformation: bind(ntdll, 'NtQuerySystemInformation', 'int32', ['int', pointer, 'uint32', pointer]),
       processSession: bind(kernel32, 'ProcessIdToSessionId', 'int', ['uint32', pointer]),
-      openProcess: bind(kernel32, 'OpenProcess', pointer, ['uint32', 'int', 'uint32']),
       driveType: bind(kernel32, 'GetDriveTypeW', 'uint32', ['str16']),
     } as Win32OperationExtension
   })
@@ -143,7 +145,12 @@ export function windowsMachineProtection(api: Win32OperationBindings, bytes: Buf
  * @param create - synchronous CreateProcess call receiving STARTUPINFOEXW.
  * @returns the native CreateProcess result without post-create assignment.
  */
-export function withAtomicJobList(api: Win32OperationBindings, startup: NativePtr, jobs: readonly NativePtr[], create: (extended: NativePtr) => number): number {
+export function withAtomicJobList(
+  api: Win32OperationBindings,
+  startup: NativePtr,
+  jobs: readonly NativePtr[],
+  create: (extended: NativePtr) => number,
+): number {
   const koffi = requireKoffi()
   const size = Buffer.alloc(8)
   if (api.initializeAttributes(null, 1, 0, size) !== 0 || api.getLastError() !== 122) throwLastError(api, 'InitializeProcThreadAttributeList')

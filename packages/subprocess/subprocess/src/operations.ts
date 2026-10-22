@@ -30,7 +30,12 @@ export type SubprocessRecoveryFailure =
 /** Only provider-verified sealed-quiescent permits consumer reconciliation. */
 export type SubprocessOperationRecovery =
   | { readonly kind: 'sealed-quiescent'; readonly proof: SubprocessQuiescenceProof }
-  | { readonly kind: 'active'; readonly sealed: boolean; readonly reason: 'busy' | 'aborted' | 'draining' }
+  | {
+    readonly kind: 'active'
+    /** True confirms this attempt durably sealed admission; false leaves seal state unconfirmed. */
+    readonly sealed: boolean
+    readonly reason: 'busy' | 'aborted' | 'draining'
+  }
   | { readonly kind: 'unverifiable'; readonly reason: SubprocessRecoveryFailure; readonly detail: string }
   | { readonly kind: 'unsupported'; readonly providerKind: string; readonly providerVersion: number }
 
@@ -75,7 +80,11 @@ export interface SubprocessOperationProvider {
    * @param signal - optional wait cancellation; committed seals remain permanent.
    * @returns fresh native evidence or a state retaining the reservation.
    */
-  recover(descriptor: SubprocessOperationDescriptor | undefined, expectedOwnerKey: SubprocessOperationOwnerKey, signal?: AbortSignal): Promise<SubprocessOperationRecovery>
+  recover(
+    descriptor: SubprocessOperationDescriptor | undefined,
+    expectedOwnerKey: SubprocessOperationOwnerKey,
+    signal?: AbortSignal,
+  ): Promise<SubprocessOperationRecovery>
   /**
    * Validate evidence against this issuer and the exact independently authorized operation.
    * @param proof - provider evidence; JSON copies and foreign issuers fail.
@@ -83,21 +92,25 @@ export interface SubprocessOperationProvider {
    * @param expectedOwnerKey - independently derived owner.
    * @returns whether this issuer proved this permanently sealed operation quiescent.
    */
-  verify(proof: SubprocessQuiescenceProof, descriptor: SubprocessOperationDescriptor, expectedOwnerKey: SubprocessOperationOwnerKey): boolean
+  verify(
+    proof: SubprocessQuiescenceProof,
+    descriptor: SubprocessOperationDescriptor,
+    expectedOwnerKey: SubprocessOperationOwnerKey,
+  ): boolean
   /** Seal and terminate owned scopes before releasing native handles. */
   dispose(): Promise<void>
 }
 
 /** Fail-closed implementation for execution providers without durable native operation support. */
 export class UnsupportedSubprocessOperations implements SubprocessOperationProvider {
-  async create(): Promise<Extract<SubprocessOperationRecovery, { kind: 'unsupported' }>> {
-    return { kind: 'unsupported', providerKind: 'none', providerVersion: 0 }
+  create(): Promise<Extract<SubprocessOperationRecovery, { kind: 'unsupported' }>> {
+    return Promise.resolve({ kind: 'unsupported', providerKind: 'none', providerVersion: 0 })
   }
 
-  async recover(descriptor: SubprocessOperationDescriptor | undefined): Promise<SubprocessOperationRecovery> {
-    return descriptor === undefined
+  recover(descriptor: SubprocessOperationDescriptor | undefined): Promise<SubprocessOperationRecovery> {
+    return Promise.resolve(descriptor === undefined
       ? { kind: 'unverifiable', reason: 'legacy-no-scope', detail: 'No durable operation descriptor' }
-      : { kind: 'unsupported', providerKind: descriptor.providerKind, providerVersion: descriptor.providerVersion }
+      : { kind: 'unsupported', providerKind: descriptor.providerKind, providerVersion: descriptor.providerVersion })
   }
 
   verify(): boolean { return false }

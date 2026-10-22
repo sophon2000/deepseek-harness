@@ -121,7 +121,7 @@ declare module '@deepseek-ai/cordis' {
 export abstract class SubprocessRuntime extends Service {
   /**
    * Select opt-in durable operation ownership without launching processes.
-   * @param options - trusted provider storage configuration.
+   * @param _options - trusted storage configuration, unused by an unsupported provider.
    * @returns an unsupported provider unless this execution world implements recovery.
    */
   operationProvider(_options: SubprocessOperationProviderOptions): SubprocessOperationProvider {

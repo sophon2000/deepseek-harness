@@ -38,6 +38,21 @@ function sameBoot(api: Win32OperationBindings, record: WindowsOperationRecord): 
   return record.boot === identity.boot && record.session === identity.session
 }
 
+function releaseResources(
+  api: Win32OperationBindings,
+  handles: Array<{ handle: NativePtr; label: string }>,
+  store?: WindowsOperationStore,
+): void {
+  const failures: unknown[] = []
+  for (const { handle, label } of handles) {
+    try { closeHandleChecked(api, handle, label) } catch (error) { failures.push(error) }
+  }
+  if (store !== undefined) {
+    try { store.dispose() } catch (error) { failures.push(error) }
+  }
+  if (failures.length > 0) throw new AggregateError(failures, 'Operation native resource release failed')
+}
+
 /** Trusted local provider; no child or runner starts until a returned scope is explicitly used. */
 export class WindowsOperationProvider implements SubprocessOperationProvider {
   private store: WindowsOperationStore | undefined
@@ -45,6 +60,7 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
   private readonly proofs = new WeakMap<SubprocessQuiescenceProof, string>()
   private disposed = false
   private closing = false
+  private disposal: Promise<void> | undefined
 
   constructor(
     private readonly options: SubprocessOperationProviderOptions,
@@ -57,7 +73,11 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
     return this.store ??= new WindowsOperationStore(this.api, this.options.stateDirectory, create)
   }
 
-  async create(ownerKey: SubprocessOperationOwnerKey) {
+  create(ownerKey: SubprocessOperationOwnerKey) {
+    return Promise.resolve().then(() => this.createFresh(ownerKey))
+  }
+
+  private createFresh(ownerKey: SubprocessOperationOwnerKey) {
     if (this.closing) throw new Error('Operation provider is disposing')
     const identity = windowsBootIdentity(this.api)
     const store = this.storage(true)
@@ -86,7 +106,22 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
     return { kind: 'created' as const, scope }
   }
 
-  async recover(descriptor: SubprocessOperationDescriptor | undefined, expectedOwnerKey: SubprocessOperationOwnerKey, signal?: AbortSignal): Promise<SubprocessOperationRecovery> {
+  recover(
+    descriptor: SubprocessOperationDescriptor | undefined,
+    expectedOwnerKey: SubprocessOperationOwnerKey,
+    signal?: AbortSignal,
+  ): Promise<SubprocessOperationRecovery> {
+    try { return Promise.resolve(this.observe(descriptor, expectedOwnerKey, signal)) }
+    catch (error) {
+      return Promise.resolve({ kind: 'unverifiable', reason: 'native-failure', detail: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  private observe(
+    descriptor: SubprocessOperationDescriptor | undefined,
+    expectedOwnerKey: SubprocessOperationOwnerKey,
+    signal?: AbortSignal,
+  ): SubprocessOperationRecovery {
     if (descriptor === undefined) return { kind: 'unverifiable', reason: 'legacy-no-scope', detail: 'No durable operation descriptor' }
     if (!supported(descriptor)) return { kind: 'unsupported', providerKind: descriptor.providerKind, providerVersion: descriptor.providerVersion }
     if (descriptor.ownerKey !== expectedOwnerKey) return { kind: 'unverifiable', reason: 'identity-mismatch', detail: 'Independent consumer owner differs' }
@@ -129,12 +164,18 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
       return { kind: 'unverifiable', reason: error instanceof OperationIdentityMismatch ? 'identity-mismatch' : phase,
         detail: error instanceof Error ? error.message : String(error) }
     } finally {
-      if (!isNullPtr(job)) closeHandleChecked(this.api, job, 'operation recovery observation')
-      if (lock !== undefined) closeHandleChecked(this.api, lock, 'operation recovery admission')
+      releaseResources(this.api, [
+        ...isNullPtr(job) ? [] : [{ handle: job, label: 'operation recovery observation' }],
+        ...lock === undefined ? [] : [{ handle: lock, label: 'operation recovery admission' }],
+      ])
     }
   }
 
-  verify(proof: SubprocessQuiescenceProof, descriptor: SubprocessOperationDescriptor, expectedOwnerKey: SubprocessOperationOwnerKey): boolean {
+  verify(
+    proof: SubprocessQuiescenceProof,
+    descriptor: SubprocessOperationDescriptor,
+    expectedOwnerKey: SubprocessOperationOwnerKey,
+  ): boolean {
     return !this.disposed && descriptor.ownerKey === expectedOwnerKey
       && this.proofs.get(proof) === this.proofBinding(descriptor, expectedOwnerKey)
   }
@@ -143,7 +184,11 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
     return JSON.stringify([descriptor.providerKind, descriptor.providerVersion, descriptor.locator, descriptor.ownerKey, expected])
   }
 
-  async dispose(): Promise<void> {
+  dispose(): Promise<void> {
+    return this.disposal ??= this.disposeOwned()
+  }
+
+  private async disposeOwned(): Promise<void> {
     if (this.disposed) return
     this.closing = true
     const failures: string[] = []
@@ -155,9 +200,10 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
       } while (result.kind === 'active')
       if (result.kind !== 'sealed-quiescent') failures.push(JSON.stringify(result))
     }
-    for (const { job } of this.jobs.values()) closeHandleChecked(this.api, job, 'failed operation disposal')
+    const handles = [...this.jobs.values()].map(({ job }) => ({ handle: job, label: 'failed operation disposal' }))
     this.jobs.clear()
-    this.store?.dispose()
+    try { releaseResources(this.api, handles, this.store) }
+    catch (error) { failures.push(error instanceof Error ? error.message : String(error)) }
     this.disposed = true
     if (failures.length > 0) throw new Error(`Operation disposal could not prove quiescence: ${failures.join('; ')}`)
   }
@@ -168,9 +214,15 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
  * @param request - provider-private launch identity.
  * @param options - resolved target and stdio carriers.
  * @param cancelled - current runner disconnect/cancellation state checked after each asynchronous wait.
+ * @param api - active native operation bindings; omission loads the native table.
  * @returns runner-owned per-child Job and direct process handles.
  */
-export async function launchWindowsOperationTarget(request: WindowsOperationLaunch, options: CurrentTokenProcessSpawnOptions, cancelled: () => boolean, api = loadWin32OperationBindings()): Promise<SpawnedJobProcess> {
+export async function launchWindowsOperationTarget(
+  request: WindowsOperationLaunch,
+  options: CurrentTokenProcessSpawnOptions,
+  cancelled: () => boolean,
+  api = loadWin32OperationBindings(),
+): Promise<SpawnedJobProcess> {
   const store = new WindowsOperationStore(api, request.stateDirectory, false)
   let lock: NativePtr | undefined
   let job: NativePtr | undefined
@@ -190,8 +242,9 @@ export async function launchWindowsOperationTarget(request: WindowsOperationLaun
     ensureJobLimits(api, job)
     return spawnCurrentTokenOperationProcess(api, options, job)
   } finally {
-    if (!isNullPtr(job)) closeHandleChecked(api, job, 'operation runner Job reference')
-    if (lock !== undefined) closeHandleChecked(api, lock, 'operation runner admission')
-    store.dispose()
+    releaseResources(api, [
+      ...isNullPtr(job) ? [] : [{ handle: job, label: 'operation runner Job reference' }],
+      ...lock === undefined ? [] : [{ handle: lock, label: 'operation runner admission' }],
+    ], store)
   }
 }

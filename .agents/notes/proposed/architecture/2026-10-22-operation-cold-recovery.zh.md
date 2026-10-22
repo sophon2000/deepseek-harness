@@ -16,7 +16,7 @@ Status: proposed
 
 ### 接口草案
 
-下面的伪代码给出最小方法集合，目前不是导出或已实现的 API。不透明标识符进入源码时使用仓库品牌类型。`OwnerKey` 由可信 Host 根据 home、project、domain 和 receipt 身份生成。客户端请求只携带回执 ID；Host 从持久存储中读取描述符和期望 owner。
+以下概要对应 [operations.ts](../../../../packages/subprocess/subprocess/src/operations.ts) 中的导出契约。不透明标识使用仓库品牌类型；完整签名（包括 provider disposal）以源码声明为准。`OwnerKey` 由可信 Host 根据 home、project、domain 和 receipt 身份生成。客户端请求只携带回执 ID；Host 从持久存储中读取描述符和期望 owner。
 
 ```text
 OperationDescriptor = {
@@ -55,11 +55,11 @@ RecoveryResult =
 
 恢复在封闭持久化前持续持锁，验证 Job 限制，请求终止整个 Job，并查询 `JobObjectBasicAccountingInformation` 直到活跃进程为零。保留的命名 Job 句柄和永久封闭，使零结果不受后续 provider 启动影响。`OpenJobObjectW` 的访问错误和记账查询失败都是错误，绝不视为不存在。只有同一可信身份、机器和 boot 绑定以及永久封闭都已建立后，精确的对象不存在结果才可以证明没有存活 Job，因为 Job 销毁发生在最后句柄关闭和进程终止后。恢复绝不能为了查询空对象而创建替代 Job。
 
-描述符将 provider 安装身份、boot 身份、owner key、操作随机数、Job 名称、命名空间和会话身份、schema 版本保存到经认证的 provider 所有记录中。locator 是在已配置可信本地根目录下解析的不透明值，永远不能指定任意文件系统路径。复制记录、其他机器、boot 不匹配、命名空间不匹配或未知版本都不能取得证明。可靠 boot 标识符及其受支持 Windows API 仍是实现前提；PID 不存在、进程年龄、估算的启动时间和新 provider run ID 都不能替代。boot 改变在单独验证的策略实现前一直返回 `unverifiable`。
+描述符将 provider 安装身份、boot 身份、owner key、操作随机数、Job 名称、命名空间和会话身份、schema 版本保存到经认证的 provider 所有记录中。locator 是在已配置可信本地根目录下解析的不透明值，永远不能指定任意文件系统路径。复制记录、其他机器、boot 不匹配、命名空间不匹配或未知版本都不能取得证明。实现通过 `NtQuerySystemInformation` class 90 读取内核 boot 标识，并拒绝不支持的状态、返回长度或全零标识。这项原生 ABI 依赖仍需平台资格验证；PID 不存在、进程年龄、估算的启动时间和新 provider run ID 都不能替代。boot 改变在单独验证的策略实现前一直返回 `unverifiable`。
 
 可信存储必须拒绝重解析点替换，并有明确的 Windows DACL。威胁模型不涵盖已经具有可信 Host 全部文件系统和句柄权限的任意代码；Job 不是防御这种代码的安全沙箱。受支持进程范围包括普通 `CreateProcess` 后代，以及禁用 breakaway 时的 detached 子进程。WMI 创建进程等进程外 broker 不属于 Job 继承；使用这些 broker 的消费者，在没有额外经过验证的 provider 时，不能宣称相同操作保证。
 
-### 现有能力核查
+### 基线能力核查
 
 | 归属 | 已有能力 | 缺失要求 |
 |---|---|---|
@@ -101,7 +101,7 @@ Job 后代、breakaway 标志、嵌套记账和 Job 销毁语义见 [Job Objects
 
 恢复被进程死亡打断时，必须在每个持久写入和原生查询检查点重试。恢复期间真实 OS 重启需要明确协调的手动 Windows 运行；测试工具不得重启用户电脑。模拟 boot 不匹配是独立反向测试，不能代替重启验证。平台失败保留为失败；减弱断言或降级回退都不能取得能力标志。
 
-原生 job-list 验证探针只提供初步证据。在 production 实现、Node/Koffi 集成、消费者组合、持久准入竞争、经认证的证明验证、boot 身份和完整失败注入通过前，本提案不能转为 implemented，provider 也不能宣告支持恢复。
+隔离分支已实现显式启用的 provider 和 Node/Koffi Job-list 路径。原生测试覆盖持久准入、多次启动、后代约束、签发者验证、写入和查询失败、真实 Host/runner 崩溃，以及恢复进程在 seal flush 成功后死亡的重试。Cordis Loader 组合测试经过公开工厂。这些检查不构成发布 artifact 的资格：真实 OS 重启、断电持久性、消费者集成和仓库构建门禁仍是独立验收要求。`active.sealed = false` 表示未确认 seal 状态，永不授权重新开放准入。
 
 ## 风险
 

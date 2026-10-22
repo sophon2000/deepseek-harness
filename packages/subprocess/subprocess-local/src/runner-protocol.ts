@@ -194,7 +194,8 @@ export function parseWindowsStartRequest(value: unknown): WindowsStartRequest {
     }
     operation = { stateDirectory: entry.stateDirectory,
       descriptor: { providerKind: entry.descriptor.providerKind, providerVersion: entry.descriptor.providerVersion,
-        locator: entry.descriptor.locator as SubprocessOperationLocator, ownerKey: entry.descriptor.ownerKey as SubprocessOperationOwnerKey },
+        locator: entry.descriptor.locator as SubprocessOperationLocator,
+        ownerKey: entry.descriptor.ownerKey as SubprocessOperationOwnerKey },
       expectedOwnerKey: entry.expectedOwnerKey as SubprocessOperationOwnerKey }
   }
   return { type: 'start', cwd: value.cwd, env: value.env, ...value.control === 'pipe' ? { control: 'pipe' as const } : {},
