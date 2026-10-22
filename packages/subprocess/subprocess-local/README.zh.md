@@ -33,6 +33,8 @@ kind: "package-reference"
 
 每次启动都在同一个独占准入文件句柄下验证持久 owner、机器保护的安装密钥、内核 boot UUID 和 Windows 会话。目标通过 `PROC_THREAD_ATTRIBUTE_JOB_LIST` 原子进入命名操作 Job 和每个子进程的 Job；可恢复启动绝不回退到创建后分配。成功封闭永久保留，跨 provider 重启有效，并阻止迟到 runner 启动。恢复在 Job 查找前验证独立提供的 owner，flush 封闭记录，然后终止并查询原生 Job。proof 是签发实例私有的进程内对象，绝不是持久完成结果。命令间的空闲间隔不会封闭操作；正常完成或取消后释放资源预留也要求同样的 seal 和验证。
 
+恢复要求经认证的原生 Job 仍可重新打开。即使已经持久封闭或另行观察到进程退出，Job 名称缺失仍返回 `unverifiable`：Windows 可以在全部 pointer 引用消失前移除临时对象名称，进程终止也是异步的。若 Host 和 runner 丢失最后一个 Job 句柄，此 provider 无法自动回收资源预留。取得的 Job 句柄跨 drain 和幂等重试保留到 `provider.dispose()`；消费者完成资源预留协调后必须 dispose provider。持久 seal 或先前 proof 永不作为新原生证明重放。
+
 原生 boot UUID 使用 `NtQuerySystemInformation` 的第 90 类，并严格检查 32 字节布局。原生布局不可用或改变、boot 或会话不匹配、存储失败、查询失败、未知 provider 或 legacy 描述符都不能取得证明。真实系统重启验证仍未完成；此显式启用的实现不代表能够恢复历史匿名 Job。存储永久保留准入和封闭记录，尚未实现自动垃圾回收。
 
 ### 挂载提供方

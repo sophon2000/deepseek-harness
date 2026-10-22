@@ -53,7 +53,7 @@ RecoveryResult =
 
 恢复先取得该锁，验证可信描述符和期望 owner，持久提交不可逆封闭，然后才观察 Job。使用独占创建并检查 flush 的专用单向封闭记录，永远不原地覆盖开放状态为封闭状态，以免写入撕裂。重试前必须严格验证现有封闭字节，并重新成功执行持久性检查。身份记录撕裂、缺失、不可访问或不匹配时不得签发证明。永久保留封闭记录，防止迟到旧 runner 重新创建过期 scope；后续垃圾回收需要单独设计安全保留规则。
 
-恢复在封闭持久化前持续持锁，验证 Job 限制，请求终止整个 Job，并查询 `JobObjectBasicAccountingInformation` 直到活跃进程为零。保留的命名 Job 句柄和永久封闭，使零结果不受后续 provider 启动影响。`OpenJobObjectW` 的访问错误和记账查询失败都是错误，绝不视为不存在。只有同一可信身份、机器和 boot 绑定以及永久封闭都已建立后，精确的对象不存在结果才可以证明没有存活 Job，因为 Job 销毁发生在最后句柄关闭和进程终止后。恢复绝不能为了查询空对象而创建替代 Job。
+恢复在封闭持久化前持续持锁，验证 Job 限制，请求终止整个 Job，并查询 `JobObjectBasicAccountingInformation` 直到活跃进程为零。保留的命名 Job 句柄和永久封闭，使零结果不受后续 provider 启动影响。每个 `OpenJobObjectW` 失败（包括精确的对象不存在）都不能取得证明。Windows 可以在临时对象的 handle count 归零时移除名称，而 pointer 引用仍保留对象；终止也可能等待未完成 I/O。因此名称不存在不能证明静止。恢复绝不能为了查询空对象而创建替代 Job。provider 跨 active 和幂等恢复尝试保留经认证的 Job 句柄，直到 disposal。Host/runner 死亡后若丢失全部 Job 句柄，资源预留仍不可验证，即使测试另行等待了已知进程退出。
 
 描述符将 provider 安装身份、boot 身份、owner key、操作随机数、Job 名称、命名空间和会话身份、schema 版本保存到经认证的 provider 所有记录中。locator 是在已配置可信本地根目录下解析的不透明值，永远不能指定任意文件系统路径。复制记录、其他机器、boot 不匹配、命名空间不匹配或未知版本都不能取得证明。实现通过 `NtQuerySystemInformation` class 90 读取内核 boot 标识，并拒绝不支持的状态、返回长度或全零标识。这项原生 ABI 依赖仍需平台资格验证；PID 不存在、进程年龄、估算的启动时间和新 provider run ID 都不能替代。boot 改变在单独验证的策略实现前一直返回 `unverifiable`。
 
@@ -82,6 +82,8 @@ Host 提议的端口可以保留 `sealed-quiescent | active | unverifiable | uns
 job-list 创建属性从 Windows 10 和 Windows Server 2016 起可用；其原生值存储必须比 attribute list 存活更久。参见 [UpdateProcThreadAttribute](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute)。
 
 Job 后代、breakaway 标志、嵌套记账和 Job 销毁语义见 [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects)。命名对象查找使用 [OpenJobObjectW](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-openjobobjectw)，整个 Job 的终止使用 [TerminateJobObject](https://learn.microsoft.com/en-us/windows/win32/api/jobapi2/nf-jobapi2-terminatejobobject)。持久封闭写入检查使用 [FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)。
+
+[Life Cycle of an Object](https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/life-cycle-of-an-object) 区分名称空间生命周期和 pointer 引用。[TerminateProcess](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-terminateprocess) 说明异步终止和未完成 I/O。这些规则要求命名 Job 缺失时保持不可验证；这里不声称已原生复现残留进程。
 
 ## 已考虑的替代方案
 

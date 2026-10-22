@@ -250,6 +250,61 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     finally { closeHandleChecked(native, retained, 'test retained query owner') }
   })
 
+  it('never substitutes namespace absence for quiescence while a real operation member is still alive', async () => {
+    const native = loadWin32OperationBindings()
+    const live = provider(native)
+    const s = await scope(live)
+    const handle = s.spawn(spec('console.log(process.pid);setTimeout(()=>{},30000)'))
+    await expect.poll(() => handle.collected.stdout?.readFrom(0).text.trim()).toMatch(/^\d+$/)
+    const child = native.openProcess(0x101001, 0, Number(handle.collected.stdout?.readFrom(0).text.trim()))
+    if (child === null) throw new Error('Unable to retain real operation member')
+    let absentError = false
+    let queries = 0
+    // Inject the namespace-removal result, not a claim that Windows reproduced that race here.
+    const cold = provider({ ...native,
+      openJob: () => { absentError = true; return null },
+      getLastError: () => {
+        if (absentError) { absentError = false; return 2 }
+        return native.getLastError()
+      },
+      queryInformationJobObject: (...args) => { queries++; return native.queryInformationJobObject(...args) },
+    }, directories[0])
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect(native.waitForSingleObject(child, 0)).toBe(258)
+        const result = await cold.recover(s.descriptor, owner)
+        expect(result).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
+        if (result.kind !== 'unverifiable') throw new Error('Missing namespace must not issue proof')
+        expect(result.detail).toContain('Job name is absent')
+        expect(native.waitForSingleObject(child, 0)).toBe(258)
+      }
+      expect(queries).toBe(0)
+      const late = s.spawn(spec())
+      await expect(late.done).rejects.toThrow('permanently sealed')
+      await expect(late.waitForExit()).rejects.toThrow()
+      await quiescent(live, s)
+      expect(native.waitForSingleObject(child, 5000)).toBe(0)
+      expect((await handle.done).exitCode).toBe(1)
+    } finally { closeHandleChecked(native, child, 'namespace absence live member observation') }
+  })
+
+  it('retains the same Job across a draining result and fresh idempotent observations', async () => {
+    const native = loadWin32OperationBindings()
+    let accounting = 0
+    const p = provider({ ...native, queryInformationJobObject: (...args) => {
+      const result = native.queryInformationJobObject(...args)
+      if (result !== 0 && args[1] === 1 && accounting++ === 0) args[2].writeUInt32LE(1, 40)
+      return result
+    } })
+    const s = await scope(p)
+    expect(await s.seal()).toEqual({ kind: 'active', sealed: true, reason: 'draining' })
+    const first = await quiescent(p, s)
+    const second = await quiescent(p, s)
+    expect(accounting).toBe(3)
+    expect(first.proof).not.toBe(second.proof)
+    expect(p.verify(second.proof, s.descriptor, owner)).toBe(true)
+  })
+
   it('rejects a simulated boot change without attempting Job lookup', async () => {
     const native = loadWin32OperationBindings()
     let changed = false
@@ -375,7 +430,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     }
   })
 
-  it('cold-recovers a durable reservation after the Host dies before launching any runner', async () => {
+  it('retains a durable reservation when Host death loses the last Job handle before any runner', async () => {
     const fixture = crashHost('reservation-only')
     try {
       await fixture.message('reserved')
@@ -383,12 +438,14 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
       await fixture.kill()
       const cold = provider(loadWin32OperationBindings(), fixture.parent)
       const result = await cold.recover(descriptor, owner)
-      expect(result.kind).toBe('sealed-quiescent')
-      if (result.kind === 'sealed-quiescent') expect(cold.verify(result.proof, descriptor, owner)).toBe(true)
+      expect(result).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
+      if (result.kind !== 'unverifiable') throw new Error('Missing namespace must not issue proof')
+      expect(result.detail).toContain('Job name is absent')
+      expect(await cold.recover(descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
     } finally { await fixture.cleanup() }
   })
 
-  it('cold-recovers the default runner and target when Host death closes their parent-owned Jobs', async () => {
+  it('withholds cold proof after Host and default runner death even when observed target handles have exited', async () => {
     const fixture = crashHost('live-default')
     const api = loadWin32OperationBindings()
     let child: NativePtr | null = null
@@ -408,8 +465,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
       expect(api.waitForSingleObject(runner!, 5000)).toBe(0)
       expect(api.waitForSingleObject(child!, 5000)).toBe(0)
       const cold = provider(api, fixture.parent)
-      const result = await quiescent(cold, { descriptor })
-      expect(cold.verify(result.proof, descriptor, owner)).toBe(true)
+      expect(await cold.recover(descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
     } finally {
       await fixture.cleanup()
       if (runner) closeHandleChecked(api, runner, 'default runner observation')
@@ -454,7 +510,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     await quiescent(p, s)
   })
 
-  it('recovers when Host and runner die after atomic creation but before initial resume', async () => {
+  it('retains busy exclusion at atomic creation and withholds proof after Host and runner lose the last Job handle', async () => {
     const fixture = crashHost('atomic-crash')
     const api = loadWin32OperationBindings()
     let child: ReturnType<TestOperationBindings['openProcess']> = null
@@ -494,7 +550,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
       expect(api.terminateProcess(runner!, 1)).not.toBe(0)
       expect(api.waitForSingleObject(runner!, 5000)).toBe(0)
       expect(api.waitForSingleObject(child!, 5000)).toBe(0)
-      expect((await cold.recover(descriptor, owner)).kind).toBe('sealed-quiescent')
+      expect(await cold.recover(descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
     } finally {
       await fixture.cleanup()
       if (runner) { api.terminateProcess(runner, 1); closeHandleChecked(api, runner, 'test crash runner') }
@@ -502,7 +558,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
     }
   })
 
-  it('retries recovery after the recovering Host dies with a durably committed seal', async () => {
+  it('keeps recovery unverifiable after the recovering Host dies with a seal but loses the last Job handle', async () => {
     const fixture = crashHost('seal-crash')
     try {
       await fixture.message('reserved')
@@ -513,9 +569,45 @@ describe.skipIf(process.platform !== 'win32')('native Windows operation recovery
       await fixture.kill()
       const cold = provider(loadWin32OperationBindings(), fixture.parent)
       const result = await cold.recover(descriptor, owner)
-      expect(result.kind).toBe('sealed-quiescent')
-      expect((await cold.recover(descriptor, owner)).kind).toBe('sealed-quiescent')
+      expect(result).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
+      expect(await cold.recover(descriptor, owner)).toMatchObject({ kind: 'unverifiable', reason: 'native-failure' })
     } finally { await fixture.cleanup() }
+  })
+
+  it('cold-recovers after a seal-flush crash only while the same authenticated native Job remains reopenable', async () => {
+    const fixture = crashHost('seal-crash')
+    const native = loadWin32OperationBindings()
+    let retained: NativePtr | null = null
+    try {
+      await fixture.message('reserved')
+      const descriptor = JSON.parse(readFileSync(fixture.descriptorPath, 'utf8')) as SubprocessOperationDescriptor
+      const store = new WindowsOperationStore(native, join(fixture.parent, 'store'), false)
+      try {
+        const lock = store.lock(descriptor.locator)
+        try { retained = native.openJob(0x0F, 0, store.authenticate(lock, descriptor, owner).job) }
+        finally { closeHandleChecked(native, lock, 'fixture retained Job admission') }
+      } finally { store.dispose() }
+      if (retained === null) throw new Error('Unable to retain authenticated fixture Job')
+      fixture.host.send('seal')
+      await expect.poll(() => existsSync(fixture.checkpoint), { timeout: 5000 }).toBe(true)
+      expect(readFileSync(fixture.checkpoint, 'utf8')).toBe('durable-seal-committed')
+      await fixture.kill()
+      let observations = 0
+      const cold = provider({ ...native, queryInformationJobObject: (...args) => {
+        if (args[1] === 1) observations++
+        return native.queryInformationJobObject(...args)
+      } }, fixture.parent)
+      const first = await quiescent(cold, { descriptor })
+      expect(cold.verify(first.proof, descriptor, owner)).toBe(true)
+      closeHandleChecked(native, retained, 'fixture retained Job after cold adoption')
+      retained = null
+      const second = await quiescent(cold, { descriptor })
+      expect(second.proof).not.toBe(first.proof)
+      expect(observations).toBe(2)
+    } finally {
+      await fixture.cleanup()
+      if (retained !== null) closeHandleChecked(native, retained, 'fixture retained Job cleanup')
+    }
   })
 
   it('proves a permanently sealed empty Job while a runner is paused after releasing launch admission', async () => {

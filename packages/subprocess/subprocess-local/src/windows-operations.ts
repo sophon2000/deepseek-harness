@@ -146,16 +146,17 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
       job = this.api.openJob(0x0F, 0, record.job) ?? undefined
       if (isNullPtr(job)) {
         if (this.api.getLastError() !== 2) throwLastError(this.api, 'OpenJobObjectW')
-        if (owned !== undefined) throw new Error('Owned operation Job unexpectedly absent')
-      } else {
-        ensureJobLimits(this.api, job)
-        if (owned !== undefined) {
-          closeHandleChecked(this.api, owned.job, 'sealed operation Host ownership')
-          this.jobs.delete(descriptor.locator)
-        }
-        terminateJob(this.api, job, 1)
-        if (!isJobEmpty(this.api, job)) return { kind: 'active', sealed: true, reason: signal?.aborted ? 'aborted' : 'draining' }
+        throw new Error('Operation Job name is absent; member quiescence cannot be observed')
       }
+      ensureJobLimits(this.api, job)
+      const observedJob = job
+      if (owned === undefined) {
+        // Keep a native reference across draining/idempotent retries; namespace absence is never evidence.
+        this.jobs.set(descriptor.locator, { job: observedJob, descriptor: Object.freeze({ ...descriptor }), sealed: true })
+        job = undefined
+      }
+      terminateJob(this.api, observedJob, 1)
+      if (!isJobEmpty(this.api, observedJob)) return { kind: 'active', sealed: true, reason: signal?.aborted ? 'aborted' : 'draining' }
       const proof = Object.freeze({}) as SubprocessQuiescenceProof
       this.proofs.set(proof, this.proofBinding(descriptor, expectedOwnerKey))
       return { kind: 'sealed-quiescent', proof }
