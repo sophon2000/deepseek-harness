@@ -7,6 +7,10 @@ import { verifyRetainedDesktopRelease } from '../scripts/desktop-release-store.t
 import { prepareDesktopPublication } from '../scripts/publish-desktop-ci.ts'
 
 const roots: string[] = []
+it('rejects Linux SDK targets before reading publication settings', async () => {
+  await expect(retainDesktopCi({ DSH_DESKTOP_TARGET_PLATFORM: 'linux', DSH_DESKTOP_TARGET_ARCH: 'x64' }))
+    .rejects.toThrow('Linux SDK builds do not support release publication')
+})
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
 it.each([

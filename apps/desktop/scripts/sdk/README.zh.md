@@ -17,7 +17,9 @@ DSH_DESKTOP_UNSIGNED=1 DSH_DESKTOP_TARGET_PLATFORM=darwin DSH_DESKTOP_TARGET_ARC
 node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-directory --target mac-arm64
 ```
 
-输出目录必须不存在。写入输出前，导出器要求源码树干净、官方客户端构建来自当前提交，并且根包、Desktop 与客户端产物版本一致。生产环境还必须是 macOS arm64：导出器复制已安装的原生工具依赖，而非单独解析的目标平台安装。上述前置校验失败不会产生输出；后续失败会保留部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码身份、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。
+使用 glibc 的 Linux x64 的目标目录和导出参数使用 `linux-x64`，准备环境使用 `linux`/`x64`，原生包使用 `native/system/packages/linux-x64`。锁定的 primary runtime 提供 Node、Python 与 pnpm；Electron 使用 `electron/electron`。Linux 运行时准备不提供上游壳 CLI，不启用发布或自动更新；发行方拥有自身 CLI。导出排除其他平台、架构或 libc 实现的可选原生工具。
+
+输出目录必须不存在。写入输出前，导出器要求源码树干净、官方客户端构建来自当前提交，并且根包、Desktop 与客户端产物版本一致。`mac-arm64` 的生产环境必须是 macOS arm64，`linux-x64` 的生产环境必须是 Linux x64：导出器复制已安装的原生工具依赖，而非单独解析的目标平台安装。上述前置校验失败不会产生输出；后续失败会保留部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码身份、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。
 
 `shell-build/node_modules` 包含编译壳所需的精确 DSH 包、其声明导入以及上游壳的五个生产依赖。`shell-dependencies.json` 记录根包、相对 SDK 归档的包路径、版本和摘要，不依赖生产者构建存储位置。发行方拥有固定的 TypeScript、tsdown、Vite、React 与 Electron builder 配置，不应假定本 SDK 提供这些编译工具链。SDK 为打包消费方保留固定 Electron builder 依赖闭包，并在导出的 app 目录中链接最小应用的生产依赖。
 
@@ -29,7 +31,7 @@ SDK 生成的 `@deepseek-ai/dsh-desktop-runtime-contract` 包将 fork 现有实�
 
 首次发现运行会解析第三方依赖。已提供运行时锁时绝不回退解析：冻结生产安装前先核验核心包和补丁身份。每次运行都在安装前将已验证锁保留为 `<build-directory>/runtime-pnpm-lock.yaml`，仅在准备与验证成功后提升它。源码侧对应变量是 `DSH_DESKTOP_RUNTIME_LOCK` 和 `DSH_DESKTOP_RUNTIME_LOCK_OUTPUT`。产品资源链接必须无环且指向资源树内，并在完整性封存前物化。
 
-`node <sdk>/verify.mjs --prepared <build-directory>` 核验资源，并用隔离用户目录执行真实 Host、原生与 Office 冒烟。增加 `--app <application.app>` 可检查已打包资源并运行其声明的可执行程序。SDK 不提供产品 builder 配置。该验收不涵盖图形壳行为、签名、公证、更新托管或其他平台。
+`node <sdk>/verify.mjs --prepared <build-directory>` 核验资源，并用隔离用户目录执行真实 Host、原生与 Office 冒烟。macOS 增加 `--app <application.app>` 可检查已打包资源并运行其声明的可执行程序。Linux 打包验证要求 `--app <unpacked-directory> --executable <filename>`，读取 `resources/dsh` 和 `resources/runtime`；验证要求宿主匹配。SDK 不提供产品 builder 配置。该验收不涵盖图形壳行为、签名、公证、更新托管或其他平台。
 
 清单的 `sdkApi.version` 为 `dsh.desktop-sdk-api/1`，独立于归档 schema 2 和 Host 协议 4。其 `profile`、`runtime`、`packagedRuntime` 与 `tools` 字段分别指定 `sdk/v1/profile.mjs`、`sdk/v1/runtime.mjs`、`sdk/v1/packaged-runtime.mjs` 和 `sdk/v1/tools.mjs`。这些 ESM 入口依次导出 `createPluginProfile`、`verifyDesktopRuntime`、`verifyPackagedDesktopRuntime` 和异步 `loadAsar`。消费方在导入前校验 API 版本与精确路径；未知或不完整声明必须报错，不得回退到内部路径。`runtimeContract.profileModule` 等于 `sdkApi.profile`。没有 `sdkApi` 的旧 schema-2 归档仅保留明确识别的旧路径。准备过程内部实现仍属私有，只要 SDK 入口还依赖它们，就不能删除。
 

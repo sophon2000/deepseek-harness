@@ -7,7 +7,7 @@ import { isBuiltin } from 'node:module'
 import { parseArgs } from 'node:util'
 import ts from 'typescript'
 import yaml from 'js-yaml'
-import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopTargetBuildPaths, desktopTargetPlatform } from './desktop-build-paths.mjs'
 import { DESKTOP_SDK_API, writeDesktopSdkApi } from './sdk-api.mjs'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../lib/types/host-protocol.js'
 import { readClientBuildRecord } from '../../../scripts/client-build-environment.ts'
@@ -114,6 +114,19 @@ function packageName(specifier) {
 }
 
 /**
+ * Select optional packages using npm platform allow/deny lists, including Linux libc.
+ * @param manifest - Installed dependency's package metadata.
+ * @param target - Producer-matched platform and architecture.
+ * @returns Whether this dependency is eligible for the SDK's native tooling closure.
+ */
+export function desktopSdkOptionalPackageMatches(manifest, target) {
+  const matches = (values, actual) => values === undefined || !values.includes(`!${actual}`)
+    && (values.includes('any') || values.every(value => value.startsWith('!')) || values.includes(actual))
+  return matches(manifest.os, target.platform) && matches(manifest.cpu, target.arch)
+    && (target.platform !== 'linux' || matches(manifest.libc, 'glibc'))
+}
+
+/**
  * Locate a producer tarball inside the SDK's copied target tree.
  * @param file - Tarball in the producer's packed directory, including an external build root.
  * @param packedRoot - Producer target's packed directory.
@@ -164,10 +177,13 @@ export function createDesktopSdkToolingExporter(destination, linkDependency) {
  * Require the producer installation to match the SDK's native tool dependencies.
  * @param platform - Operating system owning the installed dependency closure.
  * @param arch - Architecture owning the installed dependency closure.
+ * @param target - Requested SDK target, which must match the producer.
  */
-export function assertDesktopSdkExportHost(platform, arch) {
-  if (platform !== 'darwin' || arch !== 'arm64') {
-    throw new Error('Desktop SDK: export requires a darwin/arm64 producer installation; installed native tooling cannot be copied from another host')
+export function assertDesktopSdkExportHost(platform, arch, target = 'mac-arm64') {
+  if (!['mac-arm64', 'linux-x64'].includes(target)) throw new Error('Desktop SDK: unsupported export target')
+  const expected = desktopTargetPlatform(target)
+  if (platform !== expected.platform || arch !== expected.arch) {
+    throw new Error(`Desktop SDK: export requires a ${expected.platform}/${expected.arch} producer installation; installed native tooling cannot be copied from another host`)
   }
 }
 
@@ -190,11 +206,12 @@ export function assertDesktopSdkBuildIdentity(source, environment, runtimeCommit
 /**
  * Build a source-free, relocatable export from the exact prepared target owned by this checkout.
  * @param output - New SDK directory, retained as partial output if export fails.
- * @param target - Prepared build target; currently mac-arm64 only.
+ * @param target - Prepared build target; mac-arm64 or linux-x64.
  */
 export function exportDesktopSdk(output, target) {
-  if (target !== 'mac-arm64') throw new Error('Desktop SDK: this exporter currently qualifies mac-arm64 only')
-  assertDesktopSdkExportHost(process.platform, process.arch)
+  assertDesktopSdkExportHost(process.platform, process.arch, target)
+  if (target === 'linux-x64' && !process.report.getReport().header.glibcVersionRuntime) throw new Error('Desktop SDK: linux-x64 requires a glibc producer installation')
+  const platform = desktopTargetPlatform(target)
   const destination = resolve(output)
   if (existsSync(destination)) throw new Error(`Desktop SDK: output already exists: ${destination}`)
   const paths = desktopTargetBuildPaths(target)
@@ -264,7 +281,7 @@ export function exportDesktopSdk(output, target) {
         if (resolved !== undefined) {
           const dependencyManifest = json(join(resolved, 'package.json'))
           if (Object.hasOwn(installed.optionalDependencies ?? {}, dependency)
-            && (dependencyManifest.os && !dependencyManifest.os.includes('darwin') || dependencyManifest.cpu && !dependencyManifest.cpu.includes('arm64'))) continue
+            && !desktopSdkOptionalPackageMatches(dependencyManifest, platform)) continue
           linkPackage(resolvedName, source, targetDirectory, resolved)
         }
       }
@@ -340,7 +357,7 @@ export function exportDesktopSdk(output, target) {
       ...(diff === '' ? {} : { diffSha256: hash(diff) }),
       untrackedFiles: untracked.map(path => ({ path, sha256: hash(readFileSync(join(repository, path))) })),
     },
-    version: shellManifest.version, target: { platform: 'darwin', arch: 'arm64' },
+    version: shellManifest.version, target: platform,
     runtimeSource: { commit: runtimeCommit, tree: capture('git', ['rev-parse', `${runtimeCommit}^{tree}`]), clientBuild },
     electronVersion: toolDependencies.electron, hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
     exporterSha256: hash(readFileSync(import.meta.filename)),
@@ -348,7 +365,7 @@ export function exportDesktopSdk(output, target) {
     sdkApi: DESKTOP_SDK_API,
     runtimeContract: { profileModule: DESKTOP_SDK_API.profile },
     shellBuild: { dependencies: 'shell-dependencies.json', nodeModules: 'shell-build/node_modules', runtimeContract: contractName },
-    layout: { app: 'apps/desktop', build: 'apps/desktop/.desktop-build/targets/mac-arm64', electronBuilder: 'node_modules/electron-builder/cli.js' },
+    layout: { app: 'apps/desktop', build: `apps/desktop/.desktop-build/targets/${target}`, electronBuilder: 'node_modules/electron-builder/cli.js' },
   }
   assertRuntimeSdkLayout(destination)
   writeJson(join(destination, 'dsh-desktop-sdk.json'), manifest)
@@ -361,13 +378,13 @@ export function exportDesktopSdk(output, target) {
  */
 export function assertRuntimeSdkLayout(root) {
   for (const path of ['apps/desktop/lib', 'apps/desktop/renderer', 'apps/desktop/resources', 'apps/desktop/cli',
-    'apps/desktop/.desktop-build/targets/mac-arm64/runtime/cli']) {
+    ...['mac-arm64', 'linux-x64'].map(target => `apps/desktop/.desktop-build/targets/${target}/runtime/cli`)]) {
     if (existsSync(join(root, path))) throw new Error(`Desktop Runtime SDK: shell-owned path is forbidden: ${path}`)
   }
 }
 
 if (import.meta.main) {
   const { values } = parseArgs({ options: { output: { type: 'string' }, target: { type: 'string', default: 'mac-arm64' } } })
-  if (!values.output) throw new Error('Usage: node apps/desktop/scripts/export-desktop-sdk.mjs --output <new-directory> [--target mac-arm64]')
+  if (!values.output) throw new Error('Usage: node apps/desktop/scripts/export-desktop-sdk.mjs --output <new-directory> [--target mac-arm64|linux-x64]')
   exportDesktopSdk(values.output, values.target)
 }
