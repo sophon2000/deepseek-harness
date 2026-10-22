@@ -8,7 +8,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type ApprovalService from '@deepseek-ai/dsh-user-approval'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
 
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -221,7 +221,8 @@ describe('restrict() over an inherited scope layer', () => {
     const child = await mintChild(ctx, parent.key, 'ask-child')
     let asked = 0
     let policies = 0
-    ctx.provide('approval', { request: async () => { asked++; return 'allowed-once' } } as unknown as ApprovalService)
+    await ctx.plugin(ApprovalService, {})
+    vi.spyOn(ctx.approval, 'request').mockImplementation(async () => { asked++; return 'allowed-once' })
     child.scope.ctx.on('tools/pre-execute', async () => {
       policies++
       child.scope.ctx.tools.restrict({ deny: ['scoped-ask'] })
@@ -241,7 +242,8 @@ describe('restrict() over an inherited scope layer', () => {
     const other = await mintAgentScope(ctx, 'ask-other')
     owner.scope.ctx.tools.register(tool('private-ask'))
     let asked = 0
-    ctx.provide('approval', { request: async () => { asked++; return 'allowed-once' } } as unknown as ApprovalService)
+    await ctx.plugin(ApprovalService, {})
+    vi.spyOn(ctx.approval, 'request').mockImplementation(async () => { asked++; return 'allowed-once' })
     other.scope.ctx.on('tools/pre-execute', async (exec) => {
       if (exec.name === 'own-dynamic-ask') other.scope.ctx.tools.register(tool(exec.name))
       return { kind: 'ask' }
