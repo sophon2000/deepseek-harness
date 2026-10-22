@@ -63,6 +63,20 @@ describe('explicit local desktop test packaging', () => {
     expect(readLocalTestPackage(metadata)).toEqual(LOCAL_TEST_METADATA)
     for (const invalid of [{ ...metadata, dshDesktopUpdateChannel: 'nightly' }, { ...metadata, dshMandatoryUpdatePolicy: {} }, { ...metadata, name: '@deepseek-ai/dsh-desktop' }, { ...metadata, dshLocalTest: { ...LOCAL_TEST_METADATA, extra: true } }, { ...metadata, dshLocalTest: undefined }]) expect(() => readLocalTestPackage(invalid)).toThrow('local-test')
   })
+  it('retains registry validation before local-test preparation', async () => {
+    await fixture((root) => {
+      const environment = localTestPackageEnvironment({ DSH_DESKTOP_PRODUCT_ROOT: root })
+      for (const registry of ['http://registry.example', 'https://user:pass@registry.example', 'https://registry.example/path',
+        'https://registry.example/?query=1', 'https://registry.example/#fragment', 'not-a-url']) {
+        expect(() => validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_NPM_REGISTRY: registry },
+          { platform: 'win32', arch: 'x64' }, { unsigned: true })).toThrow('HTTPS origin')
+      }
+      for (const registry of [undefined, 'https://registry.npmjs.org']) {
+        validateDesktopPackageEnvironment({ ...environment, DSH_DESKTOP_NPM_REGISTRY: registry },
+          { platform: 'win32', arch: 'x64' }, { unsigned: true })
+      }
+    })
+  })
   it('isolates installer identity, protocol, output and every expanded uninstall data name', async () => {
     await fixture((root) => {
       const env = { ...localTestPackageEnvironment({ DSH_DESKTOP_PRODUCT_ROOT: root }), DSH_DESKTOP_TARGET_PLATFORM: 'win32', DSH_DESKTOP_TARGET_ARCH: 'x64' }

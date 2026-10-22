@@ -136,7 +136,11 @@ function requireReadableFile(environment, name) {
  * @returns {void}
  */
 export function validateDesktopPackageEnvironment(environment, target, options = {}) {
-  if (isLocalTestPackaging(environment, target.platform, options.unsigned === true)) return
+  if (isLocalTestPackaging(environment, target.platform, options.unsigned === true)) {
+    resolveNpmRegistry(environment)
+    resolveWindowsPackageSettings(environment)
+    return
+  }
   if (environment.DSH_DESKTOP_APP_ID === LOCAL_TEST_METADATA.appId) throw new Error('local-test: reserved application identity requires explicit local-test mode')
   resolveDesktopAppId(environment)
   resolveNpmRegistry(environment)
