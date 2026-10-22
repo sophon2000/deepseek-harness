@@ -13,8 +13,7 @@ afterEach(() => {
   for (const directory of roots.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
-// The release verifier invokes POSIX npm directly, not the Windows npm.cmd shim.
-describe.skipIf(process.platform === 'win32')('packed-install npm cache', () => {
+describe('packed-install npm cache', () => {
   // The verifier starts npm, lifecycle scripts, and the installed entry serially.
   it.each(['success', 'install failure', 'entry failure'] as const)(
     'owns cache writes and removes them after %s',

@@ -2,6 +2,7 @@
  * Install packed tarballs into a throwaway consumer outside the repository and
  * drive the installed executable with plain Node. Its npm cache belongs to that
  * consumer and is removed with it on normal completion or failure.
+ * Windows invokes npm's JavaScript CLI without a batch shell.
  *
  * Every tarball the installed tree needs comes from `--from`, so the only
  * registry traffic is for external dependencies. That matters beyond hermetic
@@ -17,9 +18,9 @@
  * checkout cannot stand in for a missing file here.
  */
 
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { releaseFamily } from './families.ts'
@@ -104,7 +105,17 @@ function main(): void {
     // Keep host-compatible optional prebuilds enabled, as in a normal install.
     // npm still skips incompatible platforms. Omitting every optional package
     // accidentally forces external native dependencies such as Koffi to compile.
-    capture('npm', ['install', '--cache', join(consumerRoot, '.npm-cache'), '--no-audit', '--no-fund', '--package-lock=false', '--loglevel=http'],
+    // Windows cannot launch npm.cmd without a shell. A minimal Node runtime may
+    // obtain npm from another Node installation on PATH.
+    const npm = process.platform === 'win32' ? process.execPath : 'npm'
+    const npmArgs: string[] = []
+    if (process.platform === 'win32') {
+      const cli = [dirname(process.execPath), ...(process.env.PATH ?? '').split(delimiter)]
+        .filter(Boolean).map(directory => join(directory, 'node_modules/npm/bin/npm-cli.js')).find(existsSync)
+      if (cli === undefined) throw new Error('Packed install requires npm beside Node or on PATH')
+      npmArgs.push(cli)
+    }
+    capture(npm, [...npmArgs, 'install', '--cache', join(consumerRoot, '.npm-cache'), '--no-audit', '--no-fund', '--package-lock=false', '--loglevel=http'],
       { cwd: consumerRoot, env: environment })
 
     const installedEntry = join(consumerRoot, 'node_modules', entry.packageName)
