@@ -190,7 +190,7 @@ macOS 和 Linux 从图形界面启动的程序只继承会话管理器提供的�
 
 ## 开发
 
-产品自有壳可在此源码 checkout 运行 `node --import tsx/esm apps/desktop/scripts/prepare-development.ts --project-dir FRESH_PATH --output FRESH_JSON --primary-runtime-dir PREPARED_RUNTIME --profile-package BUILT_PACKAGE`。每个外部包重复传入 `--profile-package`。此开发专用适配器要求已有 CLI、Host 和 desktop 声明/JavaScript 产物，以及匹配本机与版本的 primary runtime；它不构建或启动上游壳、不下载运行时、不注册协议。目标准入接受 macOS arm64/x64 和 Windows x64，不接受 Linux。JSON 回执提供一次性 profile、runtime、pnpm 与壳依赖位置，包括现有 runtime API 的重导出。调用方拥有新建产物（包括准备失败后的部分产物）清理与 Electron 生命周期。此源码适配器不是生产 SDK 接口。
+产品自有壳可在此源码 checkout 运行 `node --import tsx/esm apps/desktop/scripts/prepare-development.ts --project-dir FRESH_PATH --output FRESH_JSON --primary-runtime-dir PREPARED_RUNTIME --profile-package BUILT_PACKAGE`。每个外部包重复传入 `--profile-package`。此开发专用适配器要求已有 CLI、Host 和 desktop 声明/JavaScript 产物，以及匹配本机与版本的 primary runtime；它不构建或启动上游壳、不下载运行时、不注册协议。目标准入接受 macOS arm64/x64、Windows x64 和 Linux x64。准入本身不代表原生平台验收通过。JSON 回执提供一次性 profile、runtime、pnpm 与壳依赖位置，包括现有 runtime API 的重导出。调用方拥有新建产物（包括准备失败后的部分产物）清理与 Electron 生命周期。此源码适配器不是生产 SDK 接口。
 
 开发环境应用菜单提供“刷新页面”（macOS 为 Cmd+R，其他平台为 Ctrl+R）和“重启应用与 Host”。重启会等待 Host 关闭，再重新启动 Electron 和新的 Host；这两项操作都不会重新构建源码。
 

@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { DESKTOP_SDK_API, writeDesktopSdkApi } from '../scripts/sdk-api.mjs'
+import { desktopSdkOptionalPackageMatches } from '../scripts/export-desktop-sdk.mjs'
 import { assertDesktopSdkBuildIdentity, assertDesktopSdkExportHost, assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports, exportDesktopSdk } from '../scripts/export-desktop-sdk.mjs'
 
 test('versioned API imports the real tooling closure after archive relocation without the export source', async () => {
@@ -62,6 +63,17 @@ test('versioned API imports the real tooling closure after archive relocation wi
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('optional native tooling honors allow lists, exclusions and Linux glibc', () => {
+  const linux = { platform: 'linux', arch: 'x64' }
+  for (const manifest of [{}, { os: ['linux'], cpu: ['x64'], libc: ['glibc'] }, { os: ['!darwin'], cpu: ['any'] }]) {
+    assert.equal(desktopSdkOptionalPackageMatches(manifest, linux), true)
+  }
+  for (const manifest of [{ os: ['darwin'] }, { os: ['any', '!linux'] }, { cpu: ['arm64'] }, { cpu: ['!x64'] }, { libc: ['musl'] }, { libc: ['!glibc'] }]) {
+    assert.equal(desktopSdkOptionalPackageMatches(manifest, linux), false)
+  }
+  assert.equal(desktopSdkOptionalPackageMatches({ os: ['darwin'], cpu: ['arm64'] }, { platform: 'darwin', arch: 'arm64' }), true)
+})
+
 test('SDK identity requires a clean matching official build and one release version', () => {
   const commit = 'a'.repeat(40)
   const source = { commit, status: '', version: 'fixture.1', desktopVersion: 'fixture.1' }
@@ -79,6 +91,10 @@ test('SDK identity requires a clean matching official build and one release vers
 
 test('SDK refuses another host before creating output rather than copying its native tools', () => {
   assert.doesNotThrow(() => assertDesktopSdkExportHost('darwin', 'arm64'))
+  assert.doesNotThrow(() => assertDesktopSdkExportHost('linux', 'x64', 'linux-x64'))
+  assert.throws(() => assertDesktopSdkExportHost('darwin', 'arm64', 'linux-x64'), /producer installation/u)
+  assert.throws(() => assertDesktopSdkExportHost('linux', 'arm64', 'linux-x64'), /producer installation/u)
+  assert.throws(() => assertDesktopSdkExportHost('linux', 'x64', 'linux-arm64'), /unsupported export target/u)
   for (const [platform, arch] of [['linux', 'x64'], ['win32', 'x64'], ['darwin', 'x64']]) {
     assert.throws(() => assertDesktopSdkExportHost(platform, arch), /producer installation/u)
   }
@@ -165,7 +181,7 @@ test('runtime SDK refuses both app bundles and shell CLI payloads', () => {
   const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-layout-'))
   try {
     assertRuntimeSdkLayout(root)
-    for (const path of ['apps/desktop/lib', 'apps/desktop/.desktop-build/targets/mac-arm64/runtime/cli']) {
+    for (const path of ['apps/desktop/lib', 'apps/desktop/.desktop-build/targets/mac-arm64/runtime/cli', 'apps/desktop/.desktop-build/targets/linux-x64/runtime/cli']) {
       mkdirSync(join(root, path), { recursive: true })
       assert.throws(() => assertRuntimeSdkLayout(root), /shell-owned path is forbidden/u)
       rmSync(join(root, path), { recursive: true })

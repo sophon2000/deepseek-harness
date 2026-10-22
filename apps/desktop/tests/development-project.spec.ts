@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { readProfileManifest } from '@deepseek-ai/dsh-app-boot'
 import { prepareDevelopmentProject } from '../scripts/development-project.ts'
+import { resolveDesktopBuildTarget } from '../scripts/desktop-build-paths.mjs'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { DesktopProjectManager } from '../src/project-manager.ts'
 import { resolveDesktopPaths } from '../src/paths.ts'
@@ -32,7 +33,10 @@ afterEach(() => {
 })
 
 describe('desktop development project', () => {
-  it('includes declared workspace packages missing from the hoist directory in the runtime inventory', () => {
+  it.each([
+    { platform: 'darwin', arch: 'arm64' },
+    { platform: 'linux', arch: 'x64' },
+  ] as const)('includes unhoisted source packages for $platform/$arch', ({ platform, arch }) => {
     const root = temporaryRoot()
     const cli = join(root, 'cli')
     const host = join(root, 'host')
@@ -47,10 +51,11 @@ describe('desktop development project', () => {
     writeFileSync(join(host, 'lib/index.js'), '')
     writeFileSync(join(dependency, 'package.json'), JSON.stringify({ name: 'unhoisted', version: '1.2.3' }))
     symlinkSync(dependency, join(cli, 'node_modules/unhoisted'), process.platform === 'win32' ? 'junction' : 'dir')
-    const project = prepareDevelopmentProject({ projectDir: join(root, 'runtime'), cliDir: cli, hostDir: host, dependencyDir: hoisted, release: release(), target: 'mac-arm64' })
+    const project = prepareDevelopmentProject({ projectDir: join(root, 'runtime'), cliDir: cli, hostDir: host, dependencyDir: hoisted,
+      release: release(), target: resolveDesktopBuildTarget({}, platform, arch) })
     expect(realpathSync(join(project, 'node_modules/unhoisted'))).toBe(realpathSync(dependency))
     const descriptor = JSON.parse(readFileSync(join(project, 'desktop-runtime.json'), 'utf8')) as { platform: string; arch: string; sharedPackages: unknown[] }
-    expect(descriptor).toMatchObject({ platform: 'darwin', arch: 'arm64' })
+    expect(descriptor).toMatchObject({ platform, arch })
     expect(descriptor.sharedPackages).toContainEqual({ name: 'unhoisted', version: '1.2.3', path: 'node_modules/unhoisted' })
   })
 
@@ -81,7 +86,7 @@ describe('desktop development project', () => {
       const directory = join(root, name)
       mkdirSync(directory)
       writeFileSync(join(directory, 'package.json'), JSON.stringify({ name: `@fixture/${name}`, version: '0.1.0' }))
-      return directory
+      return { directory, name: `@fixture/${name}` }
     })
 
     const project = prepareDevelopmentProject({
@@ -91,7 +96,7 @@ describe('desktop development project', () => {
       dependencyDir: dependencies,
       release: release(),
       target: 'win-x64',
-      profilePackageDirs: [...supportingPackages, profilePackage],
+      profilePackageDirs: [...supportingPackages.map(({ directory }) => directory), profilePackage],
     })
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh'))).toBe(realpathSync(cli))
     expect(realpathSync(join(project, 'node_modules', '@deepseek-ai', 'dsh-desktop-host'))).toBe(realpathSync(host))
@@ -113,8 +118,7 @@ describe('desktop development project', () => {
     expect(readProfileManifest('desktop test', manager.paths.profile).dsh?.profile?.bundles)
       .toContain('@fixture/creative')
     expect(realpathSync(join(project, 'node_modules/@fixture/creative'))).toBe(realpathSync(profilePackage))
-    for (const directory of supportingPackages) {
-      const name = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')).name as string
+    for (const { directory, name } of supportingPackages) {
       expect(realpathSync(join(project, 'node_modules', name))).toBe(realpathSync(directory))
       expect(manifest.dependencies[name]).toBe('0.1.0')
     }
