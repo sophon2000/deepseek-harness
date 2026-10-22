@@ -47,7 +47,7 @@ export function configureLocalTestIsolation(input: LocalTestIsolationInput): Loc
   mkdirSync(requestedUserData, { recursive: true })
   // Windows packaged launchers may virtualize Roaming without a reparse point.
   // Pass the actual OS-owned directory to the product's strict canonical-path checks.
-  const userData = realpathSync(requestedUserData)
+  const userData = realpathSync.native(requestedUserData)
   const requestedIdentity = lstatSync(requestedUserData, { bigint: true })
   const canonicalIdentity = lstatSync(userData, { bigint: true })
   if (basename(userData) !== metadata.homeName || requestedIdentity.isSymbolicLink()
