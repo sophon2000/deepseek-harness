@@ -335,7 +335,7 @@ async function resolveRequestedBuildVersion(
   const requested = invocation.requestedBuildVersion
   if (requested === undefined) return productVersion
   if (requested !== AUTOMATIC_BUILD_VERSION) return validateDesktopBuildVersion(requested, productVersion)
-  const paths = desktopTargetBuildPaths(invocation.target.name)
+  const paths = desktopTargetBuildPaths(invocation.target.name, environment)
   return suggestDesktopBuildVersion({
     productVersion, target: invocation.target.name,
     // Machine presets own packaging, not upload credentials; local auto numbering uses existing artifacts.
@@ -358,6 +358,7 @@ async function main(): Promise<void> {
       : loadDesktopPackageEnvironment(target.platform, process.env, APP_ROOT, {
         unsigned: invocation.unsigned, prepareOnly: invocation.prepareOnly,
       })
+  const paths = desktopTargetBuildPaths(target.name, environment)
   const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   // Release settings come from the selected configuration files, so the version this run publishes is an
   // argument; the environment variable below only carries it to the child processes that build.
@@ -373,7 +374,7 @@ async function main(): Promise<void> {
   const packaged = readDesktopBuildCommit(REPOSITORY_ROOT)
   Object.assign(environment, desktopBuildCommitEnvironment(packaged))
   const secrets = Object.entries(environment).filter(([name]) => /KEY|SECRET|TOKEN|PASSWORD|APPLE_ID/iu.test(name)).map(([, value]) => value ?? '')
-  const run = createPackagingRun(join(APP_ROOT, '.desktop-build', 'packaging-runs'), {
+  const run = createPackagingRun(paths.packagingRuns, {
     target: target.name, unsigned: invocation.unsigned, skipNotarization: invocation.skipNotarization,
     directory: invocation.directory, prepareOnly: invocation.prepareOnly,
     ...(invocation.localTest ? { flavor: 'local-test' } : {}),
@@ -410,7 +411,6 @@ async function main(): Promise<void> {
     run.finish(success)
   }
   if (success && target.platform === 'darwin' && !invocation.directory && !invocation.prepareOnly) {
-    const paths = desktopTargetBuildPaths(target.name)
     const output = desktopArtifactOutput(paths, invocation)
     const filename = `deepseek-harness-${buildVersion}-mac-${target.arch}${output.suffix}.dmg`
     console.log(`DMG: ${join(output.directory, filename)}`)
@@ -435,7 +435,7 @@ export async function packageTarget(
   const proxyEvent = (status: string) => { if (journal) recordPackagingEvent(journal, { type: 'notarization-proxy', status }) }
   const mac = target.platform === 'darwin' ? resolveMacOSPackageSettings(environment) : undefined
   const packArguments = mac === undefined ? [] : ['--concurrency', String(mac.packConcurrency)]
-  const buildPaths = desktopTargetBuildPaths(target.name)
+  const buildPaths = desktopTargetBuildPaths(target.name, environment)
   const releaseRecordPath = join(buildPaths.artifacts, desktopBuildRecordFilename(target.name))
   if (!invocation.prepareOnly && !invocation.unsigned && !invocation.skipNotarization) {
     rmSync(releaseRecordPath, { force: true })

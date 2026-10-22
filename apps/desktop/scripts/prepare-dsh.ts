@@ -3,8 +3,7 @@
 import { resolveMacOSSignatureCacheDirectory } from './macos-signature-cache-directory.mjs'
 import { packagingStep } from './packaging-step.mjs'
 import { spawn } from 'node:child_process'
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, join, relative, resolve, sep } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
 import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
@@ -32,6 +31,7 @@ import {
   signMacOSRuntime,
 } from './macos-runtime.ts'
 import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { createDesktopPreparationWorkspace } from './desktop-preparation-workspace.ts'
 import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
 import { selectOfficeEngine } from '../../../scripts/libreoffice-packages.mjs'
 import { readDesktopProductPayload, type DesktopRuntimeProduct } from '../src/desktop-product.ts'
@@ -39,8 +39,9 @@ import { readDesktopProductPayload, type DesktopRuntimeProduct } from '../src/de
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const DSH_OUTPUT_ROOT = BUILD_PATHS.dsh
-const BUILD_ROOT = mkdtempSync(join(tmpdir(), 'dsh-desktop-runtime-'))
-const STORE_ROOT = join(BUILD_ROOT, 'store')
+const WORKSPACE = createDesktopPreparationWorkspace(BUILD_PATHS)
+const BUILD_ROOT = WORKSPACE.directory
+const STORE_ROOT = WORKSPACE.store
 const RUNTIME_ROOT = BUILD_PATHS.runtime
 const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
 const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
@@ -204,7 +205,7 @@ async function main(): Promise<void> {
   } finally {
     let cleaned = false
     const cleanup = (): void => {
-      try { rmSync(BUILD_ROOT, { recursive: true, force: true }) }
+      try { WORKSPACE.cleanup() }
       finally { rmSync(PNPM_BUILD_STATE, { recursive: true, force: true }) }
       cleaned = true
     }

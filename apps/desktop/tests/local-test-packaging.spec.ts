@@ -81,7 +81,8 @@ describe('explicit local desktop test packaging', () => {
   })
   it('isolates installer identity, protocol, output and every expanded uninstall data name', async () => {
     await fixture((root) => {
-      const env = { ...localTestPackageEnvironment({ DSH_DESKTOP_PRODUCT_ROOT: root }), DSH_DESKTOP_TARGET_PLATFORM: 'win32', DSH_DESKTOP_TARGET_ARCH: 'x64' }
+      const env = { ...localTestPackageEnvironment({ DSH_DESKTOP_PRODUCT_ROOT: root }), DSH_DESKTOP_TARGET_PLATFORM: 'win32', DSH_DESKTOP_TARGET_ARCH: 'x64',
+        DSH_DESKTOP_BUILD_ROOT: join(root, 'external-build') }
       validateDesktopPackageEnvironment(env, { platform: 'win32', arch: 'x64' }, { unsigned: true })
       const config = createElectronBuilderConfig(env, 'win32', 'x64')
       expect(() => createElectronBuilderConfig({ DSH_DESKTOP_APP_ID: LOCAL_TEST_METADATA.appId }, 'win32', 'x64')).toThrow('reserved')
@@ -92,7 +93,7 @@ describe('explicit local desktop test packaging', () => {
       expect(config.extraMetadata).not.toHaveProperty('dshMandatoryUpdatePolicy')
       expect(config.publish).toBeNull()
       expect(config.artifactName).toContain('-local-test-unsigned')
-      expect(config.directories.output).toMatch(/[\\/]unsigned-artifacts[\\/]local-test$/u)
+      expect(config.directories.output).toBe(join(root, 'external-build', 'targets', 'win-x64', 'unsigned-artifacts', 'local-test'))
       expect(config.nsis).toMatchObject({ perMachine: false, allowElevation: false })
       const packager = new Packager({ projectDir: root })
       Object.defineProperties(packager, { metadata: { value: { version: '0.2.1', ...config.extraMetadata } }, config: { value: config } })
