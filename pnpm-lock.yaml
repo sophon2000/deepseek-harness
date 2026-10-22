@@ -14389,6 +14389,9 @@ importers:
 
   packages/subprocess/subprocess:
     devDependencies:
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis

@@ -13,6 +13,10 @@ import { proxyEnvironmentForChild } from '@deepseek-ai/dsh-http-proxy'
 import { DSH_ENV_PREFIX } from './types.ts'
 import type { SubprocessHandle, SubprocessSpawnSpec } from './types.ts'
 import type { SubprocessTerminalEnvironment, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from './types.ts'
+import { UnsupportedSubprocessOperations } from './operations.ts'
+import type { SubprocessOperationProvider, SubprocessOperationProviderOptions } from './operations.ts'
+
+export * from './operations.ts'
 
 export { DSH_ENV_PREFIX } from './types.ts'
 export type {
@@ -115,6 +119,15 @@ declare module '@deepseek-ai/cordis' {
  *   when the top-level process exits.
  */
 export abstract class SubprocessRuntime extends Service {
+  /**
+   * Select opt-in durable operation ownership without launching processes.
+   * @param options - trusted provider storage configuration.
+   * @returns an unsupported provider unless this execution world implements recovery.
+   */
+  operationProvider(_options: SubprocessOperationProviderOptions): SubprocessOperationProvider {
+    return new UnsupportedSubprocessOperations()
+  }
+
   constructor(ctx: Context) {
     super(ctx, 'subprocess')
   }
