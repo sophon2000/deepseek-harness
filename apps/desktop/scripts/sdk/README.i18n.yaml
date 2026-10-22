@@ -2,6 +2,6 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/scripts/sdk/README.md
-/desktop-sdk-export:
-  en: 1682148e68f4c30f
-  zh: c1cd5a325dbb4c80
+/desktop-runtime-sdk-export:
+  en: 59dc442d129c176f
+  zh: 03629a8a78b17223

@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-22-independent-shell-runtime-sdk.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-10-22-independent-shell-runtime-sdk.md
+/agent-note-runtime-sdk-for-independently-maintained-desktop-shells:
+  en: d9f0bc60dfa64226
+  zh: c618e67955e8b878
+/agent-note-runtime-sdk-for-independently-maintained-desktop-shells/problem:
+  en: 064df578f5638996
+  zh: 4fe771ee021ac97d
+/agent-note-runtime-sdk-for-independently-maintained-desktop-shells/decision:
+  en: 81f773799e61a375
+  zh: aacc51962514c35d
+/agent-note-runtime-sdk-for-independently-maintained-desktop-shells/alternatives-considered:
+  en: 76cce2487e878d5a
+  zh: 4ce05a42c621f461
+/agent-note-runtime-sdk-for-independently-maintained-desktop-shells/consequences:
+  en: 2e2c57f41ccd8608
+  zh: ad607edd0297d0ef

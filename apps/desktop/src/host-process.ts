@@ -3,38 +3,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
+import { isDesktopHostEvent, type DesktopHostEvent } from '@deepseek-ai/dsh-desktop-host/protocol'
 import { desktopNodeEnvironment } from './node-environment.ts'
-
-interface ReadyEvent {
-  readonly type: 'ready'
-  readonly url: string
-  readonly injections?: readonly unknown[] | undefined
-}
-
-interface FatalEvent {
-  readonly type: 'fatal'
-  readonly message: string
-  /** The Host's complete inspected error: stack, enumerable properties, cause chain. */
-  readonly diagnostic?: string
-}
-
-interface PlatformSessionEvent {
-  readonly type: 'platform-session'
-  readonly session: PlatformSession | null
-}
-
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | { readonly type: 'shutdown-complete' } | {
-  readonly type: 'update-tasks'
-  readonly requestId: number
-  readonly active: boolean
-  readonly error?: string
-} | {
-  readonly type: 'quit-inspection'
-  readonly requestId: number
-  readonly activeTasks: boolean
-  readonly scheduledTasks: boolean
-  readonly error?: string
-}
 
 /** Correlated answer to one shell control request. */
 type DesktopHostControlResponse = Extract<DesktopHostEvent, { readonly requestId: number }>
@@ -50,45 +20,6 @@ export const QUIT_INSPECTION_DEADLINE_MS = 2_000
 
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
 
-function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
-  if (typeof message !== 'object' || message === null || !('type' in message)) return false
-  const candidate = message as Record<string, unknown>
-  switch (candidate.type) {
-    case 'shutdown-complete':
-      return true
-    case 'ready':
-      return typeof candidate.url === 'string'
-    case 'platform-session': {
-      const session = candidate.session
-      if (session === null) return true
-      if (typeof session !== 'object' || !('origin' in session) || !('token' in session)
-        || typeof session.origin !== 'string' || typeof session.token !== 'string' || session.token.length === 0) return false
-      if (!('userId' in session) || (session.userId !== null
-        && (typeof session.userId !== 'string' || session.userId.length === 0))) return false
-      if ('embeddedPageDist' in session && typeof session.embeddedPageDist !== 'string') return false
-      if ('requestHeaders' in session && (typeof session.requestHeaders !== 'object' || session.requestHeaders === null
-        || Array.isArray(session.requestHeaders)
-        || Object.entries(session.requestHeaders).some(([name, value]) => typeof value !== 'string'
-          || name !== name.toLowerCase() || /[\r\n]/.test(value)
-          || ['authorization', 'x-dsh-auth-token', 'host', 'content-length', 'transfer-encoding', 'connection', 'content-type'].includes(name)))) return false
-      try {
-        const url = new URL(session.origin)
-        return url.origin === session.origin && !url.username && !url.password
-          && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
-      } catch { return false }
-    }
-    case 'fatal':
-      return typeof candidate.message === 'string' && (candidate.diagnostic === undefined || typeof candidate.diagnostic === 'string')
-    case 'update-tasks':
-      return Number.isSafeInteger(candidate.requestId) && typeof candidate.active === 'boolean'
-        && (candidate.error === undefined || typeof candidate.error === 'string')
-    case 'quit-inspection':
-      return Number.isSafeInteger(candidate.requestId) && typeof candidate.activeTasks === 'boolean'
-        && typeof candidate.scheduledTasks === 'boolean' && (candidate.error === undefined || typeof candidate.error === 'string')
-    default:
-      return false
-  }
-}
 
 async function exitsWithin(exit: Promise<void>, milliseconds: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined

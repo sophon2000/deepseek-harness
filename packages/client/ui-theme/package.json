@@ -25,7 +25,8 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./brand-font.css": "./lib/styles/brand-font.css",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./styles/*": "./lib/styles/*"
   },
   "dsh": {
     "client": {

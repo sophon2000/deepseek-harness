@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { compileDesktopSdkModule, desktopSdkPackageDirectory } from '../scripts/export-desktop-sdk.mjs'
+import { assertRuntimeSdkLayout, compileDesktopSdkModule, desktopSdkPackageDirectory } from '../scripts/export-desktop-sdk.mjs'
 
 test('compiled tooling uses executable local imports and the packed runtime API', () => {
   const result = compileDesktopSdkModule(`
@@ -27,5 +27,17 @@ test('dependency export resolves the owning package version and rejects missing 
     }
     assert.equal(desktopSdkPackageDirectory('example', join(root, 'nested')), realpathSync(join(root, 'nested/node_modules/example')))
     assert.throws(() => desktopSdkPackageDirectory('not-present-desktop-sdk-fixture', root), /missing dependency/u)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('runtime SDK refuses both app bundles and shell CLI payloads', () => {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-layout-'))
+  try {
+    assertRuntimeSdkLayout(root)
+    for (const path of ['apps/desktop/lib', 'apps/desktop/.desktop-build/targets/mac-arm64/runtime/cli']) {
+      mkdirSync(join(root, path), { recursive: true })
+      assert.throws(() => assertRuntimeSdkLayout(root), /shell-owned path is forbidden/u)
+      rmSync(join(root, path), { recursive: true })
+    }
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

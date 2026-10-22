@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import * as desktopOffice from './office.ts'
+import { isDesktopHostRequest, type DesktopHostEvent } from './protocol.ts'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
@@ -45,7 +46,7 @@ async function main(): Promise<void> {
     updateTasks?: ReturnType<typeof installDesktopUpdateTaskControl>
     quitInspection?: ReturnType<typeof installDesktopQuitInspection>
   } = {}
-  const send = (message: object): Promise<void> => new Promise((resolve, reject) => {
+  const send = (message: DesktopHostEvent): Promise<void> => new Promise((resolve, reject) => {
     if (!process.connected || process.send === undefined) { resolve(); return }
     process.send(message, (error) => { if (error === null) resolve(); else reject(error) })
   })
@@ -57,10 +58,9 @@ async function main(): Promise<void> {
     if (process.connected) process.disconnect()
   })()
   process.on('message', (message: unknown) => {
-    if (typeof message !== 'object' || message === null || !('type' in message)) return
+    if (!isDesktopHostRequest(message)) return
     if (message.type === 'shutdown') { void stop(); return }
     if (message.type === 'quit-inspection') {
-      if (!('requestId' in message) || !Number.isSafeInteger(message.requestId)) return
       const requestId = message.requestId
       void (async () => {
         try {
@@ -75,12 +75,10 @@ async function main(): Promise<void> {
       })().catch((error: unknown) => { console.error(error) })
       return
     }
-    if (message.type !== 'update-tasks' || !('requestId' in message) || !Number.isSafeInteger(message.requestId)
-      || !('action' in message) || !['inspect', 'lock', 'unlock'].includes(String(message.action))) return
     void (async () => {
       try {
         if (stopping !== undefined || control.updateTasks === undefined) throw new Error('desktop update: Host is unavailable')
-        const active = await control.updateTasks(message.action as 'inspect' | 'lock' | 'unlock')
+        const active = await control.updateTasks(message.action)
         await send({ type: 'update-tasks', requestId: message.requestId, active })
       } catch (error) {
         await send({ type: 'update-tasks', requestId: message.requestId, active: true,

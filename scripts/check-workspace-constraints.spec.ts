@@ -402,6 +402,16 @@ it('publishes CLI runtime declarations and rejects a payload that omits them', (
     .toEqual([expect.stringContaining('@deepseek-ai/dsh: package.json files must be ["lib/*.js","lib/types/*.d.ts"]')])
 })
 
+it('publishes the shared Desktop Host protocol and declarations', () => {
+  const dir = 'apps/desktop-host'
+  const manifest = JSON.parse(readFileSync(new URL('../apps/desktop-host/package.json', import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  for (const omitted of ['lib/protocol.js', 'lib/types/**/*.d.ts']) {
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== omitted) } }))
+      .toEqual([expect.stringContaining('package.json files must be')])
+  }
+})
+
 it('requires the shared Web injection entry in the published payload', () => {
   const manifest = JSON.parse(readFileSync(new URL('../packages/client/web/package.json', import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
   expect(checkWorkspaceManifest({ dir: 'packages/client/web', manifest })).toEqual([])

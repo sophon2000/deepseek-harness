@@ -8,7 +8,9 @@
   "main": "lib/index.js",
   "files": [
     "lib/index.js",
-    "lib/cli.js"
+    "lib/cli.js",
+    "lib/protocol.js",
+    "lib/types/**/*.d.ts"
   ],
   "dependencies": {
     "koffi": "3.1.1",
@@ -31,5 +33,13 @@
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/dsh-skill": "workspace:*"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./protocol": {
+      "types": "./lib/types/protocol.d.ts",
+      "default": "./lib/protocol.js"
+    },
+    "./package.json": "./package.json"
   }
 }

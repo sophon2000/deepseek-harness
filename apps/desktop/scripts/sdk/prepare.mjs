@@ -1,4 +1,4 @@
-/** Compose a fixed Desktop SDK and product payload into a new, isolated build directory. */
+/** Compose a fixed Desktop Runtime SDK and product payload into a new, isolated build directory. */
 import { spawnSync } from 'node:child_process'
 import { constants, cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -13,7 +13,7 @@ const inside = relative(sdk, output)
 if (inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside)) throw new Error('Desktop SDK: output must be outside the immutable SDK directory')
 if (existsSync(output)) throw new Error(`Desktop SDK: output already exists: ${output}`)
 const manifest = JSON.parse(readFileSync(join(sdk, 'dsh-desktop-sdk.json'), 'utf8'))
-if (manifest.schemaVersion !== 'dsh.desktop-sdk/1' || manifest.target.platform !== process.platform || manifest.target.arch !== process.arch) throw new Error('Desktop SDK: target does not match this preparation host')
+if (manifest.schemaVersion !== 'dsh.desktop-sdk/2' || manifest.target.platform !== process.platform || manifest.target.arch !== process.arch) throw new Error('Desktop SDK: target does not match this preparation host')
 if (!existsSync(join(product, 'desktop-product.json'))) throw new Error('Desktop SDK: product payload descriptor is missing')
 mkdirSync(dirname(output), { recursive: true })
 cpSync(sdk, output, { recursive: true, mode: constants.COPYFILE_FICLONE, verbatimSymlinks: true })

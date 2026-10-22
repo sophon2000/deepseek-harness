@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, cpSync, existsSync, globSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isBuiltin } from 'node:module'
 import { parseArgs } from 'node:util'
 import ts from 'typescript'
 import yaml from 'js-yaml'
@@ -66,15 +67,16 @@ function copy(source, destination, options = {}) {
   cpSync(source, destination, { recursive: true, mode: constants.COPYFILE_FICLONE, verbatimSymlinks: true, ...options })
 }
 
-function moduleImports(source, path) {
+function moduleImports(source, path, includeTypes = false) {
   const parsed = ts.createSourceFile(path, source, ts.ScriptTarget.ESNext, true)
   const imports = []
   function visit(node) {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-      if (!ts.isImportDeclaration(node) || !node.importClause?.isTypeOnly) imports.push(node.moduleSpecifier.text)
+      if (includeTypes || !ts.isImportDeclaration(node) || !node.importClause?.isTypeOnly) imports.push(node.moduleSpecifier.text)
     }
     if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteral(node.arguments[0])
       && (node.expression.kind === ts.SyntaxKind.ImportKeyword || ts.isIdentifier(node.expression) && node.expression.text === 'require')) imports.push(node.arguments[0].text)
+    if (includeTypes && ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) imports.push(node.argument.literal.text)
     ts.forEachChild(node, visit)
   }
   visit(parsed)
@@ -97,7 +99,7 @@ export function exportDesktopSdk(output, target) {
   const paths = desktopTargetBuildPaths(target)
   const clientBuild = readClientBuildRecord(repository)
   const runtimeCommit = capture('git', ['rev-parse', clientBuild.environment.DSH_CLIENT_COMMIT_HASH])
-  for (const required of [join(app, 'lib/main.js'), paths.runtime, paths.electron, paths.packedDsh, paths.packedVendor, paths.packedLandlock]) {
+  for (const required of [paths.runtime, paths.electron, paths.packedDsh, paths.packedVendor, paths.packedLandlock]) {
     if (!existsSync(required)) throw new Error(`Desktop SDK: missing prepared input ${required}`)
   }
   mkdirSync(destination, { recursive: true })
@@ -129,8 +131,12 @@ export function exportDesktopSdk(output, target) {
           return parts[0] !== 'node_modules' && !file.endsWith('.map')
         } })
       }
+      const declarations = globSync('**/*.d.ts', { cwd: targetDirectory }).flatMap(path =>
+        moduleImports(readFileSync(join(targetDirectory, path), 'utf8'), path, true))
+        .filter(name => !name.startsWith('.') && !isBuiltin(name)).map(packageName)
       for (const dependency of new Set([
         ...Object.keys(installed.dependencies ?? {}), ...Object.keys(installed.optionalDependencies ?? {}), ...Object.keys(installed.peerDependencies ?? {}),
+        ...declarations,
       ])) {
         let resolved
         try { resolved = desktopSdkPackageDirectory(dependency, source) } catch (error) {
@@ -167,7 +173,6 @@ export function exportDesktopSdk(output, target) {
       } else linkPackage(packageName(specifier), dirname(source), destination)
     }
   }
-  for (const directory of ['lib', 'renderer', 'resources', 'cli']) copy(join(app, directory), join(destination, 'apps/desktop', directory))
   for (const filename of ['LICENSE', 'pnpm-lock.yaml']) copy(join(repository, filename), join(destination, filename))
   const originalWorkspace = yaml.load(readFileSync(join(repository, 'pnpm-workspace.yaml'), 'utf8'))
   const workspaceManifests = globSync(originalWorkspace.packages.map(pattern => `${pattern}/package.json`), { cwd: repository })
@@ -178,28 +183,54 @@ export function exportDesktopSdk(output, target) {
   writeFileSync(join(destination, 'pnpm-workspace.yaml'), yaml.dump({ packages: ['inventory/*'], patchedDependencies: originalWorkspace.patchedDependencies }))
   for (const patch of Object.values(originalWorkspace.patchedDependencies)) copy(join(repository, patch), join(destination, patch))
   const shellManifest = json(join(app, 'package.json'))
-  const dependencies = Object.fromEntries(Object.keys(shellManifest.dependencies).map(name => [name, linkPackage(name, app, join(destination, 'apps/desktop'))]))
-  writeJson(join(destination, 'apps/desktop/package.json'), {
-    name: shellManifest.name, version: shellManifest.version, description: shellManifest.description,
-    private: true, license: shellManifest.license, type: 'module', main: shellManifest.main, dependencies,
-  })
+  const shellBuild = join(destination, 'shell-build')
+  const shellRoots = [...new Set([...Object.keys(shellManifest.dependencies), ...Object.keys(shellManifest.devDependencies).filter(name => name.startsWith('@deepseek-ai/'))])]
+  for (const name of shellRoots) linkPackage(name, app, shellBuild)
+  for (const name of Object.keys(shellManifest.dependencies)) linkPackage(name, app, join(destination, 'apps/desktop'))
+  const shellDependencies = Object.fromEntries(Object.keys(shellManifest.dependencies).map(name => [name, json(join(desktopSdkPackageDirectory(name, app), 'package.json')).version]))
+  writeJson(join(destination, 'apps/desktop/package.json'), { name: '@deepseek-ai/dsh-runtime-preparation', version: shellManifest.version, private: true, type: 'module', dependencies: shellDependencies })
+  const contractName = '@deepseek-ai/dsh-desktop-runtime-contract'
+  const contractRoot = join(destination, 'node_modules/.sdk', `${contractName.replaceAll('/', '+')}@${shellManifest.version}`)
+  const contractModules = ['runtime-tree', 'release', 'host-protocol', 'desktop-product', 'core-package-set', 'project-profile']
+  for (const name of contractModules) {
+    const source = join(app, 'src', `${name}.ts`)
+    mkdirSync(contractRoot, { recursive: true })
+    writeFileSync(join(contractRoot, `${name}.js`), compileDesktopSdkModule(readFileSync(source, 'utf8'), source))
+    copy(join(app, 'lib/types', `${name}.d.ts`), join(contractRoot, `${name}.d.ts`))
+  }
+  const contractDependencies = Object.fromEntries(['semver', '@deepseek-ai/dsh-desktop-host', '@deepseek-ai/dsh-app-boot'].map(name => [name, linkPackage(name, app, contractRoot)]))
+  writeJson(join(contractRoot, 'package.json'), { name: contractName, version: shellManifest.version, private: true, type: 'module', license: 'MIT',
+    exports: Object.fromEntries(contractModules.map(name => [`./${name}`, { types: `./${name}.d.ts`, default: `./${name}.js` }])), dependencies: contractDependencies })
+  const contractLink = join(shellBuild, 'node_modules', contractName)
+  mkdirSync(dirname(contractLink), { recursive: true })
+  symlinkSync(relative(dirname(contractLink), contractRoot), contractLink, 'dir')
+  shellRoots.push(contractName)
   const toolDependencies = {}
   for (const name of ['electron-builder', 'electron', 'app-builder-lib', 'pnpm']) toolDependencies[name] = linkPackage(name, app, destination)
   for (const entry of [
     'apps/desktop/scripts/prepare-package-set.ts', 'apps/desktop/scripts/prepare-dsh.ts',
-    'apps/desktop/scripts/electron-builder-config.mjs', 'apps/desktop/scripts/smoke-prepared-runtime.ts',
+    'apps/desktop/scripts/verify-packaged-runtime.mjs', 'apps/desktop/scripts/smoke-prepared-runtime.ts',
     'apps/desktop/src/runtime-tree.ts', 'apps/desktop/src/desktop-product.ts',
   ]) exportModule(join(repository, entry))
   for (const filename of ['runtime-payload-smoke.mjs', 'pnpm-smoke.mjs', 'office-conversion-inputs.py']) copy(join(app, 'tests/fixtures', filename), join(destination, 'apps/desktop/tests/fixtures', filename))
   copy(join(repository, 'scripts/primary-runtime/smoke.py'), join(destination, 'scripts/primary-runtime/smoke.py'))
-  copy(join(app, 'scripts/macos-entitlements.plist'), join(destination, 'apps/desktop/scripts/macos-entitlements.plist'))
-  for (const name of ['runtime', 'electron', 'packed']) copy(join(paths.root, name), join(destination, 'apps/desktop/.desktop-build/targets', target, name))
+  for (const name of ['runtime', 'electron', 'packed']) copy(join(paths.root, name), join(destination, 'apps/desktop/.desktop-build/targets', target, name), {
+    filter: file => name !== 'runtime' || !['cli'].some(path => {
+      const local = relative(join(paths.root, name), file).split(sep).join('/')
+      return local === path || local.startsWith(path + '/')
+    }),
+  })
+  const packages = Object.fromEntries([...packedPackages.entries()].map(([name, { file, manifest }]) => [name, {
+    version: manifest.version, tarball: relative(repository, file).split(sep).join('/'), sha256: hash(readFileSync(file)),
+  }]))
+  writeJson(join(destination, 'shell-dependencies.json'), { schemaVersion: 'dsh.shell-dependencies/1', roots: shellRoots, packages,
+    nodeModules: 'shell-build/node_modules', contract: { name: contractName, directory: relative(destination, contractRoot).split(sep).join('/') } })
   for (const entry of ['prepare', 'verify']) copy(join(app, 'scripts/sdk', `${entry}.mjs`), join(destination, `${entry}.mjs`))
   writeJson(join(destination, 'package.json'), { name: '@deepseek-ai/dsh-desktop-sdk', version: shellManifest.version, private: true, type: 'module', dependencies: toolDependencies })
   const diff = capture('git', ['diff', 'HEAD', '--binary'])
   const untracked = capture('git', ['ls-files', '--others', '--exclude-standard']).split('\n').filter(Boolean)
   const manifest = {
-    schemaVersion: 'dsh.desktop-sdk/1',
+    schemaVersion: 'dsh.desktop-sdk/2',
     source: {
       repository: capture('git', ['remote', 'get-url', 'origin']), commit: capture('git', ['rev-parse', 'HEAD']),
       tree: capture('git', ['rev-parse', 'HEAD^{tree}']), dirty: diff !== '' || untracked.length > 0,
@@ -211,10 +242,24 @@ export function exportDesktopSdk(output, target) {
     electronVersion: toolDependencies.electron, hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
     exporterSha256: hash(readFileSync(import.meta.filename)),
     commands: { prepare: ['prepare.mjs'], verify: ['verify.mjs'] },
+    runtimeContract: { profileModule: 'apps/desktop/src/project-profile.js' },
+    shellBuild: { dependencies: 'shell-dependencies.json', nodeModules: 'shell-build/node_modules', runtimeContract: contractName },
     layout: { app: 'apps/desktop', build: 'apps/desktop/.desktop-build/targets/mac-arm64', electronBuilder: 'node_modules/electron-builder/cli.js' },
   }
+  assertRuntimeSdkLayout(destination)
   writeJson(join(destination, 'dsh-desktop-sdk.json'), manifest)
   console.log(JSON.stringify({ sdk: destination, source: manifest.source.commit, version: manifest.version }))
+}
+
+/**
+ * Reject shell executables and product assets in the runtime-only SDK.
+ * @param root - Completed export directory, before its manifest is committed.
+ */
+export function assertRuntimeSdkLayout(root) {
+  for (const path of ['apps/desktop/lib', 'apps/desktop/renderer', 'apps/desktop/resources', 'apps/desktop/cli',
+    'apps/desktop/.desktop-build/targets/mac-arm64/runtime/cli']) {
+    if (existsSync(join(root, path))) throw new Error(`Desktop Runtime SDK: shell-owned path is forbidden: ${path}`)
+  }
 }
 
 if (import.meta.main) {

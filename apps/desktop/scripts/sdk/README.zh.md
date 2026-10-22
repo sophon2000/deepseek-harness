@@ -1,10 +1,10 @@
-# Desktop SDK 导出
+# Desktop Runtime SDK 导出
 
 [English](README.md) | 中文
 
-本参考说明独立桌面发行仓库消费的可执行输入。SDK 包含构建后的 Electron 壳、DSH 与 Host 包归档、目标 Electron 和主运行时、生产依赖闭包、编译后的准备工具、补丁元数据与验证夹具。它不依赖原 checkout；源码 checkout 继续负责壳的维护。
+`dsh.desktop-sdk/2` 归档提供固定的 DSH 运行时、私有 Desktop Host、已准备的 Electron 与解释器、可执行准备工具、补丁元数据和验证夹具。它排除 Electron 壳 bundle、renderer、产品图像与 `runtime/cli`。上游壳仍保留在本 fork；独立发行方拥有自身壳源码、编译配置、CLI、签名和安装器。
 
-在 Apple Silicon Mac 的 DSH 仓库根目录执行生产命令，先安装仓库固定的依赖：
+在 Apple Silicon Mac 的 DSH 仓库根目录执行以下生产命令，先安装仓库固定依赖。提交源码后再构建，使运行时产物记录与导出源码身份指向同一干净提交：
 
 ```sh
 pnpm run build:official
@@ -16,14 +16,16 @@ DSH_DESKTOP_UNSIGNED=1 DSH_DESKTOP_TARGET_PLATFORM=darwin DSH_DESKTOP_TARGET_ARC
 node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-directory --target mac-arm64
 ```
 
-输出目录必须不存在。导出失败会留下部分目录，其中没有完成标志 `dsh-desktop-sdk.json`；重试前丢弃该目录。导出记录源码提交、树、已跟踪差异摘要、未跟踪文件摘要与导出器摘要。脏导出不会被标为干净状态。生产方必须先从所记录源码运行准备；导出器不会推定陈旧构建属于当前源码。归档完整目录时不得解引用符号链接，并将归档摘要记录到消费发行仓库的版本锁中。
+输出目录必须不存在。导出失败会留下部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码提交与树、脏输入摘要、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。
 
-消费方先验证固定的归档摘要与 SDK 身份，再执行 `node <sdk>/prepare.mjs --product <payload-root> --output <new-build-directory> --app-id <application-id>`。准备会把 SDK 复制到独立可写目录，在其中组合产品包与资源，不编译核心或打包源码。第三方生产依赖仍可能访问 npm。准备当前使用无正式签名的 macOS arm64 配置，失败时保留输出用于诊断；只有包安装、资源封存和运行时冒烟验证全部成功后才写入 `desktop-preparation.json`。产品资源链接必须在资源树内解析且不得形成目录环；准备会在完整性封存前将其物化成普通文件。
+`shell-build/node_modules` 包含编译壳所需的精确 DSH 包、其声明导入以及上游壳的五个生产依赖。`shell-dependencies.json` 记录根包、包归档路径、版本和摘要。发行方拥有固定的 TypeScript、tsdown、Vite、React 与 Electron builder 配置，不应假定本 SDK 提供这些编译工具链。SDK 为打包消费方保留固定 Electron builder 依赖闭包，并在导出的 app 目录中链接最小应用的生产依赖。
 
-首次发现运行会解析第三方依赖。后续构建提供 `--runtime-lock <qualified-pnpm-lock.yaml>`：复制固定组合锁，不重新解析依赖，核验核心归档与补丁身份，然后执行冻结的生产安装。每次运行都在安装前把已验证锁保留至 `<build-directory>/runtime-pnpm-lock.yaml`。发行方仅在完整准备和验证成功后提升该锁。源码侧打包通过 `DSH_DESKTOP_RUNTIME_LOCK` 选择输入，通过 `DSH_DESKTOP_RUNTIME_LOCK_OUTPUT` 保留输出。SDK 清单将工具 checkout 身份与 `runtimeSource` 分开；后者的客户端产物记录经过摘要验证，并保留原编译提交。
+SDK 生成的 `@deepseek-ai/dsh-desktop-runtime-contract` 包将 fork 现有实现编译为 JavaScript 与声明，导出 `./runtime-tree`、`./release`、`./host-protocol`、`./desktop-product`、`./core-package-set` 和 `./project-profile`。壳适配器导入这些 API，不重复实现描述符校验。`@deepseek-ai/dsh-desktop-host/protocol` 提供共享 Host 事件、控制请求、校验器和协议版本。主题 CSS 与许可字体使用 `@deepseek-ai/dsh-client-ui-theme/styles/*`，基础组件使用包根导出。
 
-准备后的 Electron builder 配置位于 `apps/desktop/scripts/electron-builder-config.mjs`；构建工具通过 SDK 根 `node_modules` 解析。发行方可以设置产品名、产物名、输出位置与发布配置，同时保留 SDK 资源布局及校验钩子。签名与发布归发行方负责。SDK 是固定构建输入，不是安装器或已签名产品发行版。
+执行 `node <sdk>/prepare.mjs --product <payload-root> --output <new-build-directory> --app-id <application-id> [--runtime-lock <qualified-pnpm-lock.yaml>]`。它仅组合运行时与最小应用清单，不编译核心或打包源码。发行方随后把自己的壳写入 `apps/desktop`，准备 `runtime/cli`，并在打包前封存完整构建输入。可在运行时准备后指定壳版本；运行时验证仍使用 SDK 固定的 DSH 版本。
 
-`node <sdk>/verify.mjs --prepared <build-directory>` 会验证准备后的资源，并使用隔离的临时用户数据执行真实 Host 与原生运行时冒烟。追加 `--app <application.app>` 会验证打包后的资源并使用该应用声明的可执行文件。准备成功不代表安装器、图形流程、签名、公证、更新托管、Windows 或 Intel macOS 已通过验收。
+首次发现运行会解析第三方依赖。已提供运行时锁时绝不回退解析：冻结生产安装前先核验核心包和补丁身份。每次运行都在安装前将已验证锁保留为 `<build-directory>/runtime-pnpm-lock.yaml`，仅在准备与验证成功后提升它。源码侧对应变量是 `DSH_DESKTOP_RUNTIME_LOCK` 和 `DSH_DESKTOP_RUNTIME_LOCK_OUTPUT`。产品资源链接必须无环且指向资源树内，并在完整性封存前物化。
 
-使用 `node --test apps/desktop/tests/export-desktop-sdk.test.mjs` 运行导出器检查。导出仍要求对目标平台执行已有的运行时与包后运行时检查。
+`node <sdk>/verify.mjs --prepared <build-directory>` 核验资源，并用隔离用户目录执行真实 Host、原生与 Office 冒烟。增加 `--app <application.app>` 可检查已打包资源并运行其声明的可执行程序。Builder hook 可导入 `apps/desktop/src/runtime-tree.js` 和 `apps/desktop/scripts/verify-packaged-runtime.mjs`；SDK 不提供产品 builder 配置。该验收不涵盖图形壳行为、签名、公证、更新托管或其他平台。
+
+通过 `node --test apps/desktop/tests/export-desktop-sdk.test.mjs` 运行导出器检查，通过 `pnpm exec vitest run apps/desktop-host/tests/protocol.spec.ts` 检查 Host 协议。清单的 `runtimeContract.profileModule` 指定 prepared 树中导出 `createPluginProfile` 的模块，供隔离 CLI 验证使用。消费方还必须仅使用解出的 SDK 输入编译自身壳，并执行打包运行时检查。
