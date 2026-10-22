@@ -16,12 +16,12 @@ afterEach(() => {
 
 it.each(['system-bin', undefined])('dispatches with bundled pnpm when PATH is %s', async (path) => {
   vi.stubEnv('PATH', path)
-  const runtime = join('Application 中文 with spaces', 'resources', 'app.asar', 'dsh')
+  const runtime = join('Application 中文 with spaces', 'resources', 'dsh')
   const support = join('Application 中文 with spaces', 'resources', 'runtime')
 
   await runDesktopCli(runtime, support)
 
-  expect(installOfficeEngineResolution).toHaveBeenCalledExactlyOnceWith(runtime)
+  expect(installOfficeEngineResolution).not.toHaveBeenCalled()
   expect(runCli).toHaveBeenCalledExactlyOnceWith({
     manageDesktopProfile: true,
     packageManager: {
@@ -31,6 +31,27 @@ it.each(['system-bin', undefined])('dispatches with bundled pnpm when PATH is %s
         ELECTRON_RUN_AS_NODE: '1',
         DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
         PATH: `${join(support, 'bin')}${delimiter}${path ?? ''}`,
+      },
+    },
+  })
+})
+
+it('derives bundled support beside the physical runtime when omitted', async () => {
+  vi.stubEnv('PATH', 'system-bin')
+  const resources = join('Application 中文 with spaces', 'resources')
+
+  await runDesktopCli(join(resources, 'dsh'))
+
+  expect(installOfficeEngineResolution).not.toHaveBeenCalled()
+  expect(runCli).toHaveBeenCalledExactlyOnceWith({
+    manageDesktopProfile: true,
+    packageManager: {
+      command: process.execPath,
+      args: ['--expose-internals', join(resources, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')],
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
+        PATH: `${join(resources, 'runtime', 'bin')}${delimiter}system-bin`,
       },
     },
   })
