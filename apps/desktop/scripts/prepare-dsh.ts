@@ -35,6 +35,8 @@ import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetB
 import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
 import { selectOfficeEngine } from '../../../scripts/libreoffice-packages.mjs'
 import { readDesktopProductPayload, type DesktopRuntimeProduct } from '../src/desktop-product.ts'
+import { preserveDesktopRuntimeLock, selectDesktopRuntimeLock } from './runtime-lock.ts'
+import { materializeDesktopProductResources } from './materialize-product-resources.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
@@ -59,7 +61,7 @@ function prepareProductResources(): DesktopRuntimeProduct | undefined {
   }
   if (!lstatSync(resourcesRoot).isDirectory()) throw new Error('desktop product: resources path is not a directory')
   const relativeResourcesRoot = `products/${product.id}/resources`
-  cpSync(resourcesRoot, join(DSH_OUTPUT_ROOT, ...relativeResourcesRoot.split('/')), { recursive: true, dereference: true })
+  materializeDesktopProductResources(resourcesRoot, join(DSH_OUTPUT_ROOT, ...relativeResourcesRoot.split('/')))
   mkdirSync(destinationRoot, { recursive: true })
   return {
     id: product.id,
@@ -152,12 +154,14 @@ async function main(): Promise<void> {
       createRuntimeProjectMetadata(BUILD_ROOT, release, product?.profileBundles)
       return prepareRuntimePatches(BUILD_ROOT, resolve(APP_ROOT, '..', '..'))
     })
-    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:lockfile', () => runPnpm(['install', '--lockfile-only']))
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:lockfile', () =>
+      selectDesktopRuntimeLock(BUILD_ROOT, process.env.DSH_DESKTOP_RUNTIME_LOCK, () => runPnpm(['install', '--lockfile-only'])))
     verifyRuntimePatches(BUILD_ROOT, patches)
     verifyDesktopCoreLockfile(
       readFileSync(join(BUILD_ROOT, 'pnpm-lock.yaml'), 'utf8'),
       readDesktopCorePackageSet(BUILD_ROOT, release.version),
     )
+    preserveDesktopRuntimeLock(BUILD_ROOT, process.env.DSH_DESKTOP_RUNTIME_LOCK_OUTPUT)
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile']))
     const packageSet = readDesktopCorePackageSet(BUILD_ROOT, release.version)
     const targetName = resolveDesktopBuildTarget()

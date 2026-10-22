@@ -1,6 +1,6 @@
 /** Boot the materialized target runtime without access to a user's Harness profile. */
 
-import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,7 +25,7 @@ import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 export async function smokeDesktopRuntime(
   root: string, node: string, runtime: DesktopRuntimeDescriptor, environment: NodeJS.ProcessEnv, resourcesRuntime: string,
 ): Promise<void> {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-')))
   const profile = join(home, 'profiles', 'desktop')
   const hostEnvironment = {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !/^(?:npm|pnpm|corepack)_/iu.test(name))),

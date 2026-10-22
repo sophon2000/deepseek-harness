@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-22-desktop-artifact-sdk.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-10-22-desktop-artifact-sdk.md
+/agent-note-desktop-artifact-sdk-for-independent-distribution:
+  en: 5418ec690ce70259
+  zh: afeeeb492fb8d391
+/agent-note-desktop-artifact-sdk-for-independent-distribution/problem:
+  en: d510175e7589931d
+  zh: 1d9a9c0a905603c5
+/agent-note-desktop-artifact-sdk-for-independent-distribution/decision:
+  en: ba619f80ded2f815
+  zh: c16aef928c468fa0
+/agent-note-desktop-artifact-sdk-for-independent-distribution/alternatives-considered:
+  en: 96d1aba24def695f
+  zh: 211d5223eb9f6386
+/agent-note-desktop-artifact-sdk-for-independent-distribution/consequences:
+  en: bf5213945e562664
+  zh: e00394396e183c26
