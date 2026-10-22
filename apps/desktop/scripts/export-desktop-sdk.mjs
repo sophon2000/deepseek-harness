@@ -160,17 +160,52 @@ export function createDesktopSdkToolingExporter(destination, linkDependency) {
 }
 
 /**
+ * Require the producer installation to match the SDK's native tool dependencies.
+ * @param platform - Operating system owning the installed dependency closure.
+ * @param arch - Architecture owning the installed dependency closure.
+ */
+export function assertDesktopSdkExportHost(platform, arch) {
+  if (platform !== 'darwin' || arch !== 'arm64') {
+    throw new Error('Desktop SDK: export requires a darwin/arm64 producer installation; installed native tooling cannot be copied from another host')
+  }
+}
+
+/**
+ * Require official client artifacts and both release manifests to identify the clean source being exported.
+ * @param source - Current Git commit, porcelain status and root/Desktop package versions.
+ * @param environment - Artifact-verified client build environment.
+ * @param runtimeCommit - Full Git commit resolved from the recorded client commit.
+ */
+export function assertDesktopSdkBuildIdentity(source, environment, runtimeCommit) {
+  if (source.status !== '') throw new Error('Desktop SDK: source must be clean before export')
+  if (environment.DSH_CLIENT_GIT_DIRTY !== undefined) throw new Error('Desktop SDK: client artifacts were built from a dirty source')
+  if (environment.DSH_CLIENT_BUILD_PROFILE !== 'official') throw new Error('Desktop SDK: client artifacts require the official build profile')
+  if (runtimeCommit !== source.commit) throw new Error('Desktop SDK: client artifact commit differs from current source; rebuild after committing')
+  if (source.version !== source.desktopVersion || environment.DSH_CLIENT_VERSION !== source.version) {
+    throw new Error('Desktop SDK: root, Desktop and client artifact versions must match')
+  }
+}
+
+/**
  * Build a source-free, relocatable export from the exact prepared target owned by this checkout.
  * @param output - New SDK directory, retained as partial output if export fails.
  * @param target - Prepared build target; currently mac-arm64 only.
  */
 export function exportDesktopSdk(output, target) {
   if (target !== 'mac-arm64') throw new Error('Desktop SDK: this exporter currently qualifies mac-arm64 only')
+  assertDesktopSdkExportHost(process.platform, process.arch)
   const destination = resolve(output)
   if (existsSync(destination)) throw new Error(`Desktop SDK: output already exists: ${destination}`)
   const paths = desktopTargetBuildPaths(target)
+  const sourceCommit = capture('git', ['rev-parse', 'HEAD'])
+  const sourceTree = capture('git', ['rev-parse', 'HEAD^{tree}'])
+  const shellManifest = json(join(app, 'package.json'))
   const clientBuild = readClientBuildRecord(repository)
   const runtimeCommit = capture('git', ['rev-parse', clientBuild.environment.DSH_CLIENT_COMMIT_HASH])
+  assertDesktopSdkBuildIdentity({
+    commit: sourceCommit, status: capture('git', ['status', '--porcelain=v1', '--untracked-files=normal']),
+    version: json(join(repository, 'package.json')).version, desktopVersion: shellManifest.version,
+  }, clientBuild.environment, runtimeCommit)
   for (const required of [paths.runtime, paths.electron, paths.packedDsh, paths.packedVendor, paths.packedLandlock]) {
     if (!existsSync(required)) throw new Error(`Desktop SDK: missing prepared input ${required}`)
   }
@@ -249,7 +284,6 @@ export function exportDesktopSdk(output, target) {
   }
   writeFileSync(join(destination, 'pnpm-workspace.yaml'), yaml.dump({ packages: ['inventory/*'], patchedDependencies: originalWorkspace.patchedDependencies }))
   for (const patch of Object.values(originalWorkspace.patchedDependencies)) copy(join(repository, patch), join(destination, patch))
-  const shellManifest = json(join(app, 'package.json'))
   const shellBuild = join(destination, 'shell-build')
   const shellRoots = [...new Set([...Object.keys(shellManifest.dependencies), ...Object.keys(shellManifest.devDependencies).filter(name => name.startsWith('@deepseek-ai/'))])]
   for (const name of shellRoots) linkPackage(name, app, shellBuild)
@@ -299,8 +333,8 @@ export function exportDesktopSdk(output, target) {
   const manifest = {
     schemaVersion: 'dsh.desktop-sdk/2',
     source: {
-      repository: capture('git', ['remote', 'get-url', 'origin']), commit: capture('git', ['rev-parse', 'HEAD']),
-      tree: capture('git', ['rev-parse', 'HEAD^{tree}']), dirty: diff !== '' || untracked.length > 0,
+      repository: capture('git', ['remote', 'get-url', 'origin']), commit: sourceCommit,
+      tree: sourceTree, dirty: diff !== '' || untracked.length > 0,
       ...(diff === '' ? {} : { diffSha256: hash(diff) }),
       untrackedFiles: untracked.map(path => ({ path, sha256: hash(readFileSync(join(repository, path))) })),
     },

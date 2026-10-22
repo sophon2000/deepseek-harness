@@ -190,6 +190,9 @@ export function resolveClientBuildEnvironment(
 ): ClientBuildEnvironment {
   if (profile === undefined) return clientBuildEnvironment(environment)
   if (profile === 'official') {
+    if (environment.DSH_CLIENT_GIT_DIRTY !== undefined) {
+      throw new Error('official client builds require a clean source tree; commit changes or use the default build profile')
+    }
     const commitHash = environment[CLIENT_COMMIT_HASH_VARIABLE]
     const version = environment[CLIENT_VERSION_VARIABLE]
     if (commitHash === undefined) {

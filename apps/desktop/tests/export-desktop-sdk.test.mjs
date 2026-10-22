@@ -5,7 +5,36 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
-import { assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports } from '../scripts/export-desktop-sdk.mjs'
+import { assertDesktopSdkBuildIdentity, assertDesktopSdkExportHost, assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports, exportDesktopSdk } from '../scripts/export-desktop-sdk.mjs'
+
+test('SDK identity requires a clean matching official build and one release version', () => {
+  const commit = 'a'.repeat(40)
+  const source = { commit, status: '', version: 'fixture.1', desktopVersion: 'fixture.1' }
+  const environment = { DSH_CLIENT_BUILD_PROFILE: 'official', DSH_CLIENT_VERSION: 'fixture.1' }
+  assert.doesNotThrow(() => assertDesktopSdkBuildIdentity(source, environment, commit))
+  for (const status of [' M apps/desktop/package.json', 'M  packages/example/package.json', '?? untracked.ts']) {
+    assert.throws(() => assertDesktopSdkBuildIdentity({ ...source, status }, environment, commit), /source must be clean/u)
+  }
+  assert.throws(() => assertDesktopSdkBuildIdentity(source, { ...environment, DSH_CLIENT_GIT_DIRTY: 'true' }, commit), /dirty source/u)
+  assert.throws(() => assertDesktopSdkBuildIdentity(source, { ...environment, DSH_CLIENT_BUILD_PROFILE: undefined }, commit), /official build/u)
+  assert.throws(() => assertDesktopSdkBuildIdentity(source, environment, 'b'.repeat(40)), /commit differs/u)
+  assert.throws(() => assertDesktopSdkBuildIdentity(source, { ...environment, DSH_CLIENT_VERSION: 'fixture.0' }, commit), /versions must match/u)
+  assert.throws(() => assertDesktopSdkBuildIdentity({ ...source, desktopVersion: 'fixture.0' }, environment, commit), /versions must match/u)
+})
+
+test('SDK refuses another host before creating output rather than copying its native tools', () => {
+  assert.doesNotThrow(() => assertDesktopSdkExportHost('darwin', 'arm64'))
+  for (const [platform, arch] of [['linux', 'x64'], ['win32', 'x64'], ['darwin', 'x64']]) {
+    assert.throws(() => assertDesktopSdkExportHost(platform, arch), /producer installation/u)
+  }
+  if (process.platform === 'darwin' && process.arch === 'arm64') return
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-host-'))
+  try {
+    const output = join(root, 'sdk')
+    assert.throws(() => exportDesktopSdk(output, 'mac-arm64'), /producer installation/u)
+    assert.equal(existsSync(output), false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 test('real preparation tooling exports an executable workspace helper without source imports', async () => {
   const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-tooling-'))
