@@ -1,11 +1,66 @@
 /** Source-independent tooling checks for the Desktop SDK exporter. */
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, globSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { cpSync, existsSync, globSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
+import { DESKTOP_SDK_API, writeDesktopSdkApi } from '../scripts/sdk-api.mjs'
 import { assertDesktopSdkBuildIdentity, assertDesktopSdkExportHost, assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports, exportDesktopSdk } from '../scripts/export-desktop-sdk.mjs'
+
+test('versioned API imports the real tooling closure after archive relocation without the export source', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-api-'))
+  try {
+    const source = join(root, 'export'), moved = join(root, 'moved')
+    mkdirSync(source)
+    writeFileSync(join(source, 'package.json'), '{"type":"module"}\n')
+    const copied = new Map()
+    const linkPackage = (name, from, owner = source) => {
+      const directory = desktopSdkPackageDirectory(name, from)
+      let destination = copied.get(directory)
+      if (destination === undefined) {
+        destination = join(source, 'node_modules/.closure', String(copied.size))
+        copied.set(directory, destination)
+        cpSync(directory, destination, { recursive: true, filter: file => !relative(directory, file).split(/[\\/]/u).some(part => ['node_modules', 'src', 'tests'].includes(part)) })
+        const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+        for (const dependency of new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])) {
+          if (manifest.peerDependenciesMeta?.[dependency]?.optional) continue
+          linkPackage(dependency, directory, destination)
+        }
+      }
+      const link = join(owner, 'node_modules', name)
+      mkdirSync(dirname(link), { recursive: true })
+      if (!existsSync(link)) symlinkSync(relative(dirname(link), destination), link, 'dir')
+    }
+    const exportModule = createDesktopSdkToolingExporter(source, linkPackage)
+    for (const entry of ['src/project-profile.ts', 'src/runtime-tree.ts', 'scripts/verify-packaged-runtime.mjs']) {
+      exportModule(resolve(import.meta.dirname, '..', entry))
+    }
+    linkPackage('electron-builder', resolve(import.meta.dirname, '..'))
+    writeDesktopSdkApi(source)
+    mkdirSync(moved)
+    for (const args of [['-czf', join(root, 'sdk.tgz'), '-C', source, '.'], ['-xzf', join(root, 'sdk.tgz'), '-C', moved]]) {
+      const result = spawnSync('tar', args, { encoding: 'utf8' })
+      assert.ifError(result.error)
+      assert.equal(result.signal, null)
+      assert.equal(result.status, 0, result.stderr)
+    }
+    rmSync(source, { recursive: true })
+    const load = name => import(pathToFileURL(join(moved, DESKTOP_SDK_API[name])).href)
+    const { createPluginProfile } = await load('profile')
+    const profile = join(root, 'profile')
+    createPluginProfile(profile)
+    assert.ok(existsSync(join(profile, 'package.json')))
+    assert.throws(() => createPluginProfile(join(root, 'duplicate'), ['duplicate', 'duplicate']), /duplicate built-in profile bundle/u)
+    const { verifyDesktopRuntime } = await load('runtime')
+    await assert.rejects(verifyDesktopRuntime(join(root, 'missing'), '1.0.0', { platform: 'darwin', arch: 'arm64' }), /ENOENT|runtime descriptor/u)
+    const { verifyPackagedDesktopRuntime } = await load('packagedRuntime')
+    assert.throws(() => verifyPackagedDesktopRuntime({ appOutDir: moved, packager: { getResourcesDir: () => moved } }), /missing runtime descriptor/u)
+    const { loadAsar } = await load('tools')
+    assert.equal(typeof (await loadAsar()).extractFile, 'function')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
 
 test('SDK identity requires a clean matching official build and one release version', () => {
   const commit = 'a'.repeat(40)

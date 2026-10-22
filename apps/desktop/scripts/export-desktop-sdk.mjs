@@ -8,6 +8,7 @@ import { parseArgs } from 'node:util'
 import ts from 'typescript'
 import yaml from 'js-yaml'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { DESKTOP_SDK_API, writeDesktopSdkApi } from './sdk-api.mjs'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../lib/types/host-protocol.js'
 import { readClientBuildRecord } from '../../../scripts/client-build-environment.ts'
 
@@ -311,8 +312,9 @@ export function exportDesktopSdk(output, target) {
   for (const entry of [
     'apps/desktop/scripts/prepare-package-set.ts', 'apps/desktop/scripts/prepare-dsh.ts',
     'apps/desktop/scripts/verify-packaged-runtime.mjs', 'apps/desktop/scripts/smoke-prepared-runtime.ts',
-    'apps/desktop/src/runtime-tree.ts', 'apps/desktop/src/desktop-product.ts',
+    'apps/desktop/src/runtime-tree.ts', 'apps/desktop/src/desktop-product.ts', 'apps/desktop/src/project-profile.ts',
   ]) exportModule(join(repository, entry))
+  writeDesktopSdkApi(destination)
   for (const filename of ['runtime-payload-smoke.mjs', 'pnpm-smoke.mjs', 'office-conversion-inputs.py']) copy(join(app, 'tests/fixtures', filename), join(destination, 'apps/desktop/tests/fixtures', filename))
   copy(join(repository, 'scripts/primary-runtime/smoke.py'), join(destination, 'scripts/primary-runtime/smoke.py'))
   for (const name of ['runtime', 'electron', 'packed']) copy(join(paths.root, name), join(destination, 'apps/desktop/.desktop-build/targets', target, name), {
@@ -343,7 +345,8 @@ export function exportDesktopSdk(output, target) {
     electronVersion: toolDependencies.electron, hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
     exporterSha256: hash(readFileSync(import.meta.filename)),
     commands: { prepare: ['prepare.mjs'], verify: ['verify.mjs'] },
-    runtimeContract: { profileModule: 'apps/desktop/src/project-profile.js' },
+    sdkApi: DESKTOP_SDK_API,
+    runtimeContract: { profileModule: DESKTOP_SDK_API.profile },
     shellBuild: { dependencies: 'shell-dependencies.json', nodeModules: 'shell-build/node_modules', runtimeContract: contractName },
     layout: { app: 'apps/desktop', build: 'apps/desktop/.desktop-build/targets/mac-arm64', electronBuilder: 'node_modules/electron-builder/cli.js' },
   }
