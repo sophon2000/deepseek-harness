@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { assertRuntimeSdkLayout, compileDesktopSdkModule, desktopSdkPackageDirectory } from '../scripts/export-desktop-sdk.mjs'
+import { assertRuntimeSdkLayout, compileDesktopSdkModule, desktopSdkPackageDirectory, desktopSdkDeclarationDependency } from '../scripts/export-desktop-sdk.mjs'
 
 test('compiled tooling uses executable local imports and the packed runtime API', () => {
   const result = compileDesktopSdkModule(`
@@ -39,5 +39,18 @@ test('runtime SDK refuses both app bundles and shell CLI payloads', () => {
       assert.throws(() => assertRuntimeSdkLayout(root), /shell-owned path is forbidden/u)
       rmSync(join(root, path), { recursive: true })
     }
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('generated declarations resolve workspace type imports and DefinitelyTyped packages', () => {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-types-'))
+  try {
+    const types = join(root, 'node_modules/@types/markdown')
+    mkdirSync(types, { recursive: true })
+    writeFileSync(join(types, 'package.json'), '{"name":"@types/markdown","version":"1.0.0"}')
+    assert.deepEqual(desktopSdkDeclarationDependency('@scope/shared', root, new Map([['@scope/shared', '/known/workspace']])),
+      { name: '@scope/shared', directory: '/known/workspace' })
+    assert.deepEqual(desktopSdkDeclarationDependency('markdown', root), { name: '@types/markdown', directory: realpathSync(types) })
+    assert.throws(() => desktopSdkDeclarationDependency('absent-desktop-sdk-types', root), /missing dependency/u)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

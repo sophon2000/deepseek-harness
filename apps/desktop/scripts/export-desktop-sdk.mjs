@@ -62,6 +62,19 @@ export function desktopSdkPackageDirectory(name, from) {
   }
 }
 
+/**
+ * Resolve declaration-only imports through the same workspace and DefinitelyTyped inputs as the producer compiler.
+ * @param name - Bare package referenced by a generated declaration.
+ * @param owner - Package directory owning the declaration.
+ * @param workspaces - Exact known workspace package directories.
+ * @returns The package name and directory to link into the exported declaration closure.
+ */
+export function desktopSdkDeclarationDependency(name, owner, workspaces = new Map()) {
+  if (workspaces.has(name)) return { name, directory: workspaces.get(name) }
+  const typesName = `@types/${name.startsWith('@') ? name.slice(1).replace('/', '__') : name}`
+  return { name: typesName, directory: desktopSdkPackageDirectory(typesName, owner) }
+}
+
 function copy(source, destination, options = {}) {
   mkdirSync(dirname(destination), { recursive: true })
   cpSync(source, destination, { recursive: true, mode: constants.COPYFILE_FICLONE, verbatimSymlinks: true, ...options })
@@ -104,6 +117,7 @@ export function exportDesktopSdk(output, target) {
   }
   mkdirSync(destination, { recursive: true })
   const copiedPackages = new Map()
+  const workspacePackages = new Map()
   const packedPackages = new Map()
   for (const directory of [paths.packedDsh, paths.packedVendor, paths.packedLandlock]) {
     for (const filename of readdirSync(directory).filter(name => name.endsWith('.tgz'))) {
@@ -112,8 +126,8 @@ export function exportDesktopSdk(output, target) {
       packedPackages.set(manifest.name, { file, manifest })
     }
   }
-  const linkPackage = (name, from, targetParent) => {
-    const source = desktopSdkPackageDirectory(name, from)
+  const linkPackage = (name, from, targetParent, declaredSource) => {
+    const source = declaredSource ?? desktopSdkPackageDirectory(name, from)
     let targetDirectory = copiedPackages.get(source)
     if (targetDirectory === undefined) {
       const installed = json(join(source, 'package.json'))
@@ -131,19 +145,33 @@ export function exportDesktopSdk(output, target) {
           return parts[0] !== 'node_modules' && !file.endsWith('.map')
         } })
       }
-      const declarations = globSync('**/*.d.ts', { cwd: targetDirectory }).flatMap(path =>
+      // Workspace declarations retain type-only imports that are absent from runtime dependencies.
+      // Third-party packages own their published dependency graph; do not traverse unrelated test declarations.
+      const declarations = (workspacePackage ? globSync('**/*.d.ts', { cwd: targetDirectory }) : []).flatMap(path =>
         moduleImports(readFileSync(join(targetDirectory, path), 'utf8'), path, true))
         .filter(name => !name.startsWith('.') && !isBuiltin(name)).map(packageName)
       for (const dependency of new Set([
         ...Object.keys(installed.dependencies ?? {}), ...Object.keys(installed.optionalDependencies ?? {}), ...Object.keys(installed.peerDependencies ?? {}),
         ...declarations,
       ])) {
+        if (dependency === installed.name) continue
         let resolved
+        let resolvedName = dependency
         try { resolved = desktopSdkPackageDirectory(dependency, source) } catch (error) {
-          if (Object.hasOwn(installed.optionalDependencies ?? {}, dependency) || Object.hasOwn(installed.peerDependencies ?? {}, dependency)) continue
-          throw error
+          if (declarations.includes(dependency)) {
+            const declared = desktopSdkDeclarationDependency(dependency, source, workspacePackages)
+            resolved = declared.directory
+            resolvedName = declared.name
+          }
+          else if (Object.hasOwn(installed.optionalDependencies ?? {}, dependency) || Object.hasOwn(installed.peerDependencies ?? {}, dependency)) continue
+          else throw error
         }
-        if (resolved !== undefined) linkPackage(dependency, source, targetDirectory)
+        if (resolved !== undefined) {
+          const dependencyManifest = json(join(resolved, 'package.json'))
+          if (Object.hasOwn(installed.optionalDependencies ?? {}, dependency)
+            && (dependencyManifest.os && !dependencyManifest.os.includes('darwin') || dependencyManifest.cpu && !dependencyManifest.cpu.includes('arm64'))) continue
+          linkPackage(resolvedName, source, targetDirectory, resolved)
+        }
       }
     }
     const link = join(targetParent, 'node_modules', name)
@@ -178,6 +206,7 @@ export function exportDesktopSdk(output, target) {
   const workspaceManifests = globSync(originalWorkspace.packages.map(pattern => `${pattern}/package.json`), { cwd: repository })
   for (const [index, filename] of workspaceManifests.entries()) {
     const { name, version } = json(join(repository, filename))
+    workspacePackages.set(name, dirname(join(repository, filename)))
     writeJson(join(destination, 'inventory', String(index), 'package.json'), { name, version })
   }
   writeFileSync(join(destination, 'pnpm-workspace.yaml'), yaml.dump({ packages: ['inventory/*'], patchedDependencies: originalWorkspace.patchedDependencies }))
