@@ -27,6 +27,14 @@ kind: "package-reference"
 
 把提供方与它的消费方挂载在同一组合中，并完全按子进程服务的规定启动进程；本包只决定这些进程在宿主机上如何运行。在 Windows 上，非终端子进程与 `taskkill` 辅助进程会隐藏窗口，因此后台操作不会抢占焦点。遵循进程启动可见性设置的 GUI 窗口也会被隐藏。
 
+### 可恢复的 Windows 操作
+
+`ctx.subprocess.operationProvider({ stateDirectory })` 独立于普通 spawn 选择 Windows 操作所有权。使用固定本地卷上的新私有目录；现有目录必须已经具有精确的当前用户专属受保护 DACL。provider 绝不修改现有目录的 ACL。创建时持久保存经认证的描述符，不启动任何进程，并且每次调用都返回全新 scope。消费者必须在通过 scope 启动前，将描述符与资源预留一起持久保存。owner 和 proof 要求见 [subprocess 操作 API](../subprocess/README.zh.md#recoverable-operations)。
+
+每次启动都在同一个独占准入文件句柄下验证持久 owner、机器保护的安装密钥、内核 boot UUID 和 Windows 会话。目标通过 `PROC_THREAD_ATTRIBUTE_JOB_LIST` 原子进入命名操作 Job 和每个子进程的 Job；可恢复启动绝不回退到创建后分配。成功封闭永久保留，跨 provider 重启有效，并阻止迟到 runner 启动。恢复在 Job 查找前验证独立提供的 owner，flush 封闭记录，然后终止并查询原生 Job。proof 是签发实例私有的进程内对象，绝不是持久完成结果。命令间的空闲间隔不会封闭操作；正常完成或取消后释放资源预留也要求同样的 seal 和验证。
+
+原生 boot UUID 使用 `NtQuerySystemInformation` 的第 90 类，并严格检查 32 字节布局。原生布局不可用或改变、boot 或会话不匹配、存储失败、查询失败、未知 provider 或 legacy 描述符都不能取得证明。真实系统重启验证仍未完成；此显式启用的实现不代表能够恢复历史匿名 Job。存储永久保留准入和封闭记录，尚未实现自动垃圾回收。
+
 ### 挂载提供方
 
 在与消费方相同的组合中加载本提供方。它没有任何配置字段：每项选择都随 spawn 请求到达，因此随部署变化的决策留在调用方的配置里。 `terminalEnvironment()` 在 POSIX 读取非空的 `SHELL`，缺失时使用账户登录 shell；在 Windows 读取非空的 `ComSpec`。空值会被省略，由消费者选择平台回退。

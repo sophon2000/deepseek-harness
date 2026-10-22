@@ -12,6 +12,8 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join } from 'node:path'
+import type { SubprocessOperationLocator, SubprocessOperationOwnerKey } from '@deepseek-ai/dsh-subprocess'
+import type { WindowsOperationLaunch } from './windows-operations.ts'
 
 /** Target state restored by the Linux bootstrap after systemd establishes the scope. */
 export interface LinuxLaunchRequest {
@@ -39,6 +41,7 @@ export interface WindowsStartRequest {
   cwd: string
   env: Record<string, string>
   control?: 'pipe'
+  operation?: WindowsOperationLaunch
 }
 
 /** The only parent-to-runner control message on Windows. */
@@ -174,12 +177,28 @@ export function readLinuxStartupError(path: string): LinuxStartupError | undefin
  * @returns validated target start request.
  */
 export function parseWindowsStartRequest(value: unknown): WindowsStartRequest {
-  if (!isRecord(value) || !hasExactKeys(value, ['type', 'cwd', 'env'], ['control'])
+  if (!isRecord(value) || !hasExactKeys(value, ['type', 'cwd', 'env'], ['control', 'operation'])
     || value.type !== 'start' || typeof value.cwd !== 'string' || !isStringRecord(value.env)
     || (value.control !== undefined && value.control !== 'pipe')) {
     throw new Error('subprocess runner received an invalid Windows start request')
   }
-  return { type: 'start', cwd: value.cwd, env: value.env, ...value.control === 'pipe' ? { control: 'pipe' as const } : {} }
+  let operation: WindowsOperationLaunch | undefined
+  if (value.operation !== undefined) {
+    const entry = value.operation
+    if (!isRecord(entry) || !hasExactKeys(entry, ['stateDirectory', 'descriptor', 'expectedOwnerKey'])
+      || typeof entry.stateDirectory !== 'string' || !isAbsolute(entry.stateDirectory) || typeof entry.expectedOwnerKey !== 'string'
+      || !isRecord(entry.descriptor) || !hasExactKeys(entry.descriptor, ['providerKind', 'providerVersion', 'locator', 'ownerKey'])
+      || typeof entry.descriptor.providerKind !== 'string' || typeof entry.descriptor.providerVersion !== 'number'
+      || typeof entry.descriptor.locator !== 'string' || typeof entry.descriptor.ownerKey !== 'string') {
+      throw new Error('subprocess runner received an invalid operation identity')
+    }
+    operation = { stateDirectory: entry.stateDirectory,
+      descriptor: { providerKind: entry.descriptor.providerKind, providerVersion: entry.descriptor.providerVersion,
+        locator: entry.descriptor.locator as SubprocessOperationLocator, ownerKey: entry.descriptor.ownerKey as SubprocessOperationOwnerKey },
+      expectedOwnerKey: entry.expectedOwnerKey as SubprocessOperationOwnerKey }
+  }
+  return { type: 'start', cwd: value.cwd, env: value.env, ...value.control === 'pipe' ? { control: 'pipe' as const } : {},
+    ...operation === undefined ? {} : { operation } }
 }
 
 /**

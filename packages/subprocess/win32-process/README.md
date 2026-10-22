@@ -38,6 +38,12 @@ The Windows ACL sandbox adds SID, DACL, grant, workspace, and public child polic
 
 - **Inherited control descriptor** — Job creation accepts an optional fd-7 pipe. `STARTUPINFO.cbReserved2/lpReserved2` carries an eight-slot CRT descriptor table with standard handles, closed slots 3–6, and the control pipe at slot 7. The table is allocated until CreateProcess returns; temporary handle inheritance is reset on success and failure. Initializing the slot before Node starts avoids overwriting descriptors Node has already allocated.
 
+### Recoverable operation primitives
+
+`loadWin32OperationBindings()` adds native Job-list, private object security, file exclusion, DPAPI, and exact kernel boot identity operations. `spawnCurrentTokenOperationProcess()` uses `STARTUPINFOEXW` with both the operation and per-child Job handles; it does not call `AssignProcessToJobObject`. Its caller must hold authenticated durable admission until creation and initial resume or cleanup finish. Job-list attribute storage remains allocated until the attribute list is destroyed. Existing ordinary and restricted-token primitives retain their current behavior.
+
+Operation identity binds a machine-protected random installation key, the kernel BootIdentifier UUID, and the Windows object-namespace session. Boot identity currently depends on native information class 90 and accepts only its expected 32-byte result. Unknown layouts fail closed. The operation consumer owns durable identity parsing, owner verification, seal persistence, native observation, and proof issuance; these native helpers alone never certify recovery.
+
 <a id="header-verification"></a>
 ## Header verification
 

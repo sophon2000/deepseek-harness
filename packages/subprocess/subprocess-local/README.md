@@ -27,6 +27,14 @@ Mount `dsh-subprocess-local` in any composition that runs child processes on the
 
 Mount the provider beside its consumers and start processes exactly as the subprocess service specifies; this package decides only how those processes run on the host. On Windows, non-terminal children and `taskkill` helpers start with their windows hidden so background operations do not take focus. This also hides GUI windows that honor the process startup visibility setting.
 
+### Recoverable Windows operations
+
+`ctx.subprocess.operationProvider({ stateDirectory })` selects Windows operation ownership independently of ordinary spawn selection. Use a new private directory on a fixed local volume; an existing directory must already have the exact current-user-only protected DACL. The provider never changes an existing directory ACL. Creation persists an authenticated descriptor without starting any process and returns a fresh scope for every call. Persist that descriptor with the consumer reservation before spawning through the scope. See the [subprocess operation API](../subprocess/README.md#recoverable-operations) for owner and proof requirements.
+
+All launches authenticate the stored owner, machine-protected installation key, kernel boot UUID, and Windows session under the same exclusive admission-file handle. Targets enter the named operation Job and a per-child Job atomically through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; recoverable launches never fall back to post-create assignment. A successful seal is permanent, survives provider restarts, and prevents delayed runners from launching. Recovery validates the independently supplied owner before Job lookup, flushes the seal, then terminates and queries the native Job. Proof is an issuer-private in-process object, never a stored completion result. An empty interval between commands does not seal an operation, and reservation release after normal completion or cancellation requires the same seal and verification.
+
+The native boot UUID uses `NtQuerySystemInformation` class 90 with a strict 32-byte layout check. An unavailable or changed native layout, boot/session mismatch, store failure, query failure, unknown provider, or legacy descriptor withholds evidence. Actual system-reboot validation remains outstanding; this opt-in implementation is not a claim that historical anonymous Jobs can be recovered. Stores retain admission and seal records permanently; no automatic garbage collection is implemented.
+
 ### Mounting the provider
 
 Load the provider in the same composition as its consumers. It has no config fields: every choice arrives on the spawn request, so deployment-varying decisions stay with the caller's configuration. `terminalEnvironment()` reads a nonempty `SHELL` on POSIX, falling back to the account login shell, or a nonempty `ComSpec` on Windows. Empty values are omitted so the consumer can choose its platform fallback.

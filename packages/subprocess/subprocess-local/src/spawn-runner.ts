@@ -2,6 +2,7 @@
 
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { closeSync } from 'node:fs'
+import { launchWindowsOperationTarget } from './windows-operations.ts'
 import {
   closeHandleChecked,
   isJobEmpty,
@@ -13,6 +14,7 @@ import {
 } from '@deepseek-ai/dsh-win32-process'
 import type {
   CurrentTokenProcessBindings,
+  CurrentTokenProcessSpawnOptions,
   NativePtr,
 } from '@deepseek-ai/dsh-win32-process'
 import { loadLinuxExecve } from './linux-execve.ts'
@@ -43,6 +45,7 @@ type RunnerHost = Pick<NodeJS.Process, 'env' | 'exitCode' | 'connected' | 'cwd' 
 
 /** Injectable operations used by the protocol-owner tests. */
 export interface SpawnRunnerInternals {
+  launchWindowsOperationTarget?: typeof launchWindowsOperationTarget
   execve(file: string, argv: string[], env: Record<string, string>, control?: 'pipe'): never
   loadWin32ProcessBindings(): CurrentTokenProcessBindings
   spawnCurrentTokenJobProcess: typeof spawnCurrentTokenJobProcess
@@ -307,14 +310,17 @@ class WindowsJobRunner {
         return
       }
       this.api = this.internals.loadWin32ProcessBindings()
-      const spawned = this.internals.spawnCurrentTokenJobProcess(this.api, {
+      const options: CurrentTokenProcessSpawnOptions = {
         command: command as string,
         applicationName,
         args,
         cwd: request.cwd,
         env: request.env,
         stdio: { stdin: 4, stdout: 5, stderr: 6, ...request.control === 'pipe' ? { control: SUBPROCESS_CONTROL_FD } : {} },
-      })
+      }
+      const spawned = request.operation === undefined
+        ? this.internals.spawnCurrentTokenJobProcess(this.api, options)
+        : await (this.internals.launchWindowsOperationTarget ?? launchWindowsOperationTarget)(request.operation, options, () => this.finished || this.terminateRequested)
       this.processHandle = spawned.process
       this.jobHandle = spawned.job
       for (const fileDescriptor of request.control === 'pipe' ? [4, 5, 6, SUBPROCESS_CONTROL_FD] : [4, 5, 6]) {

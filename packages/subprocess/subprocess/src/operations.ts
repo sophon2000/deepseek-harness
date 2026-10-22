@@ -60,7 +60,7 @@ export interface SubprocessOperationProviderOptions {
 /** Opt-in durable capability; ordinary spawn and terminals gain no recovery guarantee. */
 export interface SubprocessOperationProvider {
   /**
-   * Persist admission without starting any runner or target process.
+   * Persist fresh, exclusive admission without starting any runner or target. Never adopt an old owner scope.
    * @param ownerKey - independently generated trusted consumer binding.
    * @returns a scope to persist, or unsupported; storage failures reject without launching.
    */

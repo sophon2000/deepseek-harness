@@ -250,6 +250,12 @@ The terminal spec fully specifies argv, cwd, environment overrides, terminal typ
 
 `terminalEnvironment(signal?)` returns `SubprocessTerminalEnvironment`: the execution environment platform (`posix` or `windows`) and optional `defaultShell`. These facts come from the provider rather than the Web server or browser. `resolveExecutable` verifies shell candidates; `SubprocessExecutableNotFoundError` identifies a missing executable, while provider and transport failures remain errors.
 
+## Recoverable operation ownership
+
+`operationProvider({ stateDirectory })` returns a provider with fresh `create(ownerKey)`, cold `recover(descriptor, expectedOwnerKey, signal?)`, issuer-specific `verify(proof, descriptor, expectedOwnerKey)`, and awaited `dispose()`. A created scope exposes its durable descriptor, ordinary `spawn(spec)`, and permanent `seal(signal?)`. The trusted consumer persists the descriptor before any associated launch and independently derives the expected owner from its durable home, project, domain, and receipt identity. Multiple commands may share an operation; direct exit and empty native intervals never close admission.
+
+`SubprocessOperationRecovery` distinguishes `sealed-quiescent` with a nonserializable proof, `active` with seal status and busy/aborted/draining reason, `unverifiable` with an integrity/storage/native reason, and `unsupported` with provider identity. Only native evidence freshly issued after durable launch exclusion and verified by the issuing provider authorizes consumer reconciliation. Legacy records without a descriptor remain unverifiable. Normal success and cancellation require the same permanent seal before reservation release. See the [local provider](../../packages/subprocess/subprocess-local/README.md) for Windows storage, boot identity, and Job-list limits.
+
 ## Service behavior
 
 The abstract [`SubprocessRuntime`](../../packages/subprocess/subprocess/src/index.ts) Service Definition specifies execution-world coordinates, executable lookup, ordinary `spawn`, and `spawnTerminal`. [`LocalSubprocessRuntime`](../../packages/subprocess/subprocess-local/src/index.ts) provides them with platform-selected managed ranges, per-disposition wiring, credential scrubbing, `node-pty`, platform process inspection, and terminate-and-join disposal. See [`dsh-subprocess`](../../packages/subprocess/subprocess/README.md) for the Service Definition contract and [`dsh-subprocess-local`](../../packages/subprocess/subprocess-local/README.md) for local mechanics.

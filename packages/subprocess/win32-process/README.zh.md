@@ -38,6 +38,12 @@ Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公
 
 - **继承控制描述符**——Job 创建接受可选的 fd-7 管道。`STARTUPINFO.cbReserved2/lpReserved2` 携带八槽 CRT 描述符表，其中包含标准句柄、关闭的槽 3–6，以及槽 7 的控制管道。该表保留到 CreateProcess 返回；临时句柄继承在成功和失败时均恢复。在 Node 启动前初始化该槽可避免覆盖 Node 已分配的描述符。
 
+### 可恢复操作原语
+
+`loadWin32OperationBindings()` 增加原生 Job-list、私有对象安全、文件互斥、DPAPI 和精确内核 boot 身份操作。`spawnCurrentTokenOperationProcess()` 使用包含操作 Job 和每个子进程 Job 句柄的 `STARTUPINFOEXW`，不调用 `AssignProcessToJobObject`。调用者必须在创建、初始恢复线程或清理完成前持续持有经过认证的持久准入。Job-list 属性存储持续分配到 attribute list 销毁之后。现有普通及受限令牌原语保留原有行为。
+
+操作身份绑定机器保护的随机安装密钥、内核 BootIdentifier UUID 和 Windows 对象命名空间会话。boot 身份当前依赖原生信息第 90 类，只接受预期的 32 字节结果。未知布局以关闭方式失败。操作消费者拥有持久身份解析、owner 验证、封闭持久保存、原生观察和证明签发职责；单凭这些原生辅助方法永远不能认证恢复。
+
 <a id="header-verification"></a>
 ## 头文件验证
 

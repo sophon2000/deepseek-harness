@@ -27,6 +27,7 @@ kind: "package-reference"
 
 在需要运行子进程的组合中挂载一个 subprocess 提供方，并从拥有该命令的能力调用 `ctx.subprocess`。常用路径是显式的：解析可执行文件、用完全明确的请求 spawn、读取你要的输出，并在工作完成时终止受管范围。
 
+<a id="recoverable-operations"></a>
 ### 可恢复操作
 
 `operationProvider({ stateDirectory })` 选择显式启用的持久操作所有权。`create(ownerKey)` 不启动进程，每次创建全新 scope，绝不 adopt 相同 owner 的旧 scope。任何探测或 worker 调用 `scope.spawn(spec)` 前，先将返回的描述符与资源预留一起持久保存。操作在顺序子进程和空闲间隔之间保持开放。
