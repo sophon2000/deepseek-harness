@@ -29,6 +29,8 @@ SDK 生成的 `@deepseek-ai/dsh-desktop-runtime-contract` 包将 fork 现有实�
 
 首次发现运行会解析第三方依赖。已提供运行时锁时绝不回退解析：冻结生产安装前先核验核心包和补丁身份。每次运行都在安装前将已验证锁保留为 `<build-directory>/runtime-pnpm-lock.yaml`，仅在准备与验证成功后提升它。源码侧对应变量是 `DSH_DESKTOP_RUNTIME_LOCK` 和 `DSH_DESKTOP_RUNTIME_LOCK_OUTPUT`。产品资源链接必须无环且指向资源树内，并在完整性封存前物化。
 
-`node <sdk>/verify.mjs --prepared <build-directory>` 核验资源，并用隔离用户目录执行真实 Host、原生与 Office 冒烟。增加 `--app <application.app>` 可检查已打包资源并运行其声明的可执行程序。Builder hook 可导入 `apps/desktop/src/runtime-tree.js` 和 `apps/desktop/scripts/verify-packaged-runtime.mjs`；SDK 不提供产品 builder 配置。该验收不涵盖图形壳行为、签名、公证、更新托管或其他平台。
+`node <sdk>/verify.mjs --prepared <build-directory>` 核验资源，并用隔离用户目录执行真实 Host、原生与 Office 冒烟。增加 `--app <application.app>` 可检查已打包资源并运行其声明的可执行程序。SDK 不提供产品 builder 配置。该验收不涵盖图形壳行为、签名、公证、更新托管或其他平台。
+
+清单的 `sdkApi.version` 为 `dsh.desktop-sdk-api/1`，独立于归档 schema 2 和 Host 协议 4。其 `profile`、`runtime`、`packagedRuntime` 与 `tools` 字段分别指定 `sdk/v1/profile.mjs`、`sdk/v1/runtime.mjs`、`sdk/v1/packaged-runtime.mjs` 和 `sdk/v1/tools.mjs`。这些 ESM 入口依次导出 `createPluginProfile`、`verifyDesktopRuntime`、`verifyPackagedDesktopRuntime` 和异步 `loadAsar`。消费方在导入前校验 API 版本与精确路径；未知或不完整声明必须报错，不得回退到内部路径。`runtimeContract.profileModule` 等于 `sdkApi.profile`。没有 `sdkApi` 的旧 schema-2 归档仅保留明确识别的旧路径。准备过程内部实现仍属私有，只要 SDK 入口还依赖它们，就不能删除。
 
 通过 `node --test apps/desktop/tests/export-desktop-sdk.test.mjs` 运行导出器检查，通过 `pnpm exec vitest run apps/desktop-host/tests/protocol.spec.ts` 检查 Host 协议。清单的 `runtimeContract.profileModule` 指定 prepared 树中导出 `createPluginProfile` 的模块，供隔离 CLI 验证使用。消费方还必须仅使用解出的 SDK 输入编译自身壳，并执行打包运行时检查。
