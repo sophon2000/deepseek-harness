@@ -37,6 +37,8 @@ kind: "package-reference"
 
 原生 boot UUID 使用 `NtQuerySystemInformation` 的第 90 类，并严格检查 32 字节布局。原生布局不可用或改变、boot 或会话不匹配、存储失败、查询失败、未知 provider 或 legacy 描述符都不能取得证明。真实系统重启验证仍未完成；此显式启用的实现不代表能够恢复历史匿名 Job。存储永久保留准入和封闭记录，尚未实现自动垃圾回收。
 
+开始 dispose 会立即关闭 provider 准入：创建和启动会拒绝执行，外部恢复返回 `unverifiable`，不会再打开其他 Job，即使调用方已取消等待也是如此。dispose 在释放句柄前封闭并观察每个已持有 Job；成功要求原生完全停稳，失败会使 dispose 拒绝。已 dispose 的 provider 不能签发或验证 proof。
+
 ### 挂载提供方
 
 在与消费方相同的组合中加载本提供方。它没有任何配置字段：每项选择都随 spawn 请求到达，因此随部署变化的决策留在调用方的配置里。 `terminalEnvironment()` 在 POSIX 读取非空的 `SHELL`，缺失时使用账户登录 shell；在 Windows 读取非空的 `ComSpec`。空值会被省略，由消费者选择平台回退。

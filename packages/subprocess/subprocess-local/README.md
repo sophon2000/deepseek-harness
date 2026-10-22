@@ -37,6 +37,8 @@ Recovery requires the authenticated native Job to remain reopenable. A missing J
 
 The native boot UUID uses `NtQuerySystemInformation` class 90 with a strict 32-byte layout check. An unavailable or changed native layout, boot/session mismatch, store failure, query failure, unknown provider, or legacy descriptor withholds evidence. Actual system-reboot validation remains outstanding; this opt-in implementation is not a claim that historical anonymous Jobs can be recovered. Stores retain admission and seal records permanently; no automatic garbage collection is implemented.
 
+Starting disposal closes provider admission immediately: creation and launches reject, and external recovery returns `unverifiable` without opening another Job, including when its wait is already cancelled. Disposal seals and observes every owned Job before releasing handles; success requires native quiescence, and failures reject disposal. A disposed provider cannot issue or verify proof.
+
 ### Mounting the provider
 
 Load the provider in the same composition as its consumers. It has no config fields: every choice arrives on the spawn request, so deployment-varying decisions stay with the caller's configuration. `terminalEnvironment()` reads a nonempty `SHELL` on POSIX, falling back to the account login shell, or a nonempty `ComSpec` on Windows. Empty values are omitted so the consumer can choose its platform fallback.

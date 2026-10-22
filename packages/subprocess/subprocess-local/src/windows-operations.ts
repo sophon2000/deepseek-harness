@@ -53,7 +53,7 @@ function releaseResources(
   if (failures.length > 0) throw new AggregateError(failures, 'Operation native resource release failed')
 }
 
-/** Trusted local provider; no child or runner starts until a returned scope is explicitly used. */
+/** Trusted local provider; launches require an explicit scope, and disposal closes public admission immediately. */
 export class WindowsOperationProvider implements SubprocessOperationProvider {
   private store: WindowsOperationStore | undefined
   private readonly jobs = new Map<string, { job: NativePtr; descriptor: SubprocessOperationDescriptor; sealed: boolean }>()
@@ -107,6 +107,16 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
   }
 
   recover(
+    descriptor: SubprocessOperationDescriptor | undefined,
+    expectedOwnerKey: SubprocessOperationOwnerKey,
+    signal?: AbortSignal,
+  ): Promise<SubprocessOperationRecovery> {
+    if (this.closing) return Promise.resolve({ kind: 'unverifiable', reason: 'native-failure',
+      detail: this.disposed ? 'Operation provider is disposed' : 'Operation provider is disposing' })
+    return this.recoverAdmitted(descriptor, expectedOwnerKey, signal)
+  }
+
+  private recoverAdmitted(
     descriptor: SubprocessOperationDescriptor | undefined,
     expectedOwnerKey: SubprocessOperationOwnerKey,
     signal?: AbortSignal,
@@ -196,7 +206,7 @@ export class WindowsOperationProvider implements SubprocessOperationProvider {
     for (const { descriptor } of [...this.jobs.values()]) {
       let result: SubprocessOperationRecovery
       do {
-        result = await this.recover(descriptor, descriptor.ownerKey)
+        result = await this.recoverAdmitted(descriptor, descriptor.ownerKey)
         if (result.kind === 'active') await delay(10)
       } while (result.kind === 'active')
       if (result.kind !== 'sealed-quiescent') failures.push(JSON.stringify(result))

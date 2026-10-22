@@ -222,7 +222,7 @@ describe('Windows parent runner contract', () => {
     })
 
     expect(() => launchWindowsJob(ignored, { TARGET: 'yes' }, {
-      spawn: spawn as never,
+      spawn,
       runnerInvocation: ['C:\\node.exe', 'C:\\runner.js'],
     })).toThrow('runner spawn failed')
     if (carrier === undefined) throw new Error('runner spawn was not attempted')

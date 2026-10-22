@@ -103,7 +103,7 @@ Job 后代、breakaway 标志、嵌套记账和 Job 销毁语义见 [Job Objects
 
 恢复被进程死亡打断时，必须在每个持久写入和原生查询检查点重试。恢复期间真实 OS 重启需要明确协调的手动 Windows 运行；测试工具不得重启用户电脑。模拟 boot 不匹配是独立反向测试，不能代替重启验证。平台失败保留为失败；减弱断言或降级回退都不能取得能力标志。
 
-隔离分支已实现显式启用的 provider 和 Node/Koffi Job-list 路径。原生测试覆盖持久准入、多次启动、后代约束、签发者验证、写入和查询失败、真实 Host/runner 崩溃，以及恢复进程在 seal flush 成功后死亡的重试。Cordis Loader 组合测试经过公开工厂。这些检查不构成发布 artifact 的资格：真实 OS 重启、断电持久性、消费者集成和仓库构建门禁仍是独立验收要求。`active.sealed = false` 表示未确认 seal 状态，永不授权重新开放准入。
+隔离分支已实现显式启用的 provider 和 Node/Koffi Job-list 路径。原生测试覆盖持久准入、多次启动、后代约束、签发者验证、写入和查询失败、真实 Host/runner 崩溃，以及恢复进程在 seal 创建、写入、flush、Job 打开、限制查询、终止和计数查询前后死亡。在同一已认证 Job 仍可重新打开时，重试重新验证完整 seal 并取得新的原生证据；中断留下的空 seal 永久阻止签发证明。释放过程在等待已持有 Job 排空前关闭恢复准入，拒绝关闭期间及释放后的调用。Cordis Loader 组合测试经过公开工厂。[产物 smoke](../../../../packages/subprocess/subprocess-local/verify/operation-artifact.mjs) 在并发独立消费者中验证普通包导出和构建后的 runner。这些检查不构成发布 artifact 的资格：真实 OS 重启、断电持久性、消费者集成，以及仓库构建和打包安装检查仍是独立验收要求。`active.sealed = false` 表示未确认 seal 状态，永不授权重新开放准入。
 
 ## 风险
 

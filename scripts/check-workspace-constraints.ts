@@ -228,11 +228,12 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
     'lib/helper.js', 'lib/protocol.js', 'lib/schemas.js',
     'lib/protocol-*.js', 'lib/schemas-*.js', 'lib/stream-security-*.js',
   ],
-  // Ordinary native containment ships a path-loaded runner and its shared
-  // runner chunk beside the existing node-pty permission repair.
+  // The service and path-loaded runner share operation admission code through
+  // a hashed runtime chunk beside the existing node-pty permission repair.
   '@deepseek-ai/dsh-subprocess-local': [
     'lib/runner.js',
     'lib/runner-*.js',
+    'lib/windows-operations-*.js',
     'lib/output.js',
     'scripts/ensure-spawn-helper.mjs',
   ],
