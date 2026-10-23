@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-otel",
   "description": "Cordis service for independent ordinary-event and byte-bounded Session-log OTLP channels",
-  "version": "0.2.1-rc.2.vh.4.local.20261022.1",
+  "version": "0.2.1-rc.2.vh.5.local.20261023.1",
   "publishConfig": {
     "access": "public"
   },
