@@ -8,17 +8,20 @@ Run these producer commands from the DSH repository root with its pinned depende
 
 ```sh
 pnpm run build:official
+pnpm --dir native/system run build:native
 pnpm run release:pack --family dsh --out apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh --concurrency 6
 pnpm run release:pack --family vendor --out apps/desktop/.desktop-build/targets/mac-arm64/packed/vendor --concurrency 6
 pnpm --dir apps/desktop-host pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh"
 pnpm --dir packages/sdk/desktop-runtime-contract pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh"
 pnpm --dir native/system/packages/entry pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
-pnpm --dir native/system/packages/darwin-arm64 pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
+npm pack ./native/system/packages/darwin-arm64 --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
 DSH_DESKTOP_UNSIGNED=1 DSH_DESKTOP_TARGET_PLATFORM=darwin DSH_DESKTOP_TARGET_ARCH=arm64 pnpm --dir apps/desktop run prepare:runtime
 node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-directory --target mac-arm64
 ```
 
 For Linux x64 with glibc, use `linux-x64` in the target directories and export argument, `linux`/`x64` in the preparation environment, and `native/system/packages/linux-x64` for the native package. The locked primary runtime supplies Node, Python and pnpm; Electron uses `electron/electron`. Linux runtime preparation supplies no upstream shell CLI and does not enable release publication or automatic updates; distributors own their CLI. Export excludes optional native tooling for other platforms, architectures or libc implementations.
+
+A complete Linux native build requires `musl-gcc`; the root official build prepares only the host addon. If the native source is unchanged, producers may instead supply canonical published native tarballs verified against registry integrity. Preserve their independent versions and original source receipts; do not attribute them to the DSH family build.
 
 The output must not exist. Before writing output, export requires a clean source tree, an official client build from the current commit, and matching root, Desktop and client artifact versions. It also requires a macOS arm64 producer for `mac-arm64`, or a Linux x64 producer for `linux-x64`: the exporter copies installed native tooling dependencies, not a separately resolved target installation. These preflight failures leave no output; later failures retain a partial directory without a completed `dsh-desktop-sdk.json`. Archive the directory without dereferencing symbolic links and pin its digest in the distributor. The manifest records source identity, the artifact-verified runtime build record, Electron version and Host protocol version. Export refuses shell-owned output paths.
 
@@ -36,4 +39,4 @@ An initial discovery run resolves third-party dependencies. A supplied runtime l
 
 The manifest's `sdkApi.version` is `dsh.desktop-sdk-api/1`, independently of archive schema 2 and Host protocol 4. Its `profile`, `runtime`, `packagedRuntime` and `tools` fields identify `sdk/v1/profile.mjs`, `sdk/v1/runtime.mjs`, `sdk/v1/packaged-runtime.mjs` and `sdk/v1/tools.mjs`. These ESM entries export `createPluginProfile`, `verifyDesktopRuntime`, `verifyPackagedDesktopRuntime` and asynchronous `loadAsar`, respectively. Consumers validate the API version and exact paths before importing; unknown or incomplete declarations must fail rather than fall back to internal paths. `runtimeContract.profileModule` equals `sdkApi.profile`. Older schema-2 archives without `sdkApi` retain only their explicitly recognized legacy paths. Preparation internals remain private and cannot be removed while the SDK entrypoints depend on them.
 
-Run exporter checks with `node --test apps/desktop/tests/export-desktop-sdk.test.mjs` and Host protocol checks with `pnpm exec vitest run apps/desktop-host/tests/protocol.spec.ts`. The manifest’s `runtimeContract.profileModule` identifies the prepared-tree module that exports `createPluginProfile` for isolated CLI verification. The consumer must also compile its shell using only extracted SDK inputs and perform packaged-runtime checks.
+Run exporter checks with `node --test apps/desktop/tests/export-desktop-sdk.test.mjs` and Host protocol checks with `pnpm exec vitest run apps/desktop-host/tests/protocol.spec.ts`. Exporter checks relocate the public APIs and product-process acceptance runner, including its package self-references through declared exports. The manifest’s `runtimeContract.profileModule` identifies the prepared-tree module that exports `createPluginProfile` for isolated CLI verification. The consumer must also compile its shell using only extracted SDK inputs and perform packaged-runtime checks.

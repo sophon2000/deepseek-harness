@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants, cpSync, existsSync, globSync, mkdirSync, readFileSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { isBuiltin } from 'node:module'
 import { parseArgs } from 'node:util'
 import ts from 'typescript'
@@ -47,12 +47,24 @@ export function compileDesktopSdkModule(source, filename) {
 }
 
 /**
- * Resolve the installed package directory without bypassing the package's internal dependency graph.
+ * Resolve an installed dependency or the nearest package scope's exported self-reference.
  * @param name - Bare dependency package name.
  * @param from - Directory that owns the dependency import.
  * @returns Canonical installed package directory; missing dependencies throw.
  */
 export function desktopSdkPackageDirectory(name, from) {
+  let scope = resolve(from)
+  while (basename(scope) !== 'node_modules') {
+    const manifestPath = join(scope, 'package.json')
+    if (existsSync(manifestPath)) {
+      const manifest = json(manifestPath)
+      if (manifest.name === name && manifest.exports !== undefined && manifest.exports !== null) return realpathSync(scope)
+      break
+    }
+    const parent = dirname(scope)
+    if (parent === scope) break
+    scope = parent
+  }
   let directory = resolve(from)
   for (;;) {
     const candidate = join(directory, 'node_modules', name)

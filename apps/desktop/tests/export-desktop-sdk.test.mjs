@@ -10,7 +10,34 @@ import { DESKTOP_SDK_API, writeDesktopSdkApi } from '../scripts/sdk-api.mjs'
 import { desktopSdkOptionalPackageMatches } from '../scripts/export-desktop-sdk.mjs'
 import { assertDesktopSdkBuildIdentity, assertDesktopSdkExportHost, assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports, exportDesktopSdk } from '../scripts/export-desktop-sdk.mjs'
 
-test('versioned API imports the real tooling closure after archive relocation without the export source', async () => {
+test('package self-references use only the nearest exported package scope', () => {
+  const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-self-'))
+  try {
+    const name = '@fixture/self', from = join(root, 'testing')
+    const manifest = join(root, 'package.json')
+    mkdirSync(from)
+    writeFileSync(manifest, JSON.stringify({ name, exports: { '.': './index.js' } }))
+    assert.equal(desktopSdkPackageDirectory(name, from), realpathSync(root))
+    const installed = join(from, 'node_modules', name)
+    mkdirSync(installed, { recursive: true })
+    writeFileSync(join(installed, 'package.json'), JSON.stringify({ name }))
+    assert.equal(desktopSdkPackageDirectory(name, from), realpathSync(root))
+    rmSync(join(from, 'node_modules'), { recursive: true })
+    writeFileSync(join(from, 'package.json'), JSON.stringify({ name: '@fixture/inner' }))
+    assert.throws(() => desktopSdkPackageDirectory(name, from), /missing dependency/u)
+    rmSync(join(from, 'package.json'))
+    for (const exports of [undefined, null]) {
+      writeFileSync(manifest, JSON.stringify({ name, exports }))
+      assert.throws(() => desktopSdkPackageDirectory(name, from), /missing dependency/u)
+    }
+    writeFileSync(manifest, JSON.stringify({ name, exports: { '.': './index.js' } }))
+    const outsideScope = join(root, 'node_modules', 'unscoped', 'testing')
+    mkdirSync(outsideScope, { recursive: true })
+    assert.throws(() => desktopSdkPackageDirectory(name, outsideScope), /missing dependency/u)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('versioned API and acceptance runner import their tooling closure after archive relocation without the export source', async () => {
   assert.deepEqual(DESKTOP_SDK_API, { version: 'dsh.desktop-sdk-api/1', profile: 'sdk/v1/profile.mjs', runtime: 'sdk/v1/runtime.mjs',
     packagedRuntime: 'sdk/v1/packaged-runtime.mjs', tools: 'sdk/v1/tools.mjs' })
   const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-api-'))
@@ -72,7 +99,7 @@ test('versioned API imports the real tooling closure after archive relocation wi
       if (!existsSync(link)) symlinkSync(relative(dirname(link), destination), link, 'dir')
     }
     const exportModule = createDesktopSdkToolingExporter(source, linkPackage)
-    for (const entry of ['src/project-profile.ts', 'src/runtime-tree.ts', 'scripts/verify-packaged-runtime.mjs']) {
+    for (const entry of ['src/project-profile.ts', 'src/runtime-tree.ts', 'scripts/verify-packaged-runtime.mjs', 'scripts/smoke-prepared-runtime.ts']) {
       exportModule(resolve(import.meta.dirname, '..', entry))
     }
     linkPackage('electron-builder', resolve(import.meta.dirname, '..'))
@@ -98,6 +125,8 @@ test('versioned API imports the real tooling closure after archive relocation wi
     assert.throws(() => verifyPackagedDesktopRuntime({ appOutDir: moved, packager: { getResourcesDir: () => moved } }), /missing runtime descriptor/u)
     const { loadAsar } = await load('tools')
     assert.equal(typeof (await loadAsar()).extractFile, 'function')
+    const { DesktopProductProcess } = await import(pathToFileURL(join(moved, 'packages/sdk/desktop-runtime-contract/testing/product-process.js')).href)
+    assert.equal(typeof DesktopProductProcess, 'function')
     const contracts = ['runtime-tree', 'release', 'host-protocol', 'desktop-product', 'core-package-set', 'project-profile']
     writeFileSync(join(moved, 'consumer.mts'), contracts.map((name, index) =>
       `import * as api${index} from '@deepseek-ai/dsh-desktop-runtime-contract/${name}'; void api${index};`).join('\n'))

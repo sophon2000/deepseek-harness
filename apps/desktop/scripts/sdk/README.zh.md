@@ -8,17 +8,20 @@
 
 ```sh
 pnpm run build:official
+pnpm --dir native/system run build:native
 pnpm run release:pack --family dsh --out apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh --concurrency 6
 pnpm run release:pack --family vendor --out apps/desktop/.desktop-build/targets/mac-arm64/packed/vendor --concurrency 6
 pnpm --dir apps/desktop-host pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh"
 pnpm --dir packages/sdk/desktop-runtime-contract pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh"
 pnpm --dir native/system/packages/entry pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
-pnpm --dir native/system/packages/darwin-arm64 pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
+npm pack ./native/system/packages/darwin-arm64 --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
 DSH_DESKTOP_UNSIGNED=1 DSH_DESKTOP_TARGET_PLATFORM=darwin DSH_DESKTOP_TARGET_ARCH=arm64 pnpm --dir apps/desktop run prepare:runtime
 node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-directory --target mac-arm64
 ```
 
 使用 glibc 的 Linux x64 的目标目录和导出参数使用 `linux-x64`，准备环境使用 `linux`/`x64`，原生包使用 `native/system/packages/linux-x64`。锁定的 primary runtime 提供 Node、Python 与 pnpm；Electron 使用 `electron/electron`。Linux 运行时准备不提供上游壳 CLI，不启用发布或自动更新；发行方拥有自身 CLI。导出排除其他平台、架构或 libc 实现的可选原生工具。
+
+完整的 Linux 原生构建需要 `musl-gcc`；根目录的官方构建仅准备宿主 addon。原生源码未变时，生产者也可提供经 registry 完整性校验的已发布原始 tarball。保留其独立版本和原始来源记录，不将它们归属于 DSH family 构建。
 
 输出目录必须不存在。写入输出前，导出器要求源码树干净、官方客户端构建来自当前提交，并且根包、Desktop 与客户端产物版本一致。`mac-arm64` 的生产环境必须是 macOS arm64，`linux-x64` 的生产环境必须是 Linux x64：导出器复制已安装的原生工具依赖，而非单独解析的目标平台安装。上述前置校验失败不会产生输出；后续失败会保留部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码身份、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。
 
@@ -36,4 +39,4 @@ node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-dire
 
 清单的 `sdkApi.version` 为 `dsh.desktop-sdk-api/1`，独立于归档 schema 2 和 Host 协议 4。其 `profile`、`runtime`、`packagedRuntime` 与 `tools` 字段分别指定 `sdk/v1/profile.mjs`、`sdk/v1/runtime.mjs`、`sdk/v1/packaged-runtime.mjs` 和 `sdk/v1/tools.mjs`。这些 ESM 入口依次导出 `createPluginProfile`、`verifyDesktopRuntime`、`verifyPackagedDesktopRuntime` 和异步 `loadAsar`。消费方在导入前校验 API 版本与精确路径；未知或不完整声明必须报错，不得回退到内部路径。`runtimeContract.profileModule` 等于 `sdkApi.profile`。没有 `sdkApi` 的旧 schema-2 归档仅保留明确识别的旧路径。准备过程内部实现仍属私有，只要 SDK 入口还依赖它们，就不能删除。
 
-通过 `node --test apps/desktop/tests/export-desktop-sdk.test.mjs` 运行导出器检查，通过 `pnpm exec vitest run apps/desktop-host/tests/protocol.spec.ts` 检查 Host 协议。清单的 `runtimeContract.profileModule` 指定 prepared 树中导出 `createPluginProfile` 的模块，供隔离 CLI 验证使用。消费方还必须仅使用解出的 SDK 输入编译自身壳，并执行打包运行时检查。
+通过 `node --test apps/desktop/tests/export-desktop-sdk.test.mjs` 运行导出器检查，通过 `pnpm exec vitest run apps/desktop-host/tests/protocol.spec.ts` 检查 Host 协议。导出器检查会重定位公开 API 与产品进程验收 runner，包括通过声明导出的包自引用。清单的 `runtimeContract.profileModule` 指定 prepared 树中导出 `createPluginProfile` 的模块，供隔离 CLI 验证使用。消费方还必须仅使用解出的 SDK 输入编译自身壳，并执行打包运行时检查。
