@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader, { type ModuleLoaderV2 } from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import LlmRuntime, { createMessage, createUserMessage, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { CONTEXT_WINDOW_EXCEEDED_CODE, createMessage, createUserMessage, userAgent } from '@deepseek-ai/dsh-llm'
 import AuthorizationService from '@deepseek-ai/dsh-authorization'
 import LocalCredentialProvider from '@deepseek-ai/dsh-credentials-local'
 import { profileComposition } from '../../../settings/settings/tests/profile-composition.ts'
@@ -25,6 +25,25 @@ const truncatedToolCallEvents = [
   '[DONE]',
 ]
 
+/** Codex Responses frames whose cached input exceeds the configured 272K window. */
+function codexResponseEvents(items: Record<string, unknown>[], outputTokens = 354, status: 'completed' | 'incomplete' = 'completed'): string[] {
+  return [
+    JSON.stringify({ type: 'response.created', response: { id: 'resp_context' } }),
+    ...items.flatMap((item, output_index) => [
+      JSON.stringify({ type: 'response.output_item.added', output_index, item }),
+      JSON.stringify({ type: 'response.output_item.done', output_index, item }),
+    ]),
+    JSON.stringify({ type: 'response.completed', response: {
+      id: 'resp_context', status, output: items,
+      ...status === 'incomplete' ? { incomplete_details: { reason: 'max_output_tokens' } } : {},
+      usage: {
+        input_tokens: 420305, input_tokens_details: { cached_tokens: 418816 },
+        output_tokens: outputTokens, total_tokens: 420305 + outputTokens,
+      },
+    } }),
+  ]
+}
+
 let root: string | undefined
 let context: Context | undefined
 
@@ -38,9 +57,9 @@ afterEach(async () => {
 })
 
 /** Boot the dormant composition: a bare `llm-pi-ai` row with no config at all. */
-async function loadComposition(): Promise<{ ctx: Context; settingsPath: string }> {
+async function loadComposition(credential = 'key-from-store'): Promise<{ ctx: Context; settingsPath: string }> {
   root = await mkdtemp(join(tmpdir(), 'dsh-pi-composition-'))
-  await writeFile(join(root, '.credentials.yaml'), 'version: 1\nrefs:\n  PI_COMPOSITION_KEY: key-from-store\n', { mode: 0o600 })
+  await writeFile(join(root, '.credentials.yaml'), `version: 1\nrefs:\n  PI_COMPOSITION_KEY: ${JSON.stringify(credential)}\n`, { mode: 0o600 })
 
   const configPath = join(root, 'cordis.yml')
   await writeFile(configPath, [
@@ -130,6 +149,62 @@ describe('llm-pi-ai real dormant composition', () => {
     // not supply, so the route offers only its key login.
     expect(methods('openai')).toEqual(['api-key'])
     expect(methods('anthropic')).toEqual(['oauth', 'api-key'])
+  })
+
+  it('preserves completed Codex responses above the local window while retaining errors and truncation', async () => {
+    const payload = Buffer.from(JSON.stringify({ 'https://api.openai.com/auth': { chatgpt_account_id: 'test-account' } })).toString('base64')
+    vi.stubEnv('PI_COMPOSITION_KEY', '')
+    const text = { type: 'message', id: 'msg_context', role: 'assistant', content: [{ type: 'output_text', text: 'Work complete.', annotations: [] }] }
+    const tool = { type: 'function_call', id: 'fc_context', call_id: 'call_context', name: 'lookup', arguments: '{"key":"value"}' }
+    const server = await mockServer([
+      { events: codexResponseEvents([text]) },
+      { events: codexResponseEvents([tool]) },
+      { status: 400, body: JSON.stringify({ error: { code: 'context_length_exceeded', message: 'Your input exceeds the context window of this model' } }) },
+      { events: codexResponseEvents([text], 354, 'incomplete') },
+      { events: codexResponseEvents([], 0, 'incomplete') },
+    ])
+    const { ctx, settingsPath } = await loadComposition(`test.${payload}.test`)
+    await writeFile(settingsPath, [
+      '- id: llm-pi-ai',
+      '  config:',
+      '    providers:',
+      '      openai-codex:',
+      '        apiKeyEnv: PI_COMPOSITION_KEY',
+      `        baseURL: ${server.url}`,
+      '        transport: sse',
+      '        models:',
+      '          - id: gpt-6-astra',
+      '            contextWindow: 272000',
+      '            maxTokens: 128000',
+      '',
+    ].join('\n'))
+    await vi.waitFor(() => {
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toEqual(['openai-codex'])
+    }, { timeout: 5000 })
+    const request = {
+      provider: 'openai-codex', model: 'gpt-6-astra',
+      messages: [createUserMessage({ content: [{ type: 'text', text: 'Continue.' }], source: { kind: 'user' } })],
+    }
+    expect((await ctx.llm.resolveModelInfo(request.provider, request.model)).context?.contextWindow).toBe(272_000)
+
+    const completed = await assemble(ctx, request)
+    expect(completed.finish).toEqual({ kind: 'stop' })
+    expect(completed.message.content).toEqual([{ type: 'text', text: 'Work complete.' }])
+    expect(completed.usage).toEqual({ inputTokens: 1489, outputTokens: 354, cacheReadTokens: 418816, totalTokens: 420659 })
+    expect(completed.message.source).toMatchObject({ replayState: { response: { stopReason: 'stop' } } })
+
+    const called = await assemble(ctx, request)
+    expect(called.finish).toEqual({ kind: 'tool-calls' })
+    expect(called.message.content).toEqual([{ type: 'tool-call', id: 'call_context|fc_context', name: 'lookup', arguments: '{"key":"value"}' }])
+
+    const rejected = await assemble(ctx, request)
+    expect(rejected.finish).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    const truncated = await assemble(ctx, request)
+    expect(truncated.finish).toEqual({ kind: 'max-tokens' })
+    const exhausted = await assemble(ctx, request)
+    expect(exhausted.finish).toMatchObject({ kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } })
+    expect(server.requests).toHaveLength(5)
+    expect(server.paths.every(path => path.endsWith('/codex/responses'))).toBe(true)
   })
 
   it('uses settings-only route headers for model discovery', async () => {
