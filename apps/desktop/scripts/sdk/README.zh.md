@@ -21,11 +21,13 @@ node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-dire
 
 使用 glibc 的 Linux x64 的目标目录和导出参数使用 `linux-x64`，准备环境使用 `linux`/`x64`，原生包使用 `native/system/packages/linux-x64`。锁定的 primary runtime 提供 Node、Python 与 pnpm；Electron 使用 `electron/electron`。Linux 运行时准备不提供上游壳 CLI，不启用发布或自动更新；发行方拥有自身 CLI。导出排除其他平台、架构或 libc 实现的可选原生工具。
 
-Windows x64 使用 `win-x64`、`win32`/`x64` 准备环境与 `native/system/packages/win32-x64`。导出要求原生 Windows x64 生产机。准备目录验证执行 `electron/electron.exe`；成品验证使用 `--app <解包目录> --executable <产品.exe>` 及其 `resources` 目录。SDK 排除上游 Windows CLI，不签名或安装发行方应用。
+Windows x64 使用 `win-x64` 和 `win32`/`x64` 准备环境。在 `packed/landlock` 中提供已发布的 `node-addon-system` 入口 tarball；该包没有 Windows 专属原生 tarball。Windows operation 支持由匹配的 DSH 依赖闭包提供。导出要求原生 Windows x64 生产机。准备目录验证执行 `electron/electron.exe`；成品验证使用 `--app <解包目录> --executable <产品.exe>` 及其 `resources` 目录。SDK 排除上游 Windows CLI，不签名或安装发行方应用。
+
+使用 `node apps/desktop/scripts/archive-desktop-sdk.mjs --sdk <SDK目录> --output <新归档.tgz>` 归档已完成的导出。它保留相对链接，不跟随依赖环，输出 SHA-256 与字节数，并拒绝已有输出或位于 SDK 内的输出（包括目录别名）。Windows 消费方必须先校验归档链接图，再以明确的目录类型恢复目录符号链接；不指定类型的 Node `fs.symlink` 会创建指向目录但不可用的文件链接。
 
 完整的 Linux 原生构建需要 `musl-gcc`；根目录的官方构建仅准备宿主 addon。原生源码未变时，生产者也可提供经 registry 完整性校验的已发布原始 tarball。保留其独立版本和原始来源记录，不将它们归属于 DSH family 构建。
 
-输出目录必须不存在。写入输出前，导出器要求源码树干净、官方客户端构建来自当前提交，并且根包、Desktop 与客户端产物版本一致。`mac-arm64` 的生产环境必须是 macOS arm64，`linux-x64` 的生产环境必须是 Linux x64：导出器复制已安装的原生工具依赖，而非单独解析的目标平台安装。上述前置校验失败不会产生输出；后续失败会保留部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码身份、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。
+输出目录必须不存在。写入输出前，导出器要求源码树干净、官方客户端构建来自当前提交，并且根包、Desktop 与客户端产物版本一致。`mac-arm64`、`linux-x64` 和 `win-x64` 均要求匹配的原生生产环境：导出器复制已安装的原生工具依赖，而非单独解析的目标平台安装。上述前置校验失败不会产生输出；后续失败会保留部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码身份、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。
 
 `shell-build/node_modules` 包含编译壳所需的精确 DSH 包、其声明导入以及上游壳的五个生产依赖。`shell-dependencies.json` 记录根包、相对 SDK 归档的包路径、版本和摘要，不依赖生产者构建存储位置。发行方拥有固定的 TypeScript、tsdown、Vite、React 与 Electron builder 配置，不应假定本 SDK 提供这些编译工具链。SDK 为打包消费方保留固定 Electron builder 依赖闭包，并在导出的 app 目录中链接最小应用的生产依赖。
 

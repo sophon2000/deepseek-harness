@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
+import { create, extract } from 'tar'
 import { DESKTOP_SDK_API, writeDesktopSdkApi } from '../scripts/sdk-api.mjs'
 import { desktopSdkOptionalPackageMatches } from '../scripts/export-desktop-sdk.mjs'
 import { assertDesktopSdkBuildIdentity, assertDesktopSdkExportHost, assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports, exportDesktopSdk } from '../scripts/export-desktop-sdk.mjs'
@@ -106,11 +107,18 @@ test('versioned API and acceptance runner import their tooling closure after arc
     linkPackage('@types/node', resolve(import.meta.dirname, '..'))
     writeDesktopSdkApi(source)
     mkdirSync(moved)
-    for (const args of [['-czf', join(root, 'sdk.tgz'), '-C', source, '.'], ['-xzf', join(root, 'sdk.tgz'), '-C', moved]]) {
-      const result = spawnSync('tar', args, { encoding: 'utf8' })
-      assert.ifError(result.error)
-      assert.equal(result.signal, null)
-      assert.equal(result.status, 0, result.stderr)
+    await create({ file: join(root, 'sdk.tgz'), cwd: source, gzip: true, portable: true }, ['.'])
+    const directoryLinks = []
+    await extract({ file: join(root, 'sdk.tgz'), cwd: moved, strict: true, filter: (path, entry) => {
+      // This fixture creates only package-directory links. Windows needs their
+      // explicit type; tar's untyped fs.symlink creates unusable file links.
+      if (process.platform !== 'win32' || entry.type !== 'SymbolicLink') return true
+      directoryLinks.push({ path, target: entry.linkpath })
+      return false
+    } })
+    for (const link of directoryLinks) {
+      mkdirSync(dirname(join(moved, link.path)), { recursive: true })
+      symlinkSync(link.target, join(moved, link.path), 'dir')
     }
     rmSync(source, { recursive: true })
     const load = name => import(pathToFileURL(join(moved, DESKTOP_SDK_API[name])).href)
