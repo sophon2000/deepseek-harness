@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, globSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { DESKTOP_SDK_API, writeDesktopSdkApi } from '../scripts/sdk-api.mjs'
@@ -80,7 +80,7 @@ test('versioned API and acceptance runner import their tooling closure after arc
         } else {
           cpSync(directory, destination, { recursive: true, filter: file => !relative(directory, file).split(/[\\/]/u).some(part => ['node_modules', 'src', 'tests', 'testing', 'tooling'].includes(part)) })
         }
-        const declarations = directory.includes('/node_modules/') ? [] : desktopSdkPublishedImports(destination, '**/*.d.ts', true)
+        const declarations = directory.includes(`${sep}node_modules${sep}`) ? [] : desktopSdkPublishedImports(destination, '**/*.d.ts', true)
         for (const dependency of new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {}), ...declarations])) {
           if (dependency === name) continue
           if (manifest.peerDependenciesMeta?.[dependency]?.optional && !declarations.includes(dependency)) continue
@@ -199,7 +199,7 @@ test('real preparation tooling exports an executable workspace helper without so
     assert.match(entry, /from ['"]\.\/desktop-preparation-workspace\.js['"]/u)
     assert.ok(dependencies.has('@deepseek-ai/dsh-tool-workspace-dependencies'))
     const modules = globSync('**/*.{js,mjs}', { cwd: root })
-    assert.ok(modules.includes('apps/desktop/scripts/desktop-build-paths.mjs'))
+    assert.ok(modules.includes(join('apps', 'desktop', 'scripts', 'desktop-build-paths.mjs')))
     for (const filename of modules) {
       assert.doesNotMatch(readFileSync(join(root, filename), 'utf8'), /(?:from\s*|import\s*)['"][^'"]+\.ts['"]/u, filename)
     }
@@ -263,7 +263,7 @@ test('runtime SDK refuses both app bundles and shell CLI payloads', () => {
   const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-layout-'))
   try {
     assertRuntimeSdkLayout(root)
-    for (const path of ['apps/desktop/lib', 'apps/desktop/.desktop-build/targets/mac-arm64/runtime/cli', 'apps/desktop/.desktop-build/targets/linux-x64/runtime/cli']) {
+    for (const path of ['apps/desktop/lib', 'apps/desktop/.desktop-build/targets/mac-arm64/runtime/cli', 'apps/desktop/.desktop-build/targets/linux-x64/runtime/cli', 'apps/desktop/.desktop-build/targets/win-x64/runtime/cli']) {
       mkdirSync(join(root, path), { recursive: true })
       assert.throws(() => assertRuntimeSdkLayout(root), /shell-owned path is forbidden/u)
       rmSync(join(root, path), { recursive: true })
