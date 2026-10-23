@@ -366,6 +366,13 @@ describe('package payload constraints', () => {
     expect(checkWorkspaceManifest({ dir: 'apps/other-tool', manifest })).not.toEqual([])
   })
 
+  it('keeps the private Desktop distributor package outside npm release rules only at its declared directory', () => {
+    const privateDir = 'packages/sdk/desktop-runtime-contract'
+    const privateManifest = JSON.parse(readFileSync(new URL(`../${privateDir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir: privateDir, manifest: privateManifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir: 'packages/sdk/other-contract', manifest: privateManifest })).not.toEqual([])
+  })
+
   it('rejects locale publication entries without their resource exports', () => {
     const dir = 'packages/experimental/auto-review'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']

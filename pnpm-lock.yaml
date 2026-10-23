@@ -709,6 +709,9 @@ importers:
       '@deepseek-ai/dsh-desktop-host':
         specifier: workspace:*
         version: link:../desktop-host
+      '@deepseek-ai/dsh-desktop-runtime-contract':
+        specifier: workspace:*
+        version: link:../../packages/sdk/desktop-runtime-contract
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:*
         version: link:../../packages/util/home-paths
@@ -12007,6 +12010,37 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
+
+  packages/sdk/desktop-runtime-contract:
+    dependencies:
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:*
+        version: link:../../boot/app-boot
+      '@deepseek-ai/dsh-desktop-host':
+        specifier: workspace:*
+        version: link:../../../apps/desktop-host
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
+      app-builder-lib:
+        specifier: 26.17.0
+        version: 26.17.0(patch_hash=b70dc2a2a78ffabb80a4f14fafc7c103237f2b0a207e1f296fa1c1387ea29348)(dmg-builder@26.17.0)(electron-builder-squirrel-windows@26.17.0)(supports-color@9.4.0)
+      js-yaml:
+        specifier: ^4.3.2
+        version: 4.3.2
 
   packages/sdk/protocol:
     devDependencies:

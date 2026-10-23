@@ -1,9 +1,9 @@
-/** Lifecycle for a signed product service or an exiting resource preflight. */
+/** Acceptance-runner lifecycle for a signed product service or an exiting resource preflight. */
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
-import { runtimePath } from './runtime-tree.ts'
-import type { DesktopRuntimeProduct } from './desktop-product.ts'
+import { runtimePath } from '@deepseek-ai/dsh-desktop-runtime-contract/runtime-tree'
+import type { DesktopRuntimeProduct } from '@deepseek-ai/dsh-desktop-runtime-contract/desktop-product'
 
 const MAX_STDERR = 64 * 1024
 
@@ -93,7 +93,6 @@ export class DesktopProductProcess {
     const entrypoint = runtimePath(resourcesRoot, service.entrypoint)
     await mkdir(this.dataRoot, { recursive: true })
     // stop() can close the process while its data directory is being prepared.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (this.stopping) throw new Error('desktop product service startup was cancelled')
     const child = spawn(this.node, [entrypoint, '--runtime-root', resourcesRoot, '--data-root', this.dataRoot], {
       cwd: this.dataRoot,
@@ -183,7 +182,6 @@ export class DesktopProductProcess {
     }
     this.child = undefined
     // Termination can be requested by the IPC callback while awaiting child exit.
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (forced || child.exitCode !== 0 || child.signalCode !== null) {
       // Only exit metadata reaches update diagnostics; product stderr can contain credentials.
       this.uncleanExit = new DesktopProductUncleanExitError(`desktop update: product did not complete graceful teardown (exit ${String(child.exitCode)}, signal ${String(child.signalCode)}, forced termination ${String(forced)})`)

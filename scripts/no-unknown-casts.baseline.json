@@ -35,7 +35,7 @@
   "apps/desktop/src/main.ts": {
     "e3362213edd415fbb267d8e6b94f1b3ae77e047b3a4609ccf9e08063fac7a7bd": 1
   },
-  "apps/desktop/src/runtime-tree.ts": {
+  "packages/sdk/desktop-runtime-contract/src/runtime-tree.ts": {
     "bd54ced9c67761b49e3d039cb8eb6cbcb22f1e9e51b903a3b98ed8364863fac0": 1
   },
   "apps/desktop/tests/desktop-policy-environment.spec.ts": {

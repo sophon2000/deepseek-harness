@@ -26,6 +26,7 @@ Each package README describes what you can do with its part of the stack.
 
 | Package | Role |
 |---|---|
+| [`desktop-runtime-contract/`](desktop-runtime-contract/README.md) | Private Desktop distributor validation and profile APIs, separate from the JSON-RPC protocol |
 | [`protocol/`](protocol/README.md) | Wire protocol: the newline-delimited JSON-RPC transport and the named request, result, and notification types |
 | [`client/`](client/README.md) | TypeScript client that spawns a runtime subprocess and drives agent turns through the high-level and protocol-level APIs |
 | [`server/`](server/README.md) | `jsonrpc` plugin that serves out-of-process SDK clients over stdio |

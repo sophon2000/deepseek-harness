@@ -9,7 +9,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
-import { DesktopProductProcess } from '../src/product-process.ts'
+import { DesktopProductProcess } from '../../../packages/sdk/desktop-runtime-contract/testing/product-process.ts'
 import { createPluginProfile } from '../src/project-profile.ts'
 import type { DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 

@@ -309,21 +309,9 @@ export function exportDesktopSdk(output, target) {
   const shellDependencies = Object.fromEntries(Object.keys(shellManifest.dependencies).map(name => [name, json(join(desktopSdkPackageDirectory(name, app), 'package.json')).version]))
   writeJson(join(destination, 'apps/desktop/package.json'), { name: '@deepseek-ai/dsh-runtime-preparation', version: shellManifest.version, private: true, type: 'module', dependencies: shellDependencies })
   const contractName = '@deepseek-ai/dsh-desktop-runtime-contract'
-  const contractRoot = join(destination, 'node_modules/.sdk', `${contractName.replaceAll('/', '+')}@${shellManifest.version}`)
-  const contractModules = ['runtime-tree', 'release', 'host-protocol', 'desktop-product', 'core-package-set', 'project-profile']
-  for (const name of contractModules) {
-    const source = join(app, 'src', `${name}.ts`)
-    mkdirSync(contractRoot, { recursive: true })
-    writeFileSync(join(contractRoot, `${name}.js`), compileDesktopSdkModule(readFileSync(source, 'utf8'), source))
-    copy(join(app, 'lib/types', `${name}.d.ts`), join(contractRoot, `${name}.d.ts`))
-  }
-  const contractDependencies = Object.fromEntries(['semver', '@deepseek-ai/dsh-desktop-host', '@deepseek-ai/dsh-app-boot'].map(name => [name, linkPackage(name, app, contractRoot)]))
-  writeJson(join(contractRoot, 'package.json'), { name: contractName, version: shellManifest.version, private: true, type: 'module', license: 'MIT',
-    exports: Object.fromEntries(contractModules.map(name => [`./${name}`, { types: `./${name}.d.ts`, default: `./${name}.js` }])), dependencies: contractDependencies })
-  const contractLink = join(shellBuild, 'node_modules', contractName)
-  mkdirSync(dirname(contractLink), { recursive: true })
-  symlinkSync(relative(dirname(contractLink), contractRoot), contractLink, 'dir')
-  shellRoots.push(contractName)
+  linkPackage(contractName, app, destination)
+  const contractRoot = copiedPackages.get(desktopSdkPackageDirectory(contractName, app))
+  if (contractRoot === undefined) throw new Error('Desktop SDK: runtime contract was not exported')
   const toolDependencies = {}
   for (const name of ['electron-builder', 'electron', 'app-builder-lib', 'pnpm']) toolDependencies[name] = linkPackage(name, app, destination)
   for (const entry of [

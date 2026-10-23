@@ -11,6 +11,7 @@ pnpm run build:official
 pnpm run release:pack --family dsh --out apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh --concurrency 6
 pnpm run release:pack --family vendor --out apps/desktop/.desktop-build/targets/mac-arm64/packed/vendor --concurrency 6
 pnpm --dir apps/desktop-host pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh"
+pnpm --dir packages/sdk/desktop-runtime-contract pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/dsh"
 pnpm --dir native/system/packages/entry pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
 pnpm --dir native/system/packages/darwin-arm64 pack --pack-destination "$PWD/apps/desktop/.desktop-build/targets/mac-arm64/packed/landlock"
 DSH_DESKTOP_UNSIGNED=1 DSH_DESKTOP_TARGET_PLATFORM=darwin DSH_DESKTOP_TARGET_ARCH=arm64 pnpm --dir apps/desktop run prepare:runtime
@@ -23,7 +24,7 @@ node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-dire
 
 `shell-build/node_modules` 包含编译壳所需的精确 DSH 包、其声明导入以及上游壳的五个生产依赖。`shell-dependencies.json` 记录根包、相对 SDK 归档的包路径、版本和摘要，不依赖生产者构建存储位置。发行方拥有固定的 TypeScript、tsdown、Vite、React 与 Electron builder 配置，不应假定本 SDK 提供这些编译工具链。SDK 为打包消费方保留固定 Electron builder 依赖闭包，并在导出的 app 目录中链接最小应用的生产依赖。
 
-SDK 生成的 `@deepseek-ai/dsh-desktop-runtime-contract` 包将 fork 现有实现编译为 JavaScript 与声明，导出 `./runtime-tree`、`./release`、`./host-protocol`、`./desktop-product`、`./core-package-set` 和 `./project-profile`。壳适配器导入这些 API，不重复实现描述符校验。`@deepseek-ai/dsh-desktop-host/protocol` 提供共享 Host 事件、控制请求、校验器和协议版本。主题 CSS 与许可字体使用 `@deepseek-ai/dsh-client-ui-theme/styles/*`，基础组件使用包根导出。
+私有工作区包 [`@deepseek-ai/dsh-desktop-runtime-contract`](../../../../packages/sdk/desktop-runtime-contract/README.zh.md) 导出 `./runtime-tree`、`./release`、`./host-protocol`、`./desktop-product`、`./core-package-set` 和 `./project-profile`。导出过程复制该包已打包的 JavaScript 和声明，不再从壳源码编译另一套实现。壳适配器导入这些 API，不重复实现描述符校验。此包还负责通用准备辅助模块、打包运行时校验和产品进程验收 runner；官方构建路径、签名和 Host smoke 编排仍归 Desktop。`@deepseek-ai/dsh-desktop-host/protocol` 提供共享 Host 事件、控制请求、校验器和协议版本。主题 CSS 与许可字体使用 `@deepseek-ai/dsh-client-ui-theme/styles/*`，基础组件使用包根导出。
 
 执行 `node <sdk>/prepare.mjs --product <payload-root> --output <new-build-directory> --app-id <application-id> [--runtime-lock <qualified-pnpm-lock.yaml>]`。它仅组合运行时与最小应用清单，不编译核心或打包源码。发行方随后把自己的壳写入 `apps/desktop`，准备 `runtime/cli`，并在打包前封存完整构建输入。可在运行时准备后指定壳版本；运行时验证仍使用 SDK 固定的 DSH 版本。
 

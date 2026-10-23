@@ -11,23 +11,60 @@ import { desktopSdkOptionalPackageMatches } from '../scripts/export-desktop-sdk.
 import { assertDesktopSdkBuildIdentity, assertDesktopSdkExportHost, assertRuntimeSdkLayout, compileDesktopSdkModule, createDesktopSdkToolingExporter, desktopSdkPackageDirectory, desktopSdkDeclarationDependency, desktopSdkPackedPath, desktopSdkPublishedImports, exportDesktopSdk } from '../scripts/export-desktop-sdk.mjs'
 
 test('versioned API imports the real tooling closure after archive relocation without the export source', async () => {
+  assert.deepEqual(DESKTOP_SDK_API, { version: 'dsh.desktop-sdk-api/1', profile: 'sdk/v1/profile.mjs', runtime: 'sdk/v1/runtime.mjs',
+    packagedRuntime: 'sdk/v1/packaged-runtime.mjs', tools: 'sdk/v1/tools.mjs' })
   const root = mkdtempSync(join(tmpdir(), 'desktop-sdk-api-'))
   try {
     const source = join(root, 'export'), moved = join(root, 'moved')
     mkdirSync(source)
     writeFileSync(join(source, 'package.json'), '{"type":"module"}\n')
     const copied = new Map()
-    const linkPackage = (name, from, owner = source) => {
-      const directory = desktopSdkPackageDirectory(name, from)
+    const repository = resolve(import.meta.dirname, '../../..')
+    const workspaces = new Map(globSync(['packages/*/*/package.json', 'vendor/*/package.json', 'apps/*/package.json',
+      'native/system/package.json', 'native/system/packages/*/package.json'], { cwd: repository }).map(path => {
+      const directory = dirname(join(repository, path))
+      return [JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')).name, directory]
+    }))
+    const linkPackage = (name, from, owner = source, declaredDirectory) => {
+      const directory = declaredDirectory ?? desktopSdkPackageDirectory(name, from)
       let destination = copied.get(directory)
       if (destination === undefined) {
         destination = join(source, 'node_modules/.closure', String(copied.size))
         copied.set(directory, destination)
-        cpSync(directory, destination, { recursive: true, filter: file => !relative(directory, file).split(/[\\/]/u).some(part => ['node_modules', 'src', 'tests'].includes(part)) })
         const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
-        for (const dependency of new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {})])) {
-          if (manifest.peerDependenciesMeta?.[dependency]?.optional) continue
-          linkPackage(dependency, directory, destination)
+        if (name === '@deepseek-ai/dsh-desktop-runtime-contract') {
+          const packed = join(root, 'contract-packed')
+          mkdirSync(packed)
+          mkdirSync(destination, { recursive: true })
+          const pnpm = desktopSdkPackageDirectory('pnpm', repository)
+          const bin = JSON.parse(readFileSync(join(pnpm, 'package.json'), 'utf8')).bin.pnpm
+          const result = spawnSync(process.execPath, [join(pnpm, bin), '--dir', directory, 'pack', '--pack-destination', packed], { encoding: 'utf8' })
+          assert.ifError(result.error)
+          assert.equal(result.status, 0, result.stdout + result.stderr)
+          const archives = globSync('*.tgz', { cwd: packed })
+          assert.equal(archives.length, 1)
+          const extracted = spawnSync('tar', ['-xzf', join(packed, archives[0]), '--strip-components', '1', '-C', destination], { encoding: 'utf8' })
+          assert.ifError(extracted.error)
+          assert.equal(extracted.status, 0, extracted.stderr)
+          assert.equal(existsSync(join(destination, 'src')), false)
+          assert.equal(existsSync(join(destination, 'testing')), false)
+          assert.equal(existsSync(join(destination, 'tooling')), false)
+          assert.deepEqual(globSync('**/*.ts', { cwd: destination }).filter(path => !path.endsWith('.d.ts')), [])
+        } else {
+          cpSync(directory, destination, { recursive: true, filter: file => !relative(directory, file).split(/[\\/]/u).some(part => ['node_modules', 'src', 'tests', 'testing', 'tooling'].includes(part)) })
+        }
+        const declarations = directory.includes('/node_modules/') ? [] : desktopSdkPublishedImports(destination, '**/*.d.ts', true)
+        for (const dependency of new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.peerDependencies ?? {}), ...declarations])) {
+          if (dependency === name) continue
+          if (manifest.peerDependenciesMeta?.[dependency]?.optional && !declarations.includes(dependency)) continue
+          let resolved
+          try { resolved = desktopSdkPackageDirectory(dependency, directory) } catch (error) {
+            if (!declarations.includes(dependency)) throw error
+            const types = desktopSdkDeclarationDependency(dependency, directory, workspaces)
+            linkPackage(types.name, directory, destination, types.directory)
+            continue
+          }
+          linkPackage(dependency, directory, destination, resolved)
         }
       }
       const link = join(owner, 'node_modules', name)
@@ -39,6 +76,7 @@ test('versioned API imports the real tooling closure after archive relocation wi
       exportModule(resolve(import.meta.dirname, '..', entry))
     }
     linkPackage('electron-builder', resolve(import.meta.dirname, '..'))
+    linkPackage('@types/node', resolve(import.meta.dirname, '..'))
     writeDesktopSdkApi(source)
     mkdirSync(moved)
     for (const args of [['-czf', join(root, 'sdk.tgz'), '-C', source, '.'], ['-xzf', join(root, 'sdk.tgz'), '-C', moved]]) {
@@ -60,6 +98,18 @@ test('versioned API imports the real tooling closure after archive relocation wi
     assert.throws(() => verifyPackagedDesktopRuntime({ appOutDir: moved, packager: { getResourcesDir: () => moved } }), /missing runtime descriptor/u)
     const { loadAsar } = await load('tools')
     assert.equal(typeof (await loadAsar()).extractFile, 'function')
+    const contracts = ['runtime-tree', 'release', 'host-protocol', 'desktop-product', 'core-package-set', 'project-profile']
+    writeFileSync(join(moved, 'consumer.mts'), contracts.map((name, index) =>
+      `import * as api${index} from '@deepseek-ai/dsh-desktop-runtime-contract/${name}'; void api${index};`).join('\n'))
+    writeFileSync(join(moved, 'tsconfig.json'), JSON.stringify({
+      compilerOptions: { target: 'ES2024', module: 'NodeNext', moduleResolution: 'NodeNext', strict: true, noEmit: true, types: ['node'] },
+      files: ['consumer.mts'],
+    }))
+    const compiler = resolve(import.meta.dirname, '../../../node_modules/typescript/bin/tsc')
+    const checked = spawnSync(process.execPath, [compiler, '-p', join(moved, 'tsconfig.json')], { cwd: moved, encoding: 'utf8' })
+    assert.ifError(checked.error)
+    assert.equal(checked.signal, null)
+    assert.equal(checked.status, 0, checked.stdout + checked.stderr)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 

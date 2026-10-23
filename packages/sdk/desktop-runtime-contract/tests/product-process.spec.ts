@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DesktopProductProcess, DesktopProductUncleanExitError } from '../src/product-process.ts'
+import { DesktopProductProcess, DesktopProductUncleanExitError } from '../testing/product-process.ts'
 import type { DesktopRuntimeProduct } from '../src/desktop-product.ts'
 
 const temporaryDirectories: string[] = []

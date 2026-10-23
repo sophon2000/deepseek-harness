@@ -1,0 +1,62 @@
+{
+  "name": "@deepseek-ai/dsh-desktop-runtime-contract",
+  "description": "Desktop distributor runtime validation and profile composition shared by shell adapters",
+  "version": "0.2.1-rc.2.vh.4.local.20261022.1",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./runtime-tree": {
+      "types": "./lib/types/runtime-tree.d.ts",
+      "default": "./lib/types/runtime-tree.js"
+    },
+    "./release": {
+      "types": "./lib/types/release.d.ts",
+      "default": "./lib/types/release.js"
+    },
+    "./host-protocol": {
+      "types": "./lib/types/host-protocol.d.ts",
+      "default": "./lib/types/host-protocol.js"
+    },
+    "./desktop-product": {
+      "types": "./lib/types/desktop-product.d.ts",
+      "default": "./lib/types/desktop-product.js"
+    },
+    "./core-package-set": {
+      "types": "./lib/types/core-package-set.d.ts",
+      "default": "./lib/types/core-package-set.js"
+    },
+    "./project-profile": {
+      "types": "./lib/types/project-profile.d.ts",
+      "default": "./lib/types/project-profile.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "dependencies": {
+    "semver": "^7.8.5",
+    "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-desktop-host": "workspace:*"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@types/semver": "^7.8.0",
+    "@types/node": "^22.20.1",
+    "@types/js-yaml": "^4.0.9",
+    "js-yaml": "^4.3.2",
+    "app-builder-lib": "26.17.0"
+  }
+}
