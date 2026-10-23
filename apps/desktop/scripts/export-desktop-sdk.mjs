@@ -192,7 +192,7 @@ export function createDesktopSdkToolingExporter(destination, linkDependency) {
  * @param target - Requested SDK target, which must match the producer.
  */
 export function assertDesktopSdkExportHost(platform, arch, target = 'mac-arm64') {
-  if (!['mac-arm64', 'linux-x64'].includes(target)) throw new Error('Desktop SDK: unsupported export target')
+  if (!['mac-arm64', 'linux-x64', 'win-x64'].includes(target)) throw new Error('Desktop SDK: unsupported export target')
   const expected = desktopTargetPlatform(target)
   if (platform !== expected.platform || arch !== expected.arch) {
     throw new Error(`Desktop SDK: export requires a ${expected.platform}/${expected.arch} producer installation; installed native tooling cannot be copied from another host`)
@@ -218,7 +218,7 @@ export function assertDesktopSdkBuildIdentity(source, environment, runtimeCommit
 /**
  * Build a source-free, relocatable export from the exact prepared target owned by this checkout.
  * @param output - New SDK directory, retained as partial output if export fails.
- * @param target - Prepared build target; mac-arm64 or linux-x64.
+ * @param target - Prepared build target; mac-arm64, linux-x64 or win-x64.
  */
 export function exportDesktopSdk(output, target) {
   assertDesktopSdkExportHost(process.platform, process.arch, target)
@@ -378,13 +378,13 @@ export function exportDesktopSdk(output, target) {
  */
 export function assertRuntimeSdkLayout(root) {
   for (const path of ['apps/desktop/lib', 'apps/desktop/renderer', 'apps/desktop/resources', 'apps/desktop/cli',
-    ...['mac-arm64', 'linux-x64'].map(target => `apps/desktop/.desktop-build/targets/${target}/runtime/cli`)]) {
+    ...['mac-arm64', 'linux-x64', 'win-x64'].map(target => `apps/desktop/.desktop-build/targets/${target}/runtime/cli`)]) {
     if (existsSync(join(root, path))) throw new Error(`Desktop Runtime SDK: shell-owned path is forbidden: ${path}`)
   }
 }
 
 if (import.meta.main) {
   const { values } = parseArgs({ options: { output: { type: 'string' }, target: { type: 'string', default: 'mac-arm64' } } })
-  if (!values.output) throw new Error('Usage: node apps/desktop/scripts/export-desktop-sdk.mjs --output <new-directory> [--target mac-arm64|linux-x64]')
+  if (!values.output) throw new Error('Usage: node apps/desktop/scripts/export-desktop-sdk.mjs --output <new-directory> [--target mac-arm64|linux-x64|win-x64]')
   exportDesktopSdk(values.output, values.target)
 }

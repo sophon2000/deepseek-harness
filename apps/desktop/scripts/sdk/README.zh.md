@@ -21,6 +21,8 @@ node apps/desktop/scripts/export-desktop-sdk.mjs --output /absolute/new-sdk-dire
 
 使用 glibc 的 Linux x64 的目标目录和导出参数使用 `linux-x64`，准备环境使用 `linux`/`x64`，原生包使用 `native/system/packages/linux-x64`。锁定的 primary runtime 提供 Node、Python 与 pnpm；Electron 使用 `electron/electron`。Linux 运行时准备不提供上游壳 CLI，不启用发布或自动更新；发行方拥有自身 CLI。导出排除其他平台、架构或 libc 实现的可选原生工具。
 
+Windows x64 使用 `win-x64`、`win32`/`x64` 准备环境与 `native/system/packages/win32-x64`。导出要求原生 Windows x64 生产机。准备目录验证执行 `electron/electron.exe`；成品验证使用 `--app <解包目录> --executable <产品.exe>` 及其 `resources` 目录。SDK 排除上游 Windows CLI，不签名或安装发行方应用。
+
 完整的 Linux 原生构建需要 `musl-gcc`；根目录的官方构建仅准备宿主 addon。原生源码未变时，生产者也可提供经 registry 完整性校验的已发布原始 tarball。保留其独立版本和原始来源记录，不将它们归属于 DSH family 构建。
 
 输出目录必须不存在。写入输出前，导出器要求源码树干净、官方客户端构建来自当前提交，并且根包、Desktop 与客户端产物版本一致。`mac-arm64` 的生产环境必须是 macOS arm64，`linux-x64` 的生产环境必须是 Linux x64：导出器复制已安装的原生工具依赖，而非单独解析的目标平台安装。上述前置校验失败不会产生输出；后续失败会保留部分目录，且没有完成的 `dsh-desktop-sdk.json`。归档时保留符号链接，并由发行仓固定摘要。清单记录源码身份、通过产物摘要核验的运行时构建记录、Electron 版本与 Host 协议版本。导出器拒绝壳所有的输出路径。

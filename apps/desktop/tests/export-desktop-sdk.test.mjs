@@ -171,6 +171,9 @@ test('SDK identity requires a clean matching official build and one release vers
 test('SDK refuses another host before creating output rather than copying its native tools', () => {
   assert.doesNotThrow(() => assertDesktopSdkExportHost('darwin', 'arm64'))
   assert.doesNotThrow(() => assertDesktopSdkExportHost('linux', 'x64', 'linux-x64'))
+  assert.doesNotThrow(() => assertDesktopSdkExportHost('win32', 'x64', 'win-x64'))
+  assert.throws(() => assertDesktopSdkExportHost('linux', 'x64', 'win-x64'), /producer installation/u)
+  assert.throws(() => assertDesktopSdkExportHost('win32', 'arm64', 'win-x64'), /producer installation/u)
   assert.throws(() => assertDesktopSdkExportHost('darwin', 'arm64', 'linux-x64'), /producer installation/u)
   assert.throws(() => assertDesktopSdkExportHost('linux', 'arm64', 'linux-x64'), /producer installation/u)
   assert.throws(() => assertDesktopSdkExportHost('linux', 'x64', 'linux-arm64'), /unsupported export target/u)
