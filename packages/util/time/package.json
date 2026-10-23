@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-util-time",
   "description": "Zero-dependency time vocabulary shared by wire boundaries: canonicalClientTimeZone (IANA zone validation and canonicalization only, no formatting)",
-  "version": "0.2.1-rc.2.vh.5.local.20261023.2",
+  "version": "0.2.1-rc.2.vh.6.local.20261023.1",
   "publishConfig": {
     "access": "public"
   },

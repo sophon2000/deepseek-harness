@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-pwsh-persistent",
   "description": "Model-facing owner-scoped persistent PowerShell tool backed by the Harness PTY service",
-  "version": "0.2.1-rc.2.vh.5.local.20261023.2",
+  "version": "0.2.1-rc.2.vh.6.local.20261023.1",
   "publishConfig": {
     "access": "public"
   },

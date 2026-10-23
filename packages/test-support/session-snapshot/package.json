@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-session-snapshot",
   "description": "Session-log snapshot core with an ACP protocol adapter, expected-output normalization, and fixture invariants",
-  "version": "0.2.1-rc.2.vh.5.local.20261023.2",
+  "version": "0.2.1-rc.2.vh.6.local.20261023.1",
   "publishConfig": {
     "access": "public"
   },
