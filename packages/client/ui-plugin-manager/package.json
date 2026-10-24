@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-plugin-manager",
   "description": "Plugin management for the dsh web client: the sidebar Plugins panel installs, enables, disables, retries, and composes installed plugin packages",
-  "version": "0.2.1-rc.2.vh.6.local.20261023.2",
+  "version": "0.2.1-rc.2.vh.8.local.20261024.1",
   "publishConfig": {
     "access": "public"
   },
