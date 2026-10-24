@@ -15,6 +15,8 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { DirectoryListing } from './types.ts'
 
 export type { DirectoryEntry, DirectoryListing } from './types.ts'
+export { TrustedFilePicker } from './trusted-file-picker.ts'
+export type { TrustedFilePickerChallenge, TrustedFilePickerSpec, TrustedFilePickerStatus, TrustedFilePickerProvider } from './trusted-file-picker.ts'
 
 /** The native interaction: one OS directory chooser on the host display. */
 export interface DirectoryPickerNativeCapability {

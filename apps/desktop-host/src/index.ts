@@ -8,6 +8,8 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { TrustedFilePicker } from '@deepseek-ai/dsh-host-directory-picker'
+import { dispatchTrustedFilePicker } from './trusted-file-picker.ts'
 import * as desktopOffice from './office.ts'
 import { isDesktopHostRequest, type DesktopHostEvent } from './protocol.ts'
 
@@ -45,12 +47,15 @@ async function main(): Promise<void> {
   const control: {
     updateTasks?: ReturnType<typeof installDesktopUpdateTaskControl>
     quitInspection?: ReturnType<typeof installDesktopQuitInspection>
+    trustedFilePicker?: TrustedFilePicker
   } = {}
   const send = (message: DesktopHostEvent): Promise<void> => new Promise((resolve, reject) => {
     if (!process.connected || process.send === undefined) { resolve(); return }
     process.send(message, (error) => { if (error === null) resolve(); else reject(error) })
   })
   const stop = (): Promise<void> => stopping ??= (async () => {
+    control.trustedFilePicker?.cancel()
+    delete control.trustedFilePicker
     // Startup failure is reported by main; shutdown only owns a tree that booted.
     const running = await application.catch(() => undefined)
     await running?.shutdown.shutdown(0)
@@ -60,6 +65,11 @@ async function main(): Promise<void> {
   process.on('message', (message: unknown) => {
     if (!isDesktopHostRequest(message)) return
     if (message.type === 'shutdown') { void stop(); return }
+    if (message.type === 'trusted-file-picker') {
+      void dispatchTrustedFilePicker(stopping === undefined ? control.trustedFilePicker : undefined, message)
+        .then(send).catch((error: unknown) => { console.error(error) })
+      return
+    }
     if (message.type === 'quit-inspection') {
       const requestId = message.requestId
       void (async () => {
@@ -88,7 +98,13 @@ async function main(): Promise<void> {
   })
   process.once('disconnect', () => { void stop() })
   const running = await application
+  if (stopping !== undefined) return
   const { ctx } = running
+  await ctx.plugin(TrustedFilePicker)
+  if (stopping !== undefined) { ctx.get('trustedFilePicker')?.cancel(); return }
+  const trustedFilePicker = ctx.get('trustedFilePicker')
+  if (trustedFilePicker === undefined) throw new Error('Desktop trusted file picker failed to register')
+  control.trustedFilePicker = trustedFilePicker
   try {
     assertDesktopRequiredServices(ctx, requiredServices)
   } catch (error) {
@@ -106,7 +122,7 @@ async function main(): Promise<void> {
     if (process.connected) process.send?.({ type: 'platform-session', session })
   })
   const url = ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}`)
-  if (process.connected) process.send?.({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections() }, (error) => { if (error !== null) console.error(error) })
+  if (process.connected) process.send?.({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections(), trustedFilePicker: 1 }, (error) => { if (error !== null) console.error(error) })
 }
 
 /** Upper bound of the startup diagnostic carried over IPC; the head holds the message and stack. */

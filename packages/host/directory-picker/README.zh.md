@@ -93,6 +93,10 @@ web GUI 让操作者通过 OS 选择器或应用内浏览器选择工作区目�
 
 ## 已知限制与延期工作
 
+Desktop Host 还挂载本包导出的独立可信消费方注册表 `TrustedFilePicker`。它每次保留一个原生 ZIP 文件或目录对话框，最长两分钟；普通 Web 组合不挂载它。消费方拥有不可预测的 challenge、操作者/会话/工作区检查和一次性 grant。选择结果不授予通用文件系统权限。所选路径只从 Desktop Main 传到 Host，客户端只接收不透明状态。提供方卸载、取消和过期会撤销待完成选择；确认丢失还会撤销已选择但未消费的 grant，而不取消已启动的操作。清理失败会禁用选择器直到 Host 重启，并记录状态不确定的日志。
+
+Desktop 父进程使用协商的 `trustedFilePicker: 1` 就绪标记和 [Desktop Host 协议](../../../apps/desktop-host/src/protocol.ts)中的私有选择消息。不提供该能力的运行时必须保持功能不可用，不得回退到渲染器提供路径。Host 提供方及消费它的 Desktop SDK 必须从包含此 API 的源码构建。
+
 <a id="known-limitations-and-deferred-work"></a>
 
 

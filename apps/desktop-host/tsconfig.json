@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../packages/host/directory-picker" },
     { "path": "../../vendor/cordis" },
     { "path": "../../vendor/include" },
     { "path": "../../packages/core/agent" },

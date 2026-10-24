@@ -1,5 +1,6 @@
 /** Shared messages for the Desktop Host child and independently built Electron shells. */
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
+import type { TrustedFilePickerChallenge, TrustedFilePickerSpec, TrustedFilePickerStatus } from '@deepseek-ai/dsh-host-directory-picker'
 
 /** Lifecycle protocol generation accepted by this Host. */
 export const DESKTOP_HOST_PROTOCOL_VERSION = 4 as const
@@ -8,7 +9,23 @@ interface ReadyEvent {
   readonly type: 'ready'
   readonly url: string
   readonly injections?: readonly unknown[] | undefined
+  readonly trustedFilePicker?: number
 }
+
+/** Parent-only chooser requests; paths never originate from renderer messages. */
+export type DesktopTrustedFilePickerRequest = {
+  readonly type: 'trusted-file-picker'
+  readonly requestId: number
+  readonly challenge: TrustedFilePickerChallenge
+} & ({ readonly action: 'validate' | 'revoke' } | { readonly action: 'complete'; readonly selectedPath: string | null })
+
+/** Correlated chooser acknowledgements carrying no selected filesystem path. */
+export type DesktopTrustedFilePickerEvent = {
+  readonly type: 'trusted-file-picker'
+  readonly requestId: number
+} & ({ readonly action: 'validate'; readonly result: TrustedFilePickerSpec | null }
+  | { readonly action: 'complete'; readonly status: TrustedFilePickerStatus }
+  | { readonly action: 'revoke'; readonly status: 'revoked' })
 
 interface FatalEvent {
   readonly type: 'fatal'
@@ -22,7 +39,7 @@ interface PlatformSessionEvent {
   readonly session: PlatformSession | null
 }
 
-export type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | { readonly type: 'shutdown-complete' } | {
+export type DesktopHostEvent = DesktopTrustedFilePickerEvent | ReadyEvent | FatalEvent | PlatformSessionEvent | { readonly type: 'shutdown-complete' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -36,7 +53,7 @@ export type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | 
 }
 
 /** Requests accepted by the Host over its private parent IPC channel. */
-export type DesktopHostRequest = { readonly type: 'shutdown' } | {
+export type DesktopHostRequest = DesktopTrustedFilePickerRequest | { readonly type: 'shutdown' } | {
   readonly type: 'quit-inspection'
   readonly requestId: number
 } | {
@@ -57,7 +74,10 @@ export function isDesktopHostEvent(message: unknown): message is DesktopHostEven
     case 'shutdown-complete':
       return true
     case 'ready':
-      return typeof candidate.url === 'string'
+      return typeof candidate.url === 'string' && (candidate.trustedFilePicker === undefined
+        || (typeof candidate.trustedFilePicker === 'number' && Number.isSafeInteger(candidate.trustedFilePicker) && candidate.trustedFilePicker > 0))
+    case 'trusted-file-picker':
+      return isPickerEvent(candidate)
     case 'platform-session': {
       const session = candidate.session
       if (session === null) return true
@@ -99,8 +119,43 @@ export function isDesktopHostEvent(message: unknown): message is DesktopHostEven
 export function isDesktopHostRequest(message: unknown): message is DesktopHostRequest {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
   if (message.type === 'shutdown') return true
+  if (message.type === 'trusted-file-picker') return isPickerRequest(message as Record<string, unknown>)
   if (!('requestId' in message) || !Number.isSafeInteger(message.requestId)) return false
   if (message.type === 'quit-inspection') return true
   return message.type === 'update-tasks' && 'action' in message
     && (message.action === 'inspect' || message.action === 'lock' || message.action === 'unlock')
+}
+
+function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  return Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key))
+}
+
+function pickerId(value: Record<string, unknown>): boolean {
+  return typeof value.requestId === 'number' && Number.isSafeInteger(value.requestId) && value.requestId > 0
+}
+
+function isPickerRequest(value: Record<string, unknown>): boolean {
+  if (!pickerId(value) || typeof value.challenge !== 'string' || !/^[a-f0-9]{64}$/.test(value.challenge)) return false
+  const keys = ['type', 'requestId', 'action', 'challenge']
+  if (value.action === 'validate' || value.action === 'revoke') return exactKeys(value, keys)
+  return value.action === 'complete' && exactKeys(value, [...keys, 'selectedPath'])
+    && (value.selectedPath === null || (typeof value.selectedPath === 'string'
+      && value.selectedPath.length > 0 && value.selectedPath.length <= 32_768 && !value.selectedPath.includes('\0')
+      && (/^\//.test(value.selectedPath) || /^[a-zA-Z]:[\\/]/.test(value.selectedPath) || /^\\\\[^\\]+\\[^\\]+/.test(value.selectedPath))))
+}
+
+function isPickerEvent(value: Record<string, unknown>): boolean {
+  if (!pickerId(value)) return false
+  if (value.action === 'validate') {
+    if (!exactKeys(value, ['type', 'requestId', 'action', 'result'])) return false
+    if (value.result === null) return true
+    if (typeof value.result !== 'object' || value.result === null || Array.isArray(value.result)) return false
+    const result = value.result as Record<string, unknown>
+    return exactKeys(result, ['purpose', 'expiresAt'])
+      && typeof result.purpose === 'string' && ['save-zip', 'open-zip', 'select-directory'].includes(result.purpose)
+      && typeof result.expiresAt === 'number' && Number.isSafeInteger(result.expiresAt) && result.expiresAt > 0
+  }
+  if (!exactKeys(value, ['type', 'requestId', 'action', 'status'])) return false
+  return (value.action === 'revoke' && value.status === 'revoked')
+    || (value.action === 'complete' && typeof value.status === 'string' && ['selected', 'cancelled', 'rejected'].includes(value.status))
 }

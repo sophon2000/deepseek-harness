@@ -799,6 +799,9 @@ importers:
       '@deepseek-ai/dsh-home-paths':
         specifier: workspace:*
         version: link:../../packages/util/home-paths
+      '@deepseek-ai/dsh-host-directory-picker':
+        specifier: workspace:*
+        version: link:../../packages/host/directory-picker
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:*
         version: link:../../packages/host/webserver
@@ -10480,6 +10483,10 @@ importers:
         version: link:../../core/tools
 
   packages/host/directory-picker:
+    dependencies:
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
