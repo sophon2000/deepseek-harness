@@ -38,6 +38,8 @@ Desktop 绑定 `127.0.0.1`，即 Electron 为就绪 URL 与 WebSocket 凭据过�
 
 DSH Electron 壳直接启动共享 Host；Video 产品预检、后台服务和必需服务就绪检查由 `video-desktop` 管理。Desktop SDK 保留产品载荷 schema 2、运行时准备和产品进程冒烟验证，供消费方自己的壳使用。
 
+此壳不协商 Host 的 trusted-file-picker 流程。未经请求的选择器响应会被视为无效 IPC 并终止 Host 连接；消费方自己的壳负责实现能力协商与原生选择器授权。
+
 应用菜单第一项“**关于 DeepSeek Harness**”打开 Electron 原生关于面板，展示应用图标、产品名称和当前安装的发布版本。菜单文案跟随桌面壳的语言。macOS 的隐藏、隐藏其他、显示全部和退出条目使用本地化文案，隐藏和退出条目包含 DeepSeek Harness 产品名称。这些条目保留原生动作和快捷键。macOS 从应用包读取图标，因此未打包的开发启动会显示 Electron 图标；Windows 使用随包分发的 PNG。
 
 Desktop 的本地原生目录流程打开绑定应用窗口的 Electron 文件夹对话框，并先恢复、显示和聚焦该窗口。并发请求共用一个对话框；取消不返回路径，失败后可以重试。普通 Web 使用 Host 选择器。浏览模式列出 Host 目录。Linux 缺少 zenity 或 kdialog 时，自动选择使用浏览模式，不使用 Electron 对话框。
