@@ -138,7 +138,8 @@ export class DesktopHostProcess {
     child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS) })
     child.stdout?.pipe(process.stdout)
     child.on('message', (message: unknown) => {
-      if (!isDesktopHostEvent(message)) {
+      // This shell does not negotiate the consumer-owned trusted picker flow.
+      if (!isDesktopHostEvent(message) || message.type === 'trusted-file-picker') {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
         return
