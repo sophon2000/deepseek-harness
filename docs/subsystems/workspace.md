@@ -326,6 +326,47 @@ Types: [Agent](core.md) · [RemoteStream](typert.md) · [SessionId](core.md)
 
 Source: [`packages/api/terminal-controller/src/index.ts`](../../packages/api/terminal-controller/src/index.ts)
 
+<a id="ctxtrustedfilepicker--trustedfilepicker"></a>
+
+### `ctx.trustedFilePicker` — `TrustedFilePicker`
+
+Desktop-only registry and single-dialog reservation owned by the Host process.
+
+```ts cordis-catalog
+/**
+ * Register the trusted consumer from the Desktop composition, never from wire input.
+ * @param provider - Sole ledger owner; duplicate registration throws.
+ * @returns Disposer that revokes the live selection before removing its owner.
+ */
+register(provider: TrustedFilePickerProvider): () => void
+
+/**
+ * Reserve a dialog after validating a trusted parent challenge.
+ * @param challenge - Challenge delivered exclusively by parent IPC.
+ * @returns A reserved dialog description, or null.
+ */
+async validate(challenge: TrustedFilePickerChallenge): Promise<TrustedFilePickerSpec | null>
+
+/**
+ * Complete the reserved dialog with the trusted main-process result.
+ * @param challenge - Reserved challenge.
+ * @param selectedPath - Main-owned dialog result only.
+ * @returns Admission status; replay and stale claims are rejected.
+ */
+async complete(challenge: TrustedFilePickerChallenge, selectedPath: string | null): Promise<TrustedFilePickerStatus>
+
+/**
+ * Revoke a reservation or an unconsumed selection after acknowledgement loss.
+ * @param challenge - Pending or selected-unconsumed challenge to revoke.
+ */
+revoke(challenge: TrustedFilePickerChallenge): void
+
+/** End parent transport lifetime before shutdown or disconnection. */
+cancel(): void
+```
+
+Source: [`packages/host/directory-picker/src/trusted-file-picker.ts`](../../packages/host/directory-picker/src/trusted-file-picker.ts)
+
 <a id="ctxworkspacecontroller--workspacecontroller"></a>
 
 ### `ctx.workspaceController` — `WorkspaceController`

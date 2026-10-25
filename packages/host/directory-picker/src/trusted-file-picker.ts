@@ -79,7 +79,11 @@ export class TrustedFilePicker extends Service {
     }
   }
 
-  /** @param challenge - Challenge delivered exclusively by parent IPC. @returns A reserved dialog description, or null. */
+  /**
+   * Reserve a dialog after validating a trusted parent challenge.
+   * @param challenge - Challenge delivered exclusively by parent IPC.
+   * @returns A reserved dialog description, or null.
+   */
   async validate(challenge: TrustedFilePickerChallenge): Promise<TrustedFilePickerSpec | null> {
     const provider = this.provider
     if (provider === undefined || this.claim !== undefined) return null
@@ -110,6 +114,7 @@ export class TrustedFilePicker extends Service {
   }
 
   /**
+   * Complete the reserved dialog with the trusted main-process result.
    * @param challenge - Reserved challenge.
    * @param selectedPath - Main-owned dialog result only.
    * @returns Admission status; replay and stale claims are rejected.
@@ -139,7 +144,10 @@ export class TrustedFilePicker extends Service {
     }
   }
 
-  /** @param challenge - Pending or selected-unconsumed challenge to revoke, including acknowledgement loss. */
+  /**
+   * Revoke a reservation or an unconsumed selection after acknowledgement loss.
+   * @param challenge - Pending or selected-unconsumed challenge to revoke.
+   */
   revoke(challenge: TrustedFilePickerChallenge): void {
     if (this.claim?.challenge === challenge) this.cancelClaim()
     else if (this.provider !== undefined) this.revokeProvider(this.provider, challenge)

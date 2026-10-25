@@ -841,6 +841,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Discriminated interaction capability: the native backend opens one OS chooser on the host display, the browse backend serves listing/creation primitives for the in-app browser; dual-face backends fill ui-workspace directory-flow slots from their browser halves (no wire advertisement).',
   },
   {
+    key: 'trustedFilePicker',
+    pkg: 'host-directory-picker',
+    title: 'Trusted Desktop file selection',
+    mode: 'seam',
+    implementations: [],
+    consumers: [],
+    note: 'Desktop Host registers one trusted consumer for parent-IPC challenges; validation reserves one bounded dialog, completion admits its result, and disposal or expiry revokes unconsumed selections. Ordinary Web composition does not mount this service.',
+  },
+  {
     key: 'webServer',
     pkg: 'host-webserver',
     title: 'HTTP route registration',

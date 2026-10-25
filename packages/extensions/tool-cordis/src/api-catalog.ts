@@ -3498,6 +3498,41 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'trustedFilePicker',
+    summary: 'Desktop-only registry and single-dialog reservation owned by the Host process.',
+    description: 'Desktop-only registry and single-dialog reservation owned by the Host process.',
+    methods: [
+      {
+        signature: 'register(provider: TrustedFilePickerProvider): () => void',
+        description: 'Register the trusted consumer from the Desktop composition, never from wire input.',
+        parameters: [{ name: 'provider', description: 'Sole ledger owner; duplicate registration throws.' }],
+        returns: 'Disposer that revokes the live selection before removing its owner.',
+      },
+      {
+        signature: 'async validate(challenge: TrustedFilePickerChallenge): Promise<TrustedFilePickerSpec | null>',
+        description: 'Reserve a dialog after validating a trusted parent challenge.',
+        parameters: [{ name: 'challenge', description: 'Challenge delivered exclusively by parent IPC.' }],
+        returns: 'A reserved dialog description, or null.',
+      },
+      {
+        signature: 'async complete(challenge: TrustedFilePickerChallenge, selectedPath: string | null): Promise<TrustedFilePickerStatus>',
+        description: 'Complete the reserved dialog with the trusted main-process result.',
+        parameters: [{ name: 'challenge', description: 'Reserved challenge.' }, { name: 'selectedPath', description: 'Main-owned dialog result only.' }],
+        returns: 'Admission status; replay and stale claims are rejected.',
+      },
+      {
+        signature: 'revoke(challenge: TrustedFilePickerChallenge): void',
+        description: 'Revoke a reservation or an unconsumed selection after acknowledgement loss.',
+        parameters: [{ name: 'challenge', description: 'Pending or selected-unconsumed challenge to revoke.' }],
+      },
+      {
+        signature: 'cancel(): void',
+        description: 'End parent transport lifetime before shutdown or disconnection.',
+        parameters: [],
+      },
+    ],
+  },
+  {
     key: 'typert',
     summary: 'Registry of generated schemas, package reflection, invocations, and Remote dependency providers.',
     description: 'Registry of generated schemas, package reflection, invocations, and Remote dependency providers.',
@@ -8410,6 +8445,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TranslationSpec',
     declaration: 'export type TranslationSpec = AnonymousTranslationSpec | PaidTranslationSpec;',
+  },
+  {
+    name: 'TrustedFilePickerChallenge',
+    declaration: 'export type TrustedFilePickerChallenge = Branded<\'TrustedFilePickerChallenge\'>;',
+  },
+  {
+    name: 'TrustedFilePickerProvider',
+    declaration: 'export interface TrustedFilePickerProvider {\n    validate(challenge: TrustedFilePickerChallenge, signal: AbortSignal): Promise<TrustedFilePickerSpec | null>;\n    complete(challenge: TrustedFilePickerChallenge, selectedPath: string | null, signal: AbortSignal): Promise<TrustedFilePickerStatus>;\n    revoke(challenge: TrustedFilePickerChallenge): void;\n}',
+  },
+  {
+    name: 'TrustedFilePickerSpec',
+    declaration: 'export interface TrustedFilePickerSpec {\n    readonly purpose: \'save-zip\' | \'open-zip\' | \'select-directory\';\n    readonly expiresAt: number;\n}',
+  },
+  {
+    name: 'TrustedFilePickerStatus',
+    declaration: 'export type TrustedFilePickerStatus = \'selected\' | \'cancelled\' | \'rejected\';',
   },
   {
     name: 'TurnCompleteInput',
