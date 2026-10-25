@@ -584,6 +584,8 @@ export interface Config extends ContactConfig {
 
 /** Questionnaire destination and bonus notice timings shared by Host and Client. */
 export interface ContactConfig {
+  /** Account providers displayed in the sidebar; DeepSeek remains the upstream default. */
+  accountMenuProviders: string[]
   /** Show the account-menu questionnaire and allow its context sampling and navigation. */
   contactEnabled: boolean
   /** HTTPS questionnaire URL; override for a test form. */

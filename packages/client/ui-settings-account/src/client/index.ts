@@ -310,7 +310,9 @@ export function apply(ctx: Context): void {
     }, AccountPlatformHost))
   }
   ctx.slots.inject('settings.launcher', () => ctx.slots.register({
-    name: 'settings.launcher', locale: 'settings.account', inject: () => operations,
+    name: 'settings.launcher', locale: 'settings.account',
+    children: { 'settings.launcher.account': { kind: 'list', scope: 'root' } },
+    inject: () => ({ ...operations, accountMenuProviders: config.accountMenuProviders }),
   }, AccountMenu))
   ctx.slots.inject('settings.section', () => {
     let unregister: (() => void) | undefined

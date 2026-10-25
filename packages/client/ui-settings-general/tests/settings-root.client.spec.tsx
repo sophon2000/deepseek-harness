@@ -529,3 +529,15 @@ it('passes current Settings key labels to the launcher and removes them when unb
   setShortcuts([{ ...row, keys: [], aria: undefined, binding: null, modified: true }])
   expect(launcher()).not.toHaveProperty('settingsShortcut')
 })
+
+
+it('opens the requested account section instead of the first settings section', () => {
+  const { renderSlot } = mount({ onboardingActive: false, rows: [
+    { id: 'general', order: 0, label: 'General' },
+    { id: 'codex-subscription', order: 15, label: 'Codex' },
+  ] })
+  const launcher = renderSlot.mock.calls.find(call => call[0] === 'settings.launcher')!
+  act(() => { (launcher[1] as { openSection: (id: string) => void }).openSection('codex-subscription') })
+  expect(screen.getByTestId('section-codex-subscription')).toBeTruthy()
+  expect(screen.queryByTestId('section-general')).toBeNull()
+})

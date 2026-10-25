@@ -97,7 +97,7 @@ it('shares account actions across seats, publishes dialog ownership, and opens c
   const c = await start()
   const actions = operations(c)
   expect(actions.contactEnabled).toBe(true)
-  expect(c.ctx.slots.entries('settings.models.sign-in')[0]!.inject!()).toBe(actions)
+  expect(c.ctx.slots.entries('settings.models.sign-in')[0]!.inject!()).toMatchObject({ start: actions.start, signOut: actions.signOut, hooks: actions.hooks })
   // The account UI follows the live theme service through the framework hook channel.
   const theme = c.ctx.get('theme') as ThemeRuntime
   const onTheme = vi.fn()
@@ -127,7 +127,7 @@ it('shares account actions across seats, publishes dialog ownership, and opens c
   c.mock.streams.push('account/watch', stored)
   await vi.waitFor(() => { expect(actions.hooks.account.getSnapshot().details?.profile).toEqual(profile) })
   const entry = c.ctx.slots.entries('settings.section').find(entry => entry.options.id === 'account')!
-  expect(entry.inject!()).toBe(actions)
+  expect(entry.inject!()).toMatchObject({ start: actions.start, signOut: actions.signOut, hooks: actions.hooks })
   expect(resolveSlotLabel(entry.options.label)).toBe('Account')
   actions.contactUs()
   const support = new URL(String(open.mock.calls.at(-1)![0]))
@@ -815,3 +815,19 @@ it('applies API-key defaults through the desktop slot and shared configuration o
   expect(values['ui-settings']).toEqual({ enabled: true })
   expect(values['ui-chat']).toMatchObject({ transcriptView: 'standard' })
 }, 60_000)
+
+
+it('declares account contributions with the launcher and releases them when it unloads', async ({ start }) => {
+  vi.stubGlobal(CONTACT_CONFIG_GLOBAL, { accountMenuProviders: ['codex'] })
+  const c = await start()
+  const entry = c.ctx.slots.entries('settings.launcher')[0]!
+  expect(entry.inject!()).toMatchObject({ accountMenuProviders: ['codex'] })
+  const provider = await c.ctx.plugin({ inject: ['slots'], apply(scope) {
+    scope.slots.inject('settings.launcher.account', () => scope.slots.register({
+      name: 'settings.launcher.account', id: 'codex',
+    }, function AccountEntry() { return null }))
+  } })
+  expect(c.ctx.slots.entries('settings.launcher.account')).toHaveLength(1)
+  await provider.dispose()
+  expect(c.ctx.slots.entries('settings.launcher.account')).toHaveLength(0)
+})

@@ -14,6 +14,7 @@ it.each([{}, { contactEnabled: true }, { contactEnabled: false }])('injects cont
   const table: IndexInjection[] = []
   ctx.emit('webserver/index-inject', table)
   expect(table).toEqual([{ kind: 'global', name: CONTACT_CONFIG_GLOBAL, value: {
+    accountMenuProviders: ['deepseek'],
     contactEnabled: contact.contactEnabled ?? true,
     contactFormUrl: config.contactFormUrl, contactSource: config.contactSource,
     bonusAckRetryDelayMs: 25, bonusAckRetryMaxDelayMs: 100,
