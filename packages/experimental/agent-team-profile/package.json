@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-agent-team-profile",
   "description": "Agent Teams collaboration, tools, and Web UI in one experimental bundle",
-  "version": "0.2.1-rc.2.vh.8.local.20261024.1",
+  "version": "0.2.1-rc.2.vh.9.local.20261025.1",
   "icon": "./icon.svg",
   "publishConfig": {
     "access": "public"
