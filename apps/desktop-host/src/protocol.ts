@@ -119,7 +119,7 @@ export function isDesktopHostEvent(message: unknown): message is DesktopHostEven
 export function isDesktopHostRequest(message: unknown): message is DesktopHostRequest {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
   if (message.type === 'shutdown') return true
-  if (message.type === 'trusted-file-picker') return isPickerRequest(message as Record<string, unknown>)
+  if (message.type === 'trusted-file-picker') return isPickerRequest(message)
   if (!('requestId' in message) || !Number.isSafeInteger(message.requestId)) return false
   if (message.type === 'quit-inspection') return true
   return message.type === 'update-tasks' && 'action' in message
@@ -149,7 +149,7 @@ function isPickerEvent(value: Record<string, unknown>): boolean {
   if (value.action === 'validate') {
     if (!exactKeys(value, ['type', 'requestId', 'action', 'result'])) return false
     if (value.result === null) return true
-    if (typeof value.result !== 'object' || value.result === null || Array.isArray(value.result)) return false
+    if (typeof value.result !== 'object' || Array.isArray(value.result)) return false
     const result = value.result as Record<string, unknown>
     return exactKeys(result, ['purpose', 'expiresAt'])
       && typeof result.purpose === 'string' && ['save-zip', 'open-zip', 'select-directory'].includes(result.purpose)

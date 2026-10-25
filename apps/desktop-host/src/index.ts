@@ -44,6 +44,7 @@ async function main(): Promise<void> {
     }),
   })
   let stopping: Promise<void> | undefined
+  const isStopping = (): boolean => stopping !== undefined
   const control: {
     updateTasks?: ReturnType<typeof installDesktopUpdateTaskControl>
     quitInspection?: ReturnType<typeof installDesktopQuitInspection>
@@ -101,7 +102,7 @@ async function main(): Promise<void> {
   if (stopping !== undefined) return
   const { ctx } = running
   await ctx.plugin(TrustedFilePicker)
-  if (stopping !== undefined) { ctx.get('trustedFilePicker')?.cancel(); return }
+  if (isStopping()) { ctx.get('trustedFilePicker')?.cancel(); return }
   const trustedFilePicker = ctx.get('trustedFilePicker')
   if (trustedFilePicker === undefined) throw new Error('Desktop trusted file picker failed to register')
   control.trustedFilePicker = trustedFilePicker

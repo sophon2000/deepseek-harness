@@ -19,11 +19,11 @@ async function setup() {
   disposers.push(() => fiber.dispose())
   await fiber.await()
   const picker = ctx.get('trustedFilePicker')!
-  const provider: TrustedFilePickerProvider = {
+  const provider = {
     validate: vi.fn<TrustedFilePickerProvider['validate']>(async () => ({ purpose: 'save-zip', expiresAt: Date.now() + 60_000 })),
     complete: vi.fn<TrustedFilePickerProvider['complete']>(async () => 'selected'),
-    revoke: vi.fn(),
-  }
+    revoke: vi.fn<TrustedFilePickerProvider['revoke']>(),
+  } satisfies TrustedFilePickerProvider
   const dispose = picker.register(provider)
   return { ctx, picker, provider, dispose, fiber }
 }
@@ -71,7 +71,7 @@ describe('trusted Desktop file selection', () => {
     const { picker, provider } = await setup()
     await picker.validate(challenge)
     let resolve!: (value: 'selected') => void
-    provider.complete = vi.fn(() => new Promise<'selected'>((done) => { resolve = done }))
+    provider.complete = vi.fn<TrustedFilePickerProvider['complete']>(() => new Promise<'selected'>((done) => { resolve = done }))
     const pending = picker.complete(challenge, '/tmp/backup.zip')
     await vi.advanceTimersByTimeAsync(60_000)
     resolve('selected')
@@ -82,7 +82,7 @@ describe('trusted Desktop file selection', () => {
   it('revokes explicit cancellation and never revives an in-flight lookup', async () => {
     const { picker, provider } = await setup()
     let resolve!: (value: { purpose: 'open-zip'; expiresAt: number }) => void
-    provider.validate = vi.fn(() => new Promise<{ purpose: 'open-zip'; expiresAt: number }>((done) => { resolve = done }))
+    provider.validate = vi.fn<TrustedFilePickerProvider['validate']>(() => new Promise<{ purpose: 'open-zip'; expiresAt: number }>((done) => { resolve = done }))
     const pending = picker.validate(challenge)
     picker.revoke(challenge)
     resolve({ purpose: 'open-zip', expiresAt: Date.now() + 10_000 })
@@ -107,11 +107,11 @@ describe('trusted Desktop file selection', () => {
     expect(await picker.validate(challenge)).toBeNull()
     provider.validate = vi.fn<TrustedFilePickerProvider['validate']>(async () => ({ purpose: 'save-zip', expiresAt: Date.now() + 120_001 }))
     expect(await picker.validate(challenge)).toBeNull()
-    provider.validate = vi.fn(async () => { throw new Error('lookup') })
+    provider.validate = vi.fn<TrustedFilePickerProvider['validate']>(async () => { throw new Error('lookup') })
     await expect(picker.validate(challenge)).rejects.toThrow('lookup')
     provider.validate = vi.fn<TrustedFilePickerProvider['validate']>(async () => ({ purpose: 'save-zip', expiresAt: Date.now() + 60_000 }))
     await picker.validate(challenge)
-    provider.complete = vi.fn(async () => { throw new Error('admission') })
+    provider.complete = vi.fn<TrustedFilePickerProvider['complete']>(async () => { throw new Error('admission') })
     await expect(picker.complete(challenge, '/tmp/backup.zip')).rejects.toThrow('admission')
     expect(provider.revoke).toHaveBeenCalledWith(challenge)
   })
@@ -126,11 +126,11 @@ describe('trusted Desktop file selection', () => {
 
   it('contains a broken revoke callback and disables further admission', async () => {
     const { picker, provider, dispose } = await setup()
-    provider.revoke = vi.fn(() => { throw new Error('broken ledger cleanup') })
+    provider.revoke = vi.fn<TrustedFilePickerProvider['revoke']>(() => { throw new Error('broken ledger cleanup') })
     await picker.validate(challenge)
     expect(dispose).not.toThrow()
     expect(await picker.validate(challenge)).toBeNull()
     expect(() => picker.register(provider)).toThrow('restart the Host')
-    expect(() => picker.revoke(challenge)).toThrow('uncertain')
+    expect(() => { picker.revoke(challenge) }).toThrow('uncertain')
   })
 })
