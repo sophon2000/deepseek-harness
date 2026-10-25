@@ -494,7 +494,7 @@ class ResolutionRouter {
     }
     const localPackageNames = new Set(successor.localPackageNames)
     for (const name of localPackageNames) {
-      if (!this.current.localPackageNames.has(name) && this.current.entries.has(name)) {
+      if (!this.current.localPackageNames.has(name) && this.current.entries.get(name)?.scope === 'installation') {
         rejected.push(`profile resolution: overriding ${JSON.stringify(name)} locally requires a process restart`)
       }
     }
