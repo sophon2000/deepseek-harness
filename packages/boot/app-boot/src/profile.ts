@@ -597,9 +597,8 @@ function collectProfileScopePackages(
   const bundleAnchors = profile.layers
     .filter(layer => !installationPackageNames.has(layer.packageName))
     .map(layer => join(layer.packageDir, 'package.json'))
-  const bundleLinks = dependencyClosure(bundleAnchors, installationPackageNames, declarers, versions)
-  for (const layer of profile.layers) bundleLinks.delete(layer.packageName)
-  return bundleLinks
+  // A selected bundle may also export the plugin explicitly inserted by its patch.
+  return dependencyClosure(bundleAnchors, installationPackageNames, declarers, versions)
 }
 
 /**
