@@ -584,6 +584,8 @@ export interface Config extends ContactConfig {
 
 /** Questionnaire destination and bonus notice timings shared by Host and Client. */
 export interface ContactConfig {
+  /** Show the account-menu questionnaire and allow its context sampling and navigation. */
+  contactEnabled: boolean
   /** HTTPS questionnaire URL; override for a test form. */
   contactFormUrl: string
   /** Questionnaire source option; empty until Harness is supported by the form. */

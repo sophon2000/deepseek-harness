@@ -36,7 +36,7 @@ function operationsOf(state: Omit<AccountView, 'links'>, details?: Partial<Accou
       theme: { getSnapshot: () => themeOf('light'), subscribe: () => () => {} },
     },
     hasRunningAccountTasks: vi.fn(async () => false),
-    contactUs: vi.fn(), showLogin: vi.fn(), setOnboarding: vi.fn(),
+    contactEnabled: true, contactUs: vi.fn(), showLogin: vi.fn(), setOnboarding: vi.fn(),
     bonusNoticeShown: vi.fn(), bonusNoticeDismissed: vi.fn(),
     refreshAccount: vi.fn(() => Promise.resolve()),
     avatarFailed: vi.fn(),
@@ -199,6 +199,29 @@ it.each([en, zh])('offers settings, contact and sign-in from the signed-out acco
   fireEvent.click(screen.getByRole('button', { name: copy.menu }))
   fireEvent.click(screen.getByRole('menuitem', { name: copy.contactUs }))
   expect(operations.contactUs).toHaveBeenCalledOnce()
+})
+
+it.each([en, zh].flatMap(copy => (['signed-out', 'credential-stored'] as const).map(status => ({ copy, status }))))('keeps account actions without contact for $status', async ({ copy, status }) => {
+  const openSettings = vi.fn()
+  const operations = operationsOf({ status, attempt: null })
+  const { AccountMenu } = await import('../src/client/AccountMenu.tsx')
+  render(<AccountMenu {...({} as GlobalStandardProps)} {...operations} contactEnabled={false} settingsOpen={false}
+    useAccount={selector => selector(operations.hooks.account.getSnapshot())}
+    useTheme={selector => selector(operations.hooks.theme.getSnapshot())} wide openOnboarding={() => {}} openSettings={openSettings}
+    t={key => key in copy ? copy[key as AccountKey] : key} />)
+  const trigger = screen.getByRole('button', { name: copy.menu })
+  fireEvent.click(trigger)
+  const accountAction = status === 'signed-out' ? copy.signIn : copy.signOut
+  expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([copy.settings, accountAction])
+  await expect(`${screen.getByRole('menu').textContent}\n`).toMatchFileSnapshot(`./expected/menu-contact-disabled-${status}-${copy === en ? 'en' : 'zh'}.txt`)
+  expect(screen.queryByRole('menuitem', { name: copy.contactUs })).toBeNull()
+  fireEvent.click(screen.getByRole('menuitem', { name: copy.settings }))
+  expect(openSettings).toHaveBeenCalledOnce()
+  fireEvent.click(trigger)
+  await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: accountAction })) })
+  if (status === 'signed-out') expect(operations.start).toHaveBeenCalledOnce()
+  else expect(operations.hasRunningAccountTasks).toHaveBeenCalledOnce()
+  expect(operations.contactUs).not.toHaveBeenCalled()
 })
 
 it('reports a failed start in the login dialog, not as a sidebar alert', async () => {

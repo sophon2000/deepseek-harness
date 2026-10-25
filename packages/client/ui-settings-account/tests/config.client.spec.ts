@@ -5,14 +5,16 @@ import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
 import { apply, Config } from '../src/index.ts'
 import { CONTACT_CONFIG_GLOBAL } from '../src/contact-config.ts'
 
-it('injects configured contact options and removes the listener on disposal', async () => {
+it.each([{}, { contactEnabled: true }, { contactEnabled: false }])('injects contact options %j and removes the listener on disposal', async (contact) => {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
-  const config: Config = Config({ contactSource: 'harness', bonusAckRetryDelayMs: 25, bonusAckRetryMaxDelayMs: 100 })
-  await ctx.plugin({ Config, apply }, { contactSource: 'harness', bonusAckRetryDelayMs: 25, bonusAckRetryMaxDelayMs: 100 })
+  const options = { ...contact, contactSource: 'harness', bonusAckRetryDelayMs: 25, bonusAckRetryMaxDelayMs: 100 }
+  const config: Config = Config(options)
+  await ctx.plugin({ Config, apply }, options)
   const table: IndexInjection[] = []
   ctx.emit('webserver/index-inject', table)
   expect(table).toEqual([{ kind: 'global', name: CONTACT_CONFIG_GLOBAL, value: {
+    contactEnabled: contact.contactEnabled ?? true,
     contactFormUrl: config.contactFormUrl, contactSource: config.contactSource,
     bonusAckRetryDelayMs: 25, bonusAckRetryMaxDelayMs: 100,
   } }])

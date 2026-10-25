@@ -91,11 +91,12 @@ it('claims account balance notices from the frame-wide quota chain and declines 
 }, 60_000)
 
 it('shares account actions across seats, publishes dialog ownership, and opens contextual support', async ({ start }) => {
-  vi.stubGlobal(CONTACT_CONFIG_GLOBAL, { contactFormUrl: 'https://example.test/form/?prefill_device_model=old&hide_device_model=1', contactSource: 'harness' })
+  vi.stubGlobal(CONTACT_CONFIG_GLOBAL, { contactEnabled: true, contactFormUrl: 'https://example.test/form/?prefill_device_model=old&hide_device_model=1', contactSource: 'harness' })
   const open = vi.spyOn(window, 'open').mockReturnValue(null)
   vi.stubGlobal('dshDesktop', {})
   const c = await start()
   const actions = operations(c)
+  expect(actions.contactEnabled).toBe(true)
   expect(c.ctx.slots.entries('settings.models.sign-in')[0]!.inject!()).toBe(actions)
   // The account UI follows the live theme service through the framework hook channel.
   const theme = c.ctx.get('theme') as ThemeRuntime
@@ -153,12 +154,54 @@ it('shares account actions across seats, publishes dialog ownership, and opens c
   expect(c.ctx.slots.entries('settings.launcher')).toHaveLength(0)
 }, 60_000)
 
+it('does not sample account or device context or navigate when contact is disabled', async ({ start }) => {
+  vi.stubGlobal(CONTACT_CONFIG_GLOBAL, { contactEnabled: false })
+  const open = vi.spyOn(window, 'open').mockReturnValue(null)
+  const deviceInfo = vi.fn(async () => 'synthetic device')
+  const bridge = { deviceInfo }
+  vi.stubGlobal('dshDesktop', bridge)
+  const c = await start()
+  const actions = operations(c)
+  expect(actions.contactEnabled).toBe(false)
+  c.mock.remote.account.getProfile.mockResolvedValue(ok(profile))
+  c.mock.streams.push('account/watch', stored)
+  await vi.waitFor(() => { expect(actions.hooks.account.getSnapshot().details?.profile).toEqual(profile) })
+  const snapshot = actions.hooks.account.getSnapshot()
+  const restore: Array<() => void> = []
+  const observe = (target: object, key: PropertyKey, value: unknown) => {
+    const original = Object.getOwnPropertyDescriptor(target, key)
+    const read = vi.fn(() => value)
+    Object.defineProperty(target, key, { configurable: true, get: read })
+    restore.push(() => {
+      if (original === undefined) Reflect.deleteProperty(target, key)
+      else Object.defineProperty(target, key, original)
+    })
+    return read
+  }
+  try {
+    const reads = [
+      observe(snapshot, 'details', snapshot.details),
+      observe(window, 'screen', window.screen),
+      observe(window, 'devicePixelRatio', window.devicePixelRatio),
+      observe(bridge, 'deviceInfo', deviceInfo),
+      observe(navigator, 'userAgent', navigator.userAgent),
+    ]
+    actions.contactUs()
+    for (const read of reads) expect(read).not.toHaveBeenCalled()
+    expect(deviceInfo).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+  } finally {
+    for (const reset of restore.reverse()) reset()
+  }
+}, 60_000)
+
 it('prefills the native device description from the Desktop bridge on every click', async ({ start }) => {
   const open = vi.spyOn(window, 'open').mockReturnValue(null)
   const deviceInfo = vi.fn(async () => 'platform=darwin; os=15.0; app_arch=arm64; cpu=Apple M3; memory_gib=16.0')
   vi.stubGlobal('dshDesktop', { deviceInfo })
   const c = await start()
   const actions = operations(c)
+  expect(actions.contactEnabled).toBe(true)
   actions.contactUs()
   await vi.waitFor(() => { expect(open).toHaveBeenCalledOnce() })
   const first = new URL(String(open.mock.calls.at(-1)![0]))

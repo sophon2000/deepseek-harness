@@ -67,7 +67,9 @@ export interface AccountSectionInjected {
    * @returns after the account queries settle; image loading completes independently.
    */
   refreshAccount: () => Promise<void>
-  /** Open the external support questionnaire with the account, build and environment sampled by this click. */
+  /** Whether this deployment enables the account-menu questionnaire. */
+  contactEnabled: boolean
+  /** Open the questionnaire with context sampled by this click; disabled deployments neither sample nor navigate. */
   contactUs: () => void
   /** Open or dismiss the login dialog. */
   showLogin: (visible: boolean) => void
