@@ -62,6 +62,8 @@ Queue previews enable whitespace collapsing and document-edge trimming, retain e
 <a id="shell-and-standard-props"></a>
 ## Shell and standard props
 
+The blank-session Hero exposes `conversation.hero.brand.mark` and `conversation.hero.brand.headline` as root-scoped single slots. The headline accepts inline content; its wrapper, preview badge, and resident composer remain owned by Conversation. Contributors use declaration-aware `ctx.slots.inject` and their own typed locale namespace. An unoccupied headline uses Conversation's localized default, including after a contributor unloads.
+
 The shared image slot props keep display choices separate from durable references: `thumbnail` requests a contained attachment-list thumbnail, while `compact` requests a cropped gallery tile. An optional per-image `label` supplies the accessible display name; loading and cache identity still use the original attachment reference. `MessageImagesContentInput` adds optional complete `MessageImageLabels` for the root-scoped `conversation.images.content` Factory. Message, tool, and Factory inputs carry the view's authorized `loadImage` callback explicitly; loading and URL caching remain with the resource owner. [ui-attachment](../ui-attachment/README.md) provides this Factory and owns rendering and the lightbox.
 
 The composer measures its expanded control groups after size, content, visibility, or font-loading changes. If they cannot share a line, the row sets `--dsh-composer-model-text-display: none` and `--dsh-composer-model-icon-display: block` for the model seat; their defaults are `block` and `none`. Wrapping remains available if even the icon cannot fit.

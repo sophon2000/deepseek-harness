@@ -6,8 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import type { Context } from '@deepseek-ai/cordis'
 import type { ISession } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsLocale, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   RemoteError, SlotTestRuntime, usePinnedBrowserLanguages, stubConfigForm,
 } from '@deepseek-ai/dsh-client-test-runtime'
@@ -27,6 +28,17 @@ usePinnedBrowserLanguages('zh-CN')
 
 
 const SID = 's1' as SessionId
+
+const HERO_BRAND_NS = 'test.conversation.heroBrand'
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    'test.conversation.heroBrand': 'headline'
+  }
+}
+
+function BrandHeadline({ t }: PropsLocale<typeof HERO_BRAND_NS>) {
+  return <>{t('headline')}</>
+}
 
 /** jsdom has no ResizeObserver; the composer seat publishes its height through one. */
 class ResizeObserverStub {
@@ -102,6 +114,53 @@ async function bench(opts?: { blank?: boolean }) {
 }
 
 describe('resident composer', () => {
+  it('localizes an independently owned hero headline and restores the fallback without replacing the composer or badge', async () => {
+    const runtime = await bench({ blank: true })
+    try {
+      const view = runtime.renderRoot()
+      const textarea = view.getByRole('textbox')
+      const badge = view.getByText('预览版')
+      const shell = (runtime.ctx.conversation.input as InputHub).shell(SID)
+      act(() => { shell.setDraft('retained headline draft') })
+      expect(view.getByText('探索未至之境')).toBeTruthy()
+
+      const brand = await runtime.mount({
+        inject: ['slots', 'locale'],
+        apply(ctx: Context) {
+          ctx.effect(() => ctx.locale.register(HERO_BRAND_NS, {
+            zh: { headline: '另一片天地' }, en: { headline: 'A different horizon' },
+          }))
+          ctx.slots.inject('conversation.hero.brand.headline', () => ctx.slots.register({
+            name: 'conversation.hero.brand.headline', locale: HERO_BRAND_NS,
+          }, BrandHeadline))
+        },
+      })
+      expect(view.queryByText('探索未至之境')).toBeNull()
+      expect(view.getByText('另一片天地')).toBeTruthy()
+      expect(view.getByText('预览版')).toBe(badge)
+      expect(view.getByRole('textbox')).toBe(textarea)
+
+      act(() => { runtime.ctx.locale.setLocale('en') })
+      expect(view.getByText('A different horizon')).toBeTruthy()
+      expect(view.queryByText('另一片天地')).toBeNull()
+      expect(view.getByText('Preview')).toBe(badge)
+      expect(view.getByRole('textbox')).toBe(textarea)
+      expect(shell.snapshot.draft).toBe('retained headline draft')
+
+      await brand.dispose()
+      expect(view.queryByText('A different horizon')).toBeNull()
+      expect(view.getByText('Into the Unknown')).toBeTruthy()
+      expect(view.getByText('Preview')).toBe(badge)
+      expect(view.getByRole('textbox')).toBe(textarea)
+      act(() => { runtime.ctx.locale.setLocale('zh') })
+      expect(view.getByText('探索未至之境')).toBeTruthy()
+      expect(view.getByText('预览版')).toBe(badge)
+      expect(shell.snapshot.draft).toBe('retained headline draft')
+    } finally {
+      await runtime.dispose()
+    }
+  })
+
   it('renders the locked view state while no session exists at all', async () => {
     const runtime = await SlotTestRuntime.create()
     provideWorkspaceNavigation(runtime)
