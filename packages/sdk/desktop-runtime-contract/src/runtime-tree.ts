@@ -195,7 +195,7 @@ export function readDesktopRuntime(root: string): DesktopRuntimeDescriptor {
     || typeof value.release.nodeVersion !== 'string' || typeof value.release.pnpmVersion !== 'string') {
     throw new Error('desktop runtime: invalid release fields')
   }
-  const release = value.release as DesktopRelease
+  const release = parseDesktopRelease(value.release)
   const sharedPackages = value.sharedPackages.map((entry: unknown): DesktopSharedPackage => {
     if (!record(entry) || typeof entry.name !== 'string' || !PACKAGE_NAME.test(entry.name)
       || typeof entry.version !== 'string' || valid(entry.version) === null || entry.path !== `node_modules/${entry.name}`) {

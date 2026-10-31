@@ -167,7 +167,7 @@ export class DesktopHostProcess {
         else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
       }
       else if (message.type === 'fatal') this.fail(new DesktopHostFatalError(message.message, message.diagnostic))
-      else {
+      else if ('requestId' in message) {
         const request = this.controlRequests.get(message.requestId)
         if (message.error === undefined) request?.resolve(message)
         else request?.reject(new Error(message.error))
