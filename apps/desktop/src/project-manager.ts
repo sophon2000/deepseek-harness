@@ -1,7 +1,6 @@
 /** Desktop profile initialization and native recovery. */
 
 import {
-  existsSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -22,38 +21,17 @@ import {
 import type { DesktopPaths } from './paths.ts'
 import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
-import { initProfile, removeLinkProjections, sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
+import { removeLinkProjections, sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
 import { PROFILE_TEMPLATES, type ProfileTemplate } from '@deepseek-ai/dsh-official-bundles'
+
+import { createPluginProfile, desktopProfileBundles, migrateProfileSettings, workspaceFile } from './project-profile.ts'
+export { createPluginProfile } from './project-profile.ts'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
-const CORE_BUILD_PACKAGE = '@deepseek-ai/dsh-subprocess-local'
 const WEB_PROFILE = PROFILE_TEMPLATES.web as ProfileTemplate
-const WORKSPACE_SETTINGS = 'nodeLinker: hoisted\nautoInstallPeers: false\n'
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, undefined, 2)}\n`, { mode: 0o600 })
-}
-
-function workspaceFile(overrides: Readonly<Record<string, string>> = {}): string {
-  const entries = Object.entries(overrides).sort(([left], [right]) => left.localeCompare(right))
-  const overrideSection = entries.length === 0
-    ? ''
-    : `overrides:\n${entries.map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`).join('\n')}\n`
-  if (entries.length === 0) return `packages:\n  - .\n\n${WORKSPACE_SETTINGS}`
-  const coreBuildSpec = overrides[CORE_BUILD_PACKAGE]
-  const coreBuildKey = coreBuildSpec === undefined
-    ? CORE_BUILD_PACKAGE
-    : `${CORE_BUILD_PACKAGE}@${coreBuildSpec.replace('file:./', 'file:')}`
-  return `packages:\n  - .\n\n${overrideSection}${WORKSPACE_SETTINGS}allowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  ${JSON.stringify(coreBuildKey)}: true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
-}
-
-function migrateProfileSettings(projectDir: string): void {
-  const path = join(projectDir, 'pnpm-workspace.yaml')
-  if (!existsSync(path)) return
-  const legacy = `packages:\n  - .\n\n${WORKSPACE_SETTINGS}strictDepBuilds: true\nallowBuilds:\n  node-pty: true\n  koffi: true\n  fs-ext: true\n  "${CORE_BUILD_PACKAGE}": true\n  '@google/genai': false\n  protobufjs: false\n  node-addon-require-builtin: false\n`
-  if (readFileSync(path, 'utf8').replaceAll('\r\n', '\n') === legacy) {
-    writeFileSync(path, workspaceFile())
-  }
 }
 
 /** Initializes the Desktop profile and disables third-party bundles during recovery. */
@@ -68,12 +46,19 @@ export class DesktopProjectManager {
   ) {}
 
   /**
-   * Back up the profile patch and disable third-party bundles without loading application resources.
+   * Back up the profile patch and disable third-party bundles without starting the application.
    * The caller must stop the Host first.
    * @returns Backup path after the locked profile write, or undefined if the patch was absent.
    */
   async disableAllPlugins(): Promise<string | undefined> {
-    return this.withLock(() => sanitizeProfile('dsh', this.paths.profile, WEB_PROFILE.bundles))
+    // Recovery must remain usable when the runtime descriptor itself is missing or damaged.
+    let productBundles: readonly string[] = []
+    try { productBundles = readDesktopRuntime(this.runtime.dsh).product?.profileBundles ?? [] } catch (_error) {
+      // Recovery remains available when runtime metadata cannot identify built-in product bundles.
+    }
+    return this.withLock(() => sanitizeProfile(
+      'dsh', this.paths.profile, desktopProfileBundles(productBundles),
+    ))
   }
 
   /**
@@ -82,9 +67,9 @@ export class DesktopProjectManager {
   async applyRelease(): Promise<void> {
     await this.withLock(() => {
       // Validation only: an unreadable or mismatched runtime descriptor stops preparation before the Host starts.
-      readDesktopRuntime(this.runtime.dsh)
+      const descriptor = readDesktopRuntime(this.runtime.dsh)
       migrateProfileSettings(this.paths.profile)
-      createPluginProfile(this.paths.profile)
+      createPluginProfile(this.paths.profile, descriptor.product?.profileBundles)
       removeLinkProjections(this.paths.profile)
     })
   }
@@ -130,7 +115,11 @@ export class DesktopProjectManager {
 }
 
 /** Create build-only project metadata for materializing the signed runtime. */
-export function createRuntimeProjectMetadata(projectDir: string, release: DesktopRelease): void {
+export function createRuntimeProjectMetadata(
+  projectDir: string,
+  release: DesktopRelease,
+  productBundles: readonly string[] = [],
+): void {
   mkdirSync(projectDir, { recursive: true, mode: 0o700 })
   const packageSet = verifyDesktopCorePackageSet(projectDir, release.version)
   const manifest = {
@@ -138,7 +127,7 @@ export function createRuntimeProjectMetadata(projectDir: string, release: Deskto
     private: true,
     version: '0.0.0',
     dependencies: desktopCorePackageOverrides(packageSet),
-    dsh: { profile: { bundles: [...WEB_PROFILE.bundles] } },
+    dsh: { profile: { bundles: desktopProfileBundles(productBundles) } },
   }
   writeJson(join(projectDir, 'package.json'), manifest)
   writeFileSync(
@@ -167,9 +156,4 @@ export function createDevelopmentProjectMetadata(projectDir: string, release: De
   }
   writeJson(join(projectDir, 'package.json'), manifest)
   writeFileSync(join(projectDir, 'pnpm-workspace.yaml'), workspaceFile(), { mode: 0o600 })
-}
-
-/** Create the first external plugin profile without running a package manager. */
-export function createPluginProfile(projectDir: string): void {
-  initProfile(projectDir, WEB_PROFILE.bundles)
 }

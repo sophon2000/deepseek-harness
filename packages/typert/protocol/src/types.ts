@@ -374,6 +374,8 @@ export interface InvocationParameterDescriptor {
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
   readonly codec: TypertCodec
+  /** Closed generated request codec used by Host dispatch; ordinary and result codecs retain their declared behavior. */
+  readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
   readonly acceptsUndefined?: true
 }
@@ -407,6 +409,8 @@ export interface InvocationDescriptor {
       readonly context: string
       readonly wire: string
       readonly codec: TypertCodec
+      /** Generated closed-object identity codec preferred by Host admission. */
+      readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
     }
   /** Optional consuming-Context projection for one direct lookup parameter. */
   readonly scope?: {
@@ -426,6 +430,8 @@ export interface InvocationDescriptor {
   readonly uplink?: {
     /** Codec validating every uplink item before `uplink()` delivers it. */
     readonly codec: TypertCodec
+    /** Generated closed-object codec preferred before Host uplink delivery. */
+    readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   }
   /** Transport cancellation injected after business parameters instead of entering wire args. */
   readonly cancellation?: {
@@ -596,7 +602,7 @@ export interface TypertRemoteParameterSpec extends Omit<InvocationParameterDescr
   readonly wire?: string
   /** Ordinary Remote parser and projection for this parameter. */
   readonly codec: TypertRemoteCodecSpec
-  /** Consumer-selected counterpart rejecting undeclared fields in explicit input objects. */
+  /** Closed request codec used by Host dispatch and explicit strict consumer input parsing. */
   readonly strictCodec: TypertRemoteCodecSpec
 }
 
@@ -738,6 +744,13 @@ export interface TypertLocalRegistry {
    * @returns the live descriptor, or `undefined` when absent.
    */
   get(endpoint: string): InvocationDescriptor | undefined
+  /**
+   * Read the identity of this endpoint's current registration lifetime.
+   * @param endpoint - canonical endpoint.
+   * @returns an opaque token stable until withdrawal, or `undefined` when absent;
+   * re-registration creates a new token even for the same descriptor object.
+   */
+  registrationToken(endpoint: string): object | undefined
   /**
    * Report whether a strict definition has existed during this Typert Service lifetime.
    * @param endpoint - canonical endpoint.

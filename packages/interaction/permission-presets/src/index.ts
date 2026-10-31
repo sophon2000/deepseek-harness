@@ -98,6 +98,12 @@ export interface KnobState {
   approval: ApprovalPolicy | null
 }
 
+/** Permission facts retained by a pending authorization decision. */
+export interface PermissionAuthorizationState extends Readonly<KnobState> {
+  /** Whether initial restored-seed facts have been committed. */
+  readonly seeded: boolean
+}
+
 /** Projection state for permission overrides and constructor-seed status. */
 interface PermissionProjectionState extends KnobState {
   /** Whether the log contains a constructor-seed boundary. */
@@ -329,6 +335,18 @@ export class PermissionPresetService extends TypertRemoteService {
       throw new Error('permission: presets are not ready; await plugin activation before creating or restoring a session')
     }
     return this.permissionProjectionHandle.stateOf(session)
+  }
+
+  /**
+   * Read current permission facts for an authorization that spans an await.
+   * The same object is retained across unrelated events. Every permission or
+   * seed event replaces it, including a change away and back to equal values.
+   * Callers must not mutate this read-only view; activation must be complete.
+   * @param session - Session whose authorization state is read.
+   * @returns the current state identity and its persisted permission facts.
+   */
+  authorizationState(session: Session): Readonly<PermissionAuthorizationState> {
+    return this.permissionState(session)
   }
 
   /**

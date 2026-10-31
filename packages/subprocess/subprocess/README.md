@@ -27,6 +27,13 @@ English | [中文](README.zh.md)
 
 Mount a subprocess provider in any composition that must run child processes, and call `ctx.subprocess` from the capability that owns the command. The common path is explicit: resolve the executable, spawn with a fully specified request, read the output you asked for, and terminate the managed range when the work is done.
 
+<a id="recoverable-operations"></a>
+### Recoverable operations
+
+`operationProvider({ stateDirectory })` selects opt-in durable operation ownership. `create(ownerKey)` starts no process and always creates a fresh scope; it never adopts an older scope with the same owner. Persist the returned descriptor with the reservation before calling `scope.spawn(spec)` for any probe or worker. An operation remains open across sequential children and empty intervals.
+
+Normal completion, cancellation, and cold recovery all require permanent `scope.seal()` or `provider.recover(descriptor, independentlyExpectedOwnerKey)`, followed by `provider.verify(proof, descriptor, independentlyExpectedOwnerKey)` before reservation release. Only `sealed-quiescent` carries evidence; `active`, `unverifiable`, and `unsupported` retain the reservation. Proof objects belong to one provider instance, cannot be restored from JSON, and never come from clients. Missing legacy descriptors remain unverifiable. Call `provider.dispose()` before discarding the provider.
+
 ### Mounting the service
 
 One provider registers `ctx.subprocess` per composition; load it beside the consumers that spawn through it — the bash executors, the LSP host, the PTY shell backend, or an out-of-process subagent backend. Loading a second provider fails loudly (one service per context, Cordis standard).

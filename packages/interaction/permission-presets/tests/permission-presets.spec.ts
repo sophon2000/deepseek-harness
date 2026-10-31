@@ -86,6 +86,25 @@ describe('permission preset fold', () => {
 })
 
 describe('PermissionPresetService', () => {
+  it('retains authorization identity across unrelated events and invalidates away-and-back permission transitions', async () => {
+    const ctx = await mounted()
+    const session = Session.create(SessionId('authorization-state'), [])
+    session.append('approval/policy', { policy: 'ask' })
+    const initial = ctx.permissionPresets.authorizationState(session)
+    expect(initial).toMatchObject({ seeded: true, approval: 'ask' })
+    session.append('turn/start', { turn: 1 })
+    expect(ctx.permissionPresets.authorizationState(session)).toBe(initial)
+    session.append('approval/policy', { policy: 'never' })
+    const changed = ctx.permissionPresets.authorizationState(session)
+    expect(changed).not.toBe(initial)
+    session.append('approval/policy', { policy: 'ask' })
+    const restored = ctx.permissionPresets.authorizationState(session)
+    expect(restored).toEqual(initial)
+    expect(restored).not.toBe(initial)
+    expect(restored).not.toBe(changed)
+    expect(initial.approval).toBe('ask')
+  })
+
   it('does not activate without the required projection registry', async () => {
     const ctx = await mounted({ projection: false })
     expect(ctx.get('permissionPresets')).toBeUndefined()

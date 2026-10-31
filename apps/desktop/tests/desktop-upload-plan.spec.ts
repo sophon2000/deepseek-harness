@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
@@ -117,6 +117,19 @@ afterEach(async () => {
 })
 
 describe('desktop upload plan', () => {
+  it('finds completed artifacts through the same external build root used by packaging', async () => {
+    const { artifactsRoot, ...options } = await fixture('mac-arm64')
+    const buildRoot = join(options.repositoryRoot, 'external-build')
+    const destination = join(buildRoot, 'targets', 'mac-arm64', 'artifacts')
+    await cp(artifactsRoot, destination, { recursive: true })
+    await rm(artifactsRoot, { recursive: true })
+    const plan = await createDesktopUploadPlan('mac-arm64', {
+      ...options, environment: { ...options.environment, DSH_DESKTOP_BUILD_ROOT: buildRoot },
+    })
+    expect(plan.artifacts.length).toBeGreaterThan(0)
+    for (const artifact of plan.artifacts) expect(artifact.path).toBe(join(destination, artifact.filename))
+  })
+
   it('uploads only the selected latest installer to each deployment using the existing COS transport', async () => {
     const published = []
     for (const environment of ['production', 'test'] as const) {

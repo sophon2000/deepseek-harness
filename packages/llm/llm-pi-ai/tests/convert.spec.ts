@@ -988,6 +988,35 @@ describe('mapStopReason / mapUsage', () => {
     })
   })
 
+  it('preserves completed Codex content above the catalog window for subscription routes', () => {
+    const completed = assistant({
+      api: 'openai-codex-responses',
+      provider: 'codex-subscription',
+      model: 'gpt-6-astra',
+      stopReason: 'stop',
+      content: [{ type: 'text', text: 'The requested work is complete.' }],
+      usage: usage(1489, 354, 418816),
+    })
+    expect(mapStopReason(completed, 272_000)).toEqual({ kind: 'stop' })
+    expect(mapStopReason({ ...completed, stopReason: 'toolUse' }, 272_000)).toEqual({ kind: 'tool-calls' })
+    expect(mapStopReason({ ...completed, stopReason: 'length' }, 272_000)).toEqual({ kind: 'max-tokens' })
+  })
+
+  it('retains Codex explicit and zero-output overflow failures', () => {
+    const response = assistant({
+      api: 'openai-codex-responses',
+      provider: 'codex-subscription',
+      model: 'gpt-6-astra',
+      content: [{ type: 'text', text: 'partial response' }],
+      usage: usage(1489, 0, 418816),
+    })
+    const overflow = { kind: 'error', failure: { code: CONTEXT_WINDOW_EXCEEDED_CODE } }
+    expect(mapStopReason({ ...response, stopReason: 'error', errorMessage: 'Your input exceeds the context window of this model' }, 272_000))
+      .toMatchObject(overflow)
+    expect(mapStopReason({ ...response, stopReason: 'length' }, 272_000)).toMatchObject(overflow)
+    expect(mapStopReason({ ...response, stopReason: 'stop', content: [] }, 272_000)).toMatchObject(overflow)
+  })
+
   it('maps cache fields only when nonzero', () => {
     expect(mapUsage(usage(10, 5, 8, 2))).toEqual({
       inputTokens: 10,

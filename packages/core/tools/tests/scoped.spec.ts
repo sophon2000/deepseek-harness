@@ -1,14 +1,18 @@
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
+import { setImmediate } from 'node:timers/promises'
 import { Context } from '@deepseek-ai/cordis'
 import type { Events } from '@deepseek-ai/cordis'
 import { bindScopeParent, createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -215,6 +219,53 @@ describe('restrict() over an inherited scope layer', () => {
     return { scope, key }
   }
 
+  it('rechecks child visibility after policy before asking, without narrowing the parent', async () => {
+    const ctx = await mount()
+    const parent = await mintAgentScope(ctx, 'ask-parent')
+    parent.scope.ctx.tools.register(tool('scoped-ask'))
+    const child = await mintChild(ctx, parent.key, 'ask-child')
+    let asked = 0
+    let policies = 0
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(ApprovalService, {})
+    vi.spyOn(ctx.approval, 'request').mockImplementation(async () => { asked++; return 'allowed-once' })
+    child.scope.ctx.on('tools/pre-execute', async () => {
+      policies++
+      child.scope.ctx.tools.restrict({ deny: ['scoped-ask'] })
+      return { kind: 'ask' }
+    })
+    try {
+      expect(await run(ctx, 'scoped-ask', child.key)).toBe('Error: unknown tool "scoped-ask"')
+      expect(policies).toBe(1)
+      expect(asked).toBe(0)
+      expect(await run(ctx, 'scoped-ask', parent.key)).toBe('ran:scoped-ask')
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('does not approve a sibling-only tool while preserving a dynamically registered own tool', async () => {
+    const ctx = await mount()
+    const owner = await mintAgentScope(ctx, 'ask-owner')
+    const other = await mintAgentScope(ctx, 'ask-other')
+    owner.scope.ctx.tools.register(tool('private-ask'))
+    let asked = 0
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(ApprovalService, {})
+    vi.spyOn(ctx.approval, 'request').mockImplementation(async () => { asked++; return 'allowed-once' })
+    other.scope.ctx.on('tools/pre-execute', async (exec) => {
+      if (exec.name === 'own-dynamic-ask') other.scope.ctx.tools.register(tool(exec.name))
+      return { kind: 'ask' }
+    })
+    try {
+      expect(await run(ctx, 'private-ask', other.key)).toBe('Error: unknown tool "private-ask"')
+      expect(asked).toBe(0)
+      expect(await run(ctx, 'own-dynamic-ask', other.key)).toBe('ran:own-dynamic-ask')
+      expect(asked).toBe(1)
+      expect(ctx.tools.get('own-dynamic-ask', owner.key)).toBeUndefined()
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('filters tools the child inherits from an ancestor scope, not only global ones', async () => {
     // The shape every preset deployment has: no model-facing row in the global
     // layer, all of them contributed by an ancestor scope the child joined.
@@ -266,6 +317,150 @@ describe('restrict() over an inherited scope layer', () => {
 })
 
 describe('scoped execution dispatch', () => {
+  it('awaits async guard layers in order and keeps their denial beyond a prepended allow', async () => {
+    const ctx = await mount()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let pending: Promise<string> | undefined
+    try {
+      const { scope, key } = await mintAgentScope(ctx, 'async-guard')
+      const calls: string[] = []
+      ctx.tools.register({ ...tool('t'), execute: async () => { calls.push('body'); return 'ran:t' } })
+      ctx.tools.guard(async () => {
+        calls.push('global:start')
+        entered.resolve(undefined)
+        await release.promise
+        calls.push('global:done')
+        return undefined
+      })
+      scope.ctx.tools.guard(async () => {
+        await Promise.resolve()
+        calls.push('scoped:deny')
+        return 'async terminal policy'
+      })
+      scope.ctx.tools.guard(() => { calls.push('after-deny'); return undefined })
+      scope.ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'allow' }), { prepend: true })
+      pending = run(ctx, 't', key)
+      await entered.promise
+      expect(calls).toEqual(['global:start'])
+      release.resolve(undefined)
+      expect(await pending).toBe('Error: async terminal policy')
+      expect(calls).toEqual(['global:start', 'global:done', 'scoped:deny'])
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([pending])
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reads newly installed scoped guards after a global guard settles', async () => {
+    const ctx = await mount()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    let pending: Promise<string> | undefined
+    try {
+      const { scope, key } = await mintAgentScope(ctx, 'late-scoped-guard')
+      ctx.tools.register(tool('t'))
+      ctx.tools.guard(async () => {
+        entered.resolve(undefined)
+        await release.promise
+        return undefined
+      })
+      pending = run(ctx, 't', key)
+      await entered.promise
+      scope.ctx.tools.guard(() => 'new scoped denial')
+      release.resolve(undefined)
+      expect(await pending).toBe('Error: new scoped denial')
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([pending])
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('drains a cancelled async guard before final notification and never dispatches the body', async () => {
+    const ctx = await mount()
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const controller = new AbortController()
+    const calls: string[] = []
+    let pending: Promise<unknown> | undefined
+    try {
+      ctx.tools.register({ ...tool('t'), execute: async () => { calls.push('body'); return 'ran:t' } })
+      ctx.tools.guard(async (exec) => {
+        entered.resolve(undefined)
+        try { await release.promise } finally { calls.push('guard:cleanup') }
+        expect(exec.signal.aborted).toBe(true)
+        return undefined
+      })
+      ctx.tools.guard(() => { calls.push('later-guard'); return undefined })
+      ctx.on('tools/execute', (_exec, next) => { calls.push('around'); return next() })
+      ctx.on('tools/result', () => { calls.push('result') })
+      let settled = false
+      const result = executeToolFixture(ctx, { signal: controller.signal, callId: ToolCallId('cancel-guard'), name: 't', arguments: {} })
+      pending = result.finally(() => { settled = true })
+      await entered.promise
+      controller.abort()
+      await setImmediate()
+      expect(settled).toBe(false)
+      expect(calls).toEqual([])
+      release.resolve(undefined)
+      expect(await result).toMatchObject({ isError: true, error: { info: { code: TOOL_ABORTED_BEFORE_DISPATCH } } })
+      expect(calls).toEqual(['guard:cleanup', 'result'])
+    } finally {
+      release.resolve(undefined)
+      await Promise.allSettled([pending])
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('cannot skip async guards by replacing the pre-execute view with an aborted signal', async () => {
+    const ctx = await mount()
+    const calls: string[] = []
+    const replaced = new AbortController()
+    replaced.abort()
+    try {
+      ctx.tools.register({ ...tool('t'), execute: async () => { calls.push('body'); return 'ran:t' } })
+      ctx.on('tools/pre-execute', (exec) => {
+        Reflect.set(exec, 'signal', replaced.signal)
+        return Promise.resolve({ kind: 'allow' })
+      }, { prepend: true })
+      ctx.tools.guard(async () => { await Promise.resolve(); calls.push('guard'); return 'terminal denial' })
+      ctx.on('tools/execute', (exec, next) => {
+        calls.push('around')
+        exec.signal = testToolSignal
+        return next()
+      })
+      expect(await run(ctx, 't')).toBe('Error: terminal denial')
+      expect(calls).toEqual(['guard'])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('materializes async guard rejection only after cleanup and retains finalizer ownership', async () => {
+    const ctx = await mount()
+    const calls: string[] = []
+    try {
+      ctx.tools.register({
+        ...tool('t'),
+        execute: async () => { calls.push('body'); return 'ran:t' },
+        finalizeContent: () => { calls.push('finalizer'); return undefined },
+      })
+      ctx.tools.guard(async () => {
+        try { await Promise.resolve(); throw new Error('guard filesystem unavailable') }
+        finally { calls.push('guard:cleanup') }
+      })
+      ctx.tools.guard(() => { calls.push('later-guard'); return undefined })
+      ctx.on('tools/post-execute', (_exec, _result, next) => { calls.push('post'); return next() })
+      ctx.on('tools/result', () => { calls.push('result') })
+      expect(await run(ctx, 't')).toBe('Error: guard filesystem unavailable')
+      expect(calls).toEqual(['guard:cleanup', 'finalizer', 'result'])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('an agent.ctx pre-execute listener gates only its own agent (and never subject-less calls)', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')

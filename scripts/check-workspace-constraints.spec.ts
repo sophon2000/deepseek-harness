@@ -307,6 +307,15 @@ describe('package payload constraints', () => {
     ])
   })
 
+  it('requires the shared operation runtime chunk in the local subprocess payload', () => {
+    const dir = 'packages/subprocess/subprocess-local'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest,
+      files: manifest.files!.filter(file => file !== 'lib/windows-operations-*.js'),
+    } })).toEqual([expect.stringContaining('package.json files must be')])
+  })
+
   it('accepts the Agent Team icon payload and rejects its omission', () => {
     const dir = 'packages/experimental/agent-team-profile'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
@@ -424,6 +433,13 @@ describe('package payload constraints', () => {
     expect(checkWorkspaceManifest({ dir: 'apps/other-tool', manifest })).not.toEqual([])
   })
 
+  it('keeps the private Desktop distributor package outside npm release rules only at its declared directory', () => {
+    const privateDir = 'packages/sdk/desktop-runtime-contract'
+    const privateManifest = JSON.parse(readFileSync(new URL(`../${privateDir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir: privateDir, manifest: privateManifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir: 'packages/sdk/other-contract', manifest: privateManifest })).not.toEqual([])
+  })
+
   it('rejects locale publication entries without their resource exports', () => {
     const dir = 'packages/experimental/auto-review'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
@@ -528,6 +544,16 @@ it('publishes CLI runtime declarations and rejects a payload that omits them', (
   expect(checkWorkspaceManifest({ dir: 'apps/cli', manifest })).toEqual([])
   expect(checkWorkspaceManifest({ dir: 'apps/cli', manifest: { ...manifest, files: ['lib/*.js'] } }))
     .toEqual([expect.stringContaining('@deepseek-ai/dsh: package.json files must be ["lib/*.js","lib/types/*.d.ts"]')])
+})
+
+it('publishes the shared Desktop Host protocol and declarations', () => {
+  const dir = 'apps/desktop-host'
+  const manifest = JSON.parse(readFileSync(new URL('../apps/desktop-host/package.json', import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  for (const omitted of ['lib/protocol.js', 'lib/types/**/*.d.ts']) {
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== omitted) } }))
+      .toEqual([expect.stringContaining('package.json files must be')])
+  }
 })
 
 it('requires the shared Web injection entry in the published payload', () => {

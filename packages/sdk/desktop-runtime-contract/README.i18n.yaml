@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/sdk/desktop-runtime-contract/README.md
+/:
+  en: 21fade6b058a6957
+  zh: b8fa501f96c75e8e
+/deepseek-ai-dsh-desktop-runtime-contract:
+  en: e5cfd587f7e49612
+  zh: e643150558c99941
+/deepseek-ai-dsh-desktop-runtime-contract/summary:
+  en: 62ad83786cc1510a
+  zh: 0b920e7638cc7801
+/deepseek-ai-dsh-desktop-runtime-contract/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 82ced2627df592c5
+/deepseek-ai-dsh-desktop-runtime-contract/use-this-package:
+  en: 9b8ce3a5602f2a09
+  zh: bb59213d65c00d78
+/deepseek-ai-dsh-desktop-runtime-contract/understand-the-implementation:
+  en: 39f157222b8b5df5
+  zh: 358401b502a15bc0
+/deepseek-ai-dsh-desktop-runtime-contract/further-exploration:
+  en: 27e211f08be4ad89
+  zh: 7973500c943bc414
+/deepseek-ai-dsh-desktop-runtime-contract/known-limitations-and-deferred-work:
+  en: 6c541f52d72415f7
+  zh: 72a801cc5721cd9e
+/deepseek-ai-dsh-desktop-runtime-contract/known-limitations-and-deferred-work/dev-note:
+  en: 0a1253c6f7b5e8b9
+  zh: 9f56528562c7c914

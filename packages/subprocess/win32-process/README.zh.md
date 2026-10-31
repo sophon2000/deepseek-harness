@@ -38,6 +38,12 @@ Windows ACL 沙箱在这些原语上增加 SID、DACL、grant、workspace 与公
 
 - **继承控制描述符**——Job 创建接受可选的 fd-7 管道。`STARTUPINFO.cbReserved2/lpReserved2` 携带八槽 CRT 描述符表，其中包含标准句柄、关闭的槽 3–6，以及槽 7 的控制管道。该表保留到 CreateProcess 返回；临时句柄继承在成功和失败时均恢复。在 Node 启动前初始化该槽可避免覆盖 Node 已分配的描述符。
 
+### 可恢复操作原语
+
+`loadWin32OperationBindings()` 增加原生 Job-list、私有对象安全、文件互斥、DPAPI 和精确内核 boot 身份操作。`spawnCurrentTokenOperationProcess()` 使用包含操作 Job 和每个子进程 Job 句柄的 `STARTUPINFOEXW`，不调用 `AssignProcessToJobObject`。调用者必须在创建、初始恢复线程或清理完成前持续持有经过认证的持久准入。Job-list 属性存储持续分配到 attribute list 销毁之后。现有普通及受限令牌原语保留原有行为。
+
+操作身份绑定机器保护的随机安装密钥、内核 BootIdentifier UUID 和 Windows 对象命名空间会话。boot 身份当前依赖原生信息第 90 类，只接受预期的 32 字节结果。未知布局以关闭方式失败。操作消费者拥有持久身份解析、owner 验证、封闭持久保存、原生观察和证明签发职责；单凭这些原生辅助方法永远不能认证恢复。
+
 <a id="header-verification"></a>
 ## 头文件验证
 
@@ -74,7 +80,7 @@ Koffi 的 `STARTUPINFOW` 与 `PROCESS_INFORMATION` 定义还会在模块加载�
 - **没有公共进程服务** — 本包刻意不把原语包装成 Cordis 或 Node 流。消费方必须拥有自己的策略、异步调度、输出上限、取消与最终句柄关闭。
 - **restricted-token null 环境** — `CreateProcessAsUserW` 沙箱原语传入 null 环境块，并先通过 `SetEnvironmentVariableW` 建立改动，因为经 Koffi 传入显式环境块会以 `ERROR_INVALID_PARAMETER` 失败。ordinary `CreateProcessW` runner 则要求完整 target 环境，并传入排序、双 NUL 结尾的 UTF-16LE 块，其中包括 `=X:` 驱动器条目，而不修改自身环境。
 - **没有 standalone process API** — 本包只暴露当前沙箱与 ordinary-runner 消费方所需的操作，不拥有 Node 流、公共句柄、输出策略、取消或 durable state。
-- **创建到分配之间的中断** — 目标以 suspended 状态启动，不能在 Job 分配前执行，但 runner 若在进程创建到分配之间的极窄区间被外力终止，可能留下 suspended target。本包不声明原子 Job 附加保证。
+- **创建到分配之间的中断** — ordinary 和 restricted-token target 以 suspended 状态启动，但创建者若在创建到分配之间终止，可能留下未进入 Job 的 suspended target。可恢复操作创建使用上文单独的原子 Job-list 路径。
 - **header 证据限定架构** — 已提交的 ABI probe 与布局常量覆盖仓库当前 64 位 Windows 目标。支持新的指针宽度或不兼容 Windows ABI 前，必须先更新 probe。
 
 

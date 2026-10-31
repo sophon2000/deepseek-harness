@@ -51,7 +51,7 @@ export async function prepareInstalledUpdateRuntime(manifest: string, sourceRoot
         }
         await writeFile(path, `${JSON.stringify(metadata, null, 2)}\n`)
       }
-      writeDesktopRuntime(runtime, { ...source.release, version }, source.sharedPackages.map(entry => entry.name), source)
+      writeDesktopRuntime(runtime, { ...source.release, version }, source.sharedPackages.map(entry => entry.name), source, source.product)
       const verified = await verifyDesktopRuntime(runtime, version, source)
       results.push({ version, runtime, files: verified.files.length, sharedPackages: verified.sharedPackages.length,
         descriptorSha256: createHash('sha256').update(await readFile(join(runtime, 'desktop-runtime.json'))).digest('hex') })

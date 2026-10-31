@@ -4,9 +4,8 @@ import { resolveMacOSSignatureCacheDirectory } from './macos-signature-cache-dir
 import { packagingStep } from './packaging-step.mjs'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { delimiter, join, relative, resolve } from 'node:path'
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { delimiter, join, relative, resolve, sep } from 'node:path'
 import { desktopNodeEnvironment } from '../src/node-environment.ts'
 import { createRuntimeProjectMetadata } from '../src/project-manager.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
@@ -23,7 +22,7 @@ import { smokePrimaryRuntime } from './prepare-primary-runtime.ts'
 import { smokePreparedRuntime } from './smoke-prepared-runtime.ts'
 import { prepareRuntimeManifests } from './prepare-runtime-manifests.ts'
 import { prepareRuntimePatches, verifyRuntimePatches } from './prepare-runtime-patches.ts'
-import { writeDesktopRuntime, writeDesktopRuntimeAsync, verifyDesktopRuntime } from '../src/runtime-tree.ts'
+import { writeDesktopRuntimeAsync, verifyDesktopRuntime } from '../src/runtime-tree.ts'
 import {
   resolveDesktopAppId,
   resolveMacOSSigningEnvironment,
@@ -33,19 +32,48 @@ import {
   signMacOSRuntime,
 } from './macos-runtime.ts'
 import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { createDesktopPreparationWorkspace } from './desktop-preparation-workspace.ts'
 import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
 import { selectOfficeEngine } from '../../../scripts/libreoffice-packages.mjs'
+import { readDesktopProductPayload, type DesktopRuntimeProduct } from '../src/desktop-product.ts'
+import { preserveDesktopRuntimeLock, selectDesktopRuntimeLock } from './runtime-lock.ts'
+import { materializeDesktopProductResources } from './materialize-product-resources.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
 const BUILD_PATHS = resolveDesktopTargetBuildPaths()
 const DSH_OUTPUT_ROOT = BUILD_PATHS.dsh
-const BUILD_ROOT = mkdtempSync(join(tmpdir(), 'dsh-desktop-runtime-'))
-const STORE_ROOT = BUILD_PATHS.pnpmStore
+const WORKSPACE = createDesktopPreparationWorkspace(BUILD_PATHS)
+const BUILD_ROOT = WORKSPACE.directory
+const STORE_ROOT = WORKSPACE.store
 const RUNTIME_ROOT = BUILD_PATHS.runtime
 const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
 const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
-const NODE = join(BUILD_PATHS.electron, process.platform === 'win32' ? 'electron.exe' : 'Electron.app/Contents/MacOS/Electron')
+const NODE = join(BUILD_PATHS.electron, process.platform === 'win32' ? 'electron.exe' : process.platform === 'linux' ? 'electron' : 'Electron.app/Contents/MacOS/Electron')
 const PNPM = join(RUNTIME_ROOT, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
+
+function prepareProductResources(): DesktopRuntimeProduct | undefined {
+  const configuredRoot = process.env.DSH_DESKTOP_PRODUCT_ROOT
+  if (configuredRoot === undefined) return undefined
+  const productRoot = realpathSync(resolve(configuredRoot))
+  const product = readDesktopProductPayload(productRoot)
+  const destinationRoot = join(DSH_OUTPUT_ROOT, 'products', product.id)
+  const resourcesRoot = realpathSync(join(productRoot, ...product.resourcesDirectory.split('/')))
+  if (resourcesRoot !== productRoot && !resourcesRoot.startsWith(productRoot + sep)) {
+    throw new Error('desktop product: resources directory escapes product payload')
+  }
+  if (!lstatSync(resourcesRoot).isDirectory()) throw new Error('desktop product: resources path is not a directory')
+  const relativeResourcesRoot = `products/${product.id}/resources`
+  materializeDesktopProductResources(resourcesRoot, join(DSH_OUTPUT_ROOT, ...relativeResourcesRoot.split('/')))
+  mkdirSync(destinationRoot, { recursive: true })
+  return {
+    id: product.id,
+    profileBundles: product.profileBundles,
+    resourcesRoot: relativeResourcesRoot,
+    ...(product.service === undefined ? {} : { service: product.service }),
+    ...(product.preflight === undefined ? {} : { preflight: product.preflight }),
+    ...(product.requiredServices === undefined ? {} : { requiredServices: product.requiredServices }),
+  }
+}
 
 function manifestVersion(path: string, subject: string): string {
   const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
@@ -123,13 +151,16 @@ async function main(): Promise<void> {
       mkdirSync(STORE_ROOT, { recursive: true })
     })
     const release = desktopRelease()
+    const productRoot = process.env.DSH_DESKTOP_PRODUCT_ROOT
+    const product = productRoot === undefined ? undefined : readDesktopProductPayload(realpathSync(resolve(productRoot)))
     const patches = await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:stage-packages', async () => {
       copyFileSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGE_SET_FILE), join(BUILD_ROOT, DESKTOP_PACKAGE_SET_FILE))
       cpSync(join(PACKAGE_SET_ROOT, DESKTOP_PACKAGES_DIR), join(BUILD_ROOT, DESKTOP_PACKAGES_DIR), { recursive: true })
-      createRuntimeProjectMetadata(BUILD_ROOT, release)
+      createRuntimeProjectMetadata(BUILD_ROOT, release, product?.profileBundles)
       return prepareRuntimePatches(BUILD_ROOT, resolve(APP_ROOT, '..', '..'))
     })
-    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:lockfile', () => runPnpm(['install', '--lockfile-only']))
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:lockfile', () =>
+      selectDesktopRuntimeLock(BUILD_ROOT, process.env.DSH_DESKTOP_RUNTIME_LOCK, () => runPnpm(['install', '--lockfile-only'])))
     verifyRuntimePatches(BUILD_ROOT, patches)
     const lockfile = readFileSync(join(BUILD_ROOT, 'pnpm-lock.yaml'), 'utf8')
     console.log(`desktop runtime: lockfile sha256 ${createHash('sha256').update(lockfile).digest('hex')}`)
@@ -137,6 +168,7 @@ async function main(): Promise<void> {
       lockfile,
       readDesktopCorePackageSet(BUILD_ROOT, release.version),
     )
+    preserveDesktopRuntimeLock(BUILD_ROOT, process.env.DSH_DESKTOP_RUNTIME_LOCK_OUTPUT)
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:install', () => runPnpm(['install', '--prod', '--frozen-lockfile', '--trust-lockfile']))
     const packageSet = readDesktopCorePackageSet(BUILD_ROOT, release.version)
     const targetName = resolveDesktopBuildTarget()
@@ -151,6 +183,7 @@ async function main(): Promise<void> {
         filter: source => desktopRuntimeFileExclusion(relative(modules, source), target, officeEngine) === undefined,
       })
     })
+    const runtimeProduct = prepareProductResources()
     writeFileSync(join(DSH_OUTPUT_ROOT, 'package.json'), `${JSON.stringify({
       name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: release.version, type: 'module',
       dependencies: Object.fromEntries(packageSet.packages.map(entry => [entry.name, entry.version])),
@@ -170,10 +203,7 @@ async function main(): Promise<void> {
     }
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:manifests', () => prepareRuntimeManifests(DSH_OUTPUT_ROOT))
     await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:primary-smoke', async () => smokePrimaryRuntime(join(RUNTIME_ROOT, 'primary-runtime')))
-    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', async () => {
-      const writeRuntime = target.platform === 'win32' ? writeDesktopRuntimeAsync : writeDesktopRuntime
-      return writeRuntime(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target)
-    })
+    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:write-descriptor', () => writeDesktopRuntimeAsync(DSH_OUTPUT_ROOT, release, packageSet.packages.map(entry => entry.name), target, runtimeProduct))
     const descriptor = await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:verify-before-smoke', () => verifyDesktopRuntime(DSH_OUTPUT_ROOT, release.version, target))
     if (!process.argv.includes('--defer-runtime-smoke')) {
       await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'runtime:smoke', () => smokePreparedRuntime(DSH_OUTPUT_ROOT, NODE, RUNTIME_ROOT, descriptor))
@@ -185,7 +215,7 @@ async function main(): Promise<void> {
   } finally {
     let cleaned = false
     const cleanup = (): void => {
-      try { rmSync(BUILD_ROOT, { recursive: true, force: true }) }
+      try { WORKSPACE.cleanup() }
       finally { rmSync(PNPM_BUILD_STATE, { recursive: true, force: true }) }
       cleaned = true
     }

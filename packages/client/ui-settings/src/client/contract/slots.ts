@@ -13,6 +13,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /** Account-provider menu rows; each provider owns its status and login flow. */
+    'settings.launcher.account': { kind: 'list'; scope: 'root'; owner: SettingsAccountEntryOwnerProps }
+
     /** Optional sidebar account launcher; opens the shell-owned settings panel. */
     'settings.launcher': { kind: 'single'; scope: 'root'; owner: SettingsLauncherOwnerProps }
 
@@ -150,6 +153,18 @@ export interface SettingsLauncherOwnerProps {
   settingsShortcut?: { readonly keys: readonly string[]; readonly aria?: string | undefined }
   /** Open the settings panel. */
   openSettings: () => void
+  /** @param id - registered settings section to open. */
+  openSection: (id: string) => void
   /** @param id - registered onboarding editor to open explicitly. */
   openOnboarding: (id: string) => void
+}
+
+/** Navigation and deployment selection supplied to account menu contributions. */
+export interface SettingsAccountEntryOwnerProps {
+  /** Provider ids enabled by the deployment; an unlisted contribution renders nothing. */
+  enabledProviders: readonly string[]
+  /** Close the menu and restore launcher focus before navigating. */
+  onDismiss: () => void
+  /** @param id - registered settings section to open. */
+  openSection: (id: string) => void
 }

@@ -18,6 +18,7 @@ import {
   resolveClientBuildEnvironment,
   writeClientBuildRecord,
 } from './client-build-environment.ts'
+import type { ClientBuildEnvironment } from './client-build-environment.ts'
 import { clientBundle } from '../packages/client/tsdown.client.ts'
 
 const root = resolve(import.meta.dirname, '..')
@@ -103,7 +104,6 @@ describe('client build environment', () => {
       DSH_BUILD_CLIENT_PROFILE: 'official',
       DSH_CLIENT_BUILD_PROFILE: 'local',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
-      DSH_CLIENT_GIT_DIRTY: 'true',
       DSH_CLIENT_TITLE: 'Local title',
       DSH_CLIENT_VERSION: '1.2.3',
       DSH_CLIENT_EXTRA: 'local-extra',
@@ -162,7 +162,9 @@ describe('client build environment', () => {
     })
     expect(clientBuildProcessEnvironment(parent, local)).toEqual(local)
     expect(resolveClientBuildEnvironment({ ...parent, DSH_BUILD_CLIENT_PROFILE: 'local' })).toEqual(local)
-    expect(resolveClientBuildEnvironment({ ...parent, ...local }, 'official')).toEqual({
+    const official = (): ClientBuildEnvironment => resolveClientBuildEnvironment({ ...parent, ...local }, 'official')
+    if (dirty !== undefined) expect(official).toThrow(/official.*clean/u)
+    else expect(official()).toEqual({
       DSH_CLIENT_BUILD_PROFILE: 'official',
       DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7),
       DSH_CLIENT_TITLE: 'DeepSeek Harness',
@@ -175,6 +177,43 @@ describe('client build environment', () => {
     expect(() => {
       resolveClientBuildEnvironment({ DSH_CLIENT_COMMIT_HASH: COMMIT_HASH.slice(0, 7) }, 'local')
     }).toThrow(/DSH_CLIENT_VERSION/)
+  })
+
+  it('rejects dirty official builds through the producer environment and record pipeline', () => {
+    const fixtureRoot = repositoryFixture()
+    const recordPath = join(fixtureRoot, '.dsh-build/client-build-environment.json')
+    write(join(fixtureRoot, '.gitignore'), '.dsh-build/\napps/web/dist/\npackages/client/example/lib/\n')
+    git(fixtureRoot, ['add', '.gitignore'])
+    git(fixtureRoot, ['commit', '-m', 'ignore build outputs'])
+    const produce = (): void => {
+      const repositoryEnvironment = repositoryClientBuildEnvironment(fixtureRoot, {})
+      const selected = resolveClientBuildEnvironment(repositoryEnvironment, 'official')
+      const child = clientBuildProcessEnvironment({}, selected)
+      write(join(fixtureRoot, 'apps/web/dist/index.html'), JSON.stringify(child))
+      write(join(fixtureRoot, 'packages/client/example/lib/client.js'), 'export {}\n')
+      writeClientBuildRecord(fixtureRoot, selected)
+    }
+    produce()
+    const cleanRecord = readFileSync(recordPath, 'utf8')
+    expect(readClientBuildRecord(fixtureRoot).environment).toEqual(officialClientBuildEnvironment(fixtureRoot))
+    expect(readClientBuildRecord(fixtureRoot).environment).not.toHaveProperty('DSH_CLIENT_GIT_DIRTY')
+
+    write(join(fixtureRoot, 'tracked.txt'), 'uncommitted build input\n')
+    expect(() => { produce() }).toThrow(/official.*clean/u)
+    expect(readFileSync(recordPath, 'utf8')).toBe(cleanRecord)
+    git(fixtureRoot, ['add', 'tracked.txt'])
+    expect(() => { produce() }).toThrow(/official.*clean/u)
+    // Restore both index and source: rejected builds must not leave a dirty artifact record behind.
+    write(join(fixtureRoot, 'tracked.txt'), 'committed\n')
+    git(fixtureRoot, ['add', 'tracked.txt'])
+    write(join(fixtureRoot, 'untracked.txt'), 'additional input\n')
+    expect(() => { produce() }).toThrow(/official.*clean/u)
+    rmSync(join(fixtureRoot, 'untracked.txt'))
+    expect(repositoryGitDirty(fixtureRoot)).toBe(false)
+    expect(readFileSync(recordPath, 'utf8')).toBe(cleanRecord)
+    expect(() => { readClientBuildRecord(fixtureRoot) }).not.toThrow()
+    produce()
+    expect(readFileSync(recordPath, 'utf8')).toBe(cleanRecord)
   })
 
   it('owns repository version, commit, and dirty metadata for complete builds', () => {

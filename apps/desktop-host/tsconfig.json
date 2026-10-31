@@ -8,7 +8,9 @@
     "src"
   ],
   "references": [
+    { "path": "../../packages/host/directory-picker" },
     { "path": "../../vendor/cordis" },
+    { "path": "../../vendor/include" },
     { "path": "../../packages/core/agent" },
     { "path": "../../packages/jobs/jobs" },
     { "path": "../../packages/schedule/schedule" },

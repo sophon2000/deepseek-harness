@@ -16,6 +16,14 @@ export const WAIT_TIMEOUT = 258
 export const CREATE_SUSPENDED = 0x4
 /** CreateProcess flag selecting a UTF-16 environment block. */
 export const CREATE_UNICODE_ENVIRONMENT = 0x400
+/** CreateProcess flag selecting STARTUPINFOEXW attributes. */
+export const EXTENDED_STARTUPINFO_PRESENT = 0x80000
+/** UpdateProcThreadAttribute key assigning Jobs during process creation. */
+export const PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x2000D
+/** x64 STARTUPINFOEXW size. */
+export const STARTUPINFOEXW_SIZE = 112
+/** x64 offset of lpAttributeList in STARTUPINFOEXW. */
+export const STARTUPINFOEXW_ATTRIBUTES_OFFSET = 104
 /** GetStdHandle selector for standard input. */
 export const STD_INPUT_HANDLE = -10
 /** GetStdHandle selector for standard output. */

@@ -70,6 +70,8 @@ The existing semantic `DraftSnapshot` retains quote text and clipboard-coordinat
 
 Below 768px, Web view tabs align with the header's 20px left inset. Desktop and wider Web windows retain the additional 8px tab inset.
 
+The blank-session Hero exposes `conversation.hero.brand.mark` and `conversation.hero.brand.headline` as root-scoped single slots. The headline accepts inline content; its wrapper, preview badge, and resident composer remain owned by Conversation. Contributors use declaration-aware `ctx.slots.inject` and their own typed locale namespace. An unoccupied headline uses Conversation's localized default, including after a contributor unloads.
+
 The shared image slot props keep display choices separate from durable references: `thumbnail` requests a contained attachment-list thumbnail, while `compact` requests a cropped gallery tile. An optional per-image `label` supplies the accessible display name; loading and cache identity still use the original attachment reference. `MessageImagesContentInput` adds optional complete `MessageImageLabels` for the root-scoped `conversation.images.content` Factory. Message, tool, and Factory inputs carry the view's authorized `loadImage` callback explicitly; loading and URL caching remain with the resource owner. [ui-attachment](../ui-attachment/README.md) provides this Factory and owns rendering and the lightbox.
 
 The composer uses a minimum 16px draft font on coarse-pointer devices to avoid focus-triggered browser zoom; larger font preferences still apply.

@@ -388,14 +388,23 @@ export class ToolsService extends Service {
   /**
    * Check global and inherited guards after pre-execute policy and approval resolve.
    * @param exec - invocation whose guards are checked before dispatch.
-   * @returns the first denial reason, or undefined when no guard denies.
+   * @param callerCancelled - original caller cancellation; omitted checks the execution signal.
+   * @returns the first denial reason, or undefined when no guard denies; awaits each live guard before dispatch.
    */
-  checkGuards(exec: ToolExecution): string | undefined {
-    for (const layer of [this.guards.global, ...this.guards.chainLayers(exec.agent)]) {
+  async checkGuards(exec: ToolExecution, callerCancelled: () => boolean = () => exec.signal.aborted): Promise<string | undefined> {
+    const checkLayer = async (layer: GuardLayer): Promise<string | undefined> => {
       for (const guard of layer.guards.values()) {
-        const reason = guard(exec)
+        if (callerCancelled()) return undefined
+        const reason = await guard(exec)
         if (reason !== undefined) return reason
       }
+      return undefined
+    }
+    const globalReason = await checkLayer(this.guards.global)
+    if (globalReason !== undefined) return globalReason
+    for (const layer of this.guards.chainLayers(exec.agent)) {
+      const reason = await checkLayer(layer)
+      if (reason !== undefined) return reason
     }
     return undefined
   }

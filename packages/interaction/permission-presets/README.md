@@ -88,6 +88,8 @@ The observable behavior is covered in [Use this package](#use-this-package); thi
 
 `current(session)` reads the required `permissions` projection, whose unit folds the three whole-value knob events over the composition defaults (`ctx.shell.sandboxMode` and the approval config). The host state also retains whether `session/end-seed` has occurred, so session pinning distinguishes an explicitly empty restored seed from a genuinely fresh session without rescanning the log. A still-matching last selection wins shared-bundle ties, and a recorded Auto selection also matches the `never` approval policy; otherwise the first configured match wins; otherwise the derived `CUSTOM_PRESET` is returned. The service acquires its state reader during activation.
 
+`authorizationState(session)` returns a read-only view of the persisted permission facts and seed status for pending authorization decisions. Its object identity stays stable across unrelated events and changes on every permission or seed event, including a transition away and back to equal values; callers can reject stale approvals by comparing that identity.
+
 `optionOf(name)` returns a configured entry, the live Auto entry, or the display-only `custom` entry. It throws only when the name matches none of those; a withdrawn Auto entry is unavailable.
 
 ### Session pinning and blank reuse

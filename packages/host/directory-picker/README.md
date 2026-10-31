@@ -93,6 +93,10 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+Desktop Host also mounts `TrustedFilePicker`, a separate trusted-consumer registry exported by this package. It reserves one native ZIP-file or directory dialog at a time for at most two minutes; ordinary Web composition does not mount it. The consumer owns unpredictable challenges, actor/session/workspace checks and single-use grants. A selection conveys no general filesystem permission. Selected paths travel only from Desktop Main to Host, while the client receives opaque status. Provider disposal, cancellation and expiry revoke pending selections; acknowledgement loss also revokes selected-unconsumed grants, without cancelling an already-started operation. Cleanup failure disables the picker until Host restart and is logged as uncertain state.
+
+The Desktop parent uses the negotiated `trustedFilePicker: 1` readiness flag and the private chooser messages in [Desktop Host protocol](../../../apps/desktop-host/src/protocol.ts). A runtime without this capability must leave the feature unavailable; it must not fall back to renderer-supplied paths. The Host provider and its consuming Desktop SDK must be built from sources containing this API.
+
 <a id="known-limitations-and-deferred-work"></a>
 
 

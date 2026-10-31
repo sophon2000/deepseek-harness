@@ -88,6 +88,8 @@ kind: "package-reference"
 
 `current(session)` 读取必需的 `permissions` 投影；该单元在组合默认值（`ctx.shell.sandboxMode` 与审批配置）之上折叠三个全量值旋钮事件。host 状态还会保留 `session/end-seed` 是否已经出现，使会话固定无需重扫日志即可区分显式为空的恢复 seed 与真正的新会话。仍匹配的最近选择在共享捆绑时胜出，已记录的 Auto 选择在 `never` 审批策略下也匹配；否则配置表中的第一个匹配项胜出；否则返回推导出的 `CUSTOM_PRESET`。该服务在激活期间取得状态读取句柄。
 
+`authorizationState(session)` 返回持久权限事实及 seed 状态的只读视图，供跨异步等待的授权决定使用。无关事件保持对象身份；每个权限或 seed 事件均替换身份，包括离开后又回到相同取值的切换；调用方可比较该身份来拒绝已过期审批。
+
 `optionOf(name)` 返回配置条目、存活的 Auto 条目或仅供显示的 `custom` 条目。只有名称不匹配这三者时才抛错；已撤回的 Auto 条目不可用。
 
 ### 会话固定与空白复用

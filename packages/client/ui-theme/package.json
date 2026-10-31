@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-theme",
   "description": "Theme plugin: Host bootstrap for the pre-plugin palette; ThemeRuntime for light/dark/system state and icon replacements; --dsw-* token styles and Appearance settings row",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-alpha.2.vh.1.local.20261031.1",
   "publishConfig": {
     "access": "public"
   },
@@ -25,7 +25,8 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./brand-font.css": "./lib/styles/brand-font.css",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./styles/*": "./lib/styles/*"
   },
   "dsh": {
     "client": {

@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import { assertNever, deepFreeze, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, ToolNotFoundError, ToolOutputError } from './contracts.ts'
 import { validateJsonSchemaValue } from './json-schema.ts'
+import { ToolArgsError as CanonicalToolArgsError } from './schema.ts'
 import type { ToolsService } from './index.ts'
 import type { ResolvedToolSet, ToolDefinition, ToolExecutionInput, ToolExecutionMode, ToolExecution, ToolRunContext, ToolExecutionResult, ToolExecutionSuccess, ToolErrorInfo, ToolExecutionToken, PreToolDecision, PostToolDecision } from './contracts.ts'
 
@@ -195,11 +196,25 @@ export class ToolExecutionPipeline {
       return { kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() }
     }
     try {
+      const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined, exec.toolSet)
+      // oxlint-disable-next-line typescript/unbound-method -- Compare callback identity only; validation retains its tool receiver.
+      const validatedArgs = tool?.validateArgs
+      validateDefinitionArgs(tool, exec.arguments)
       const carrier = scopeTarget(this.tools, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
+      if (gate.kind === 'ask') {
+        if (this.callerCancelled(exec)) {
+          return { kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() }
+        }
+        const approvalTool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined, exec.toolSet)
+        if (approvalTool === undefined) throw new ToolNotFoundError(exec.name)
+        if (approvalTool !== tool || approvalTool.validateArgs !== validatedArgs) {
+          validateDefinitionArgs(approvalTool, exec.arguments)
+        }
+      }
       const askResolution = gate.kind === 'ask'
         ? await this.serviceAsk(exec, gate)
         : { decision: gate, approvalCancelled: false }
@@ -210,7 +225,7 @@ export class ToolExecutionPipeline {
       if (decision.kind === 'cancel') {
         return { kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() }
       }
-      const denialReason = decision.kind === 'allow' ? this.tools.checkGuards(exec) : decision.reason
+      const denialReason = decision.kind === 'allow' ? await this.tools.checkGuards(exec, () => this.callerCancelled(exec)) : decision.reason
       const denialInfo = decision.kind === 'deny' ? decision.info : undefined
       if (denialReason !== undefined) {
         return {
@@ -676,6 +691,24 @@ function materializePresentation<T>(candidate: T): T {
     throw new TypeError('tool result must be losslessly JSON-serializable')
   }
   return deepFreeze(detached)
+}
+
+/** Normalize provider-owned validators into this runtime's stable failure identity. */
+function validateDefinitionArgs(tool: ToolDefinition | undefined, args: unknown): void {
+  try {
+    tool?.validateArgs?.(args)
+  } catch (error: unknown) {
+    if (error instanceof CanonicalToolArgsError) throw error
+    try {
+      if (typeof error === 'object' && error !== null && 'violations' in error
+        && Array.isArray(error.violations) && error.violations.every(item => typeof item === 'string')) {
+        throw new CanonicalToolArgsError(error.violations)
+      }
+    } catch (normalized: unknown) {
+      if (normalized instanceof CanonicalToolArgsError) throw normalized
+    }
+    throw new CanonicalToolArgsError([toolErrorMessage(error)])
+  }
 }
 
 /** Structured `{ name, code }` for a thrown HarnessError, else undefined. */

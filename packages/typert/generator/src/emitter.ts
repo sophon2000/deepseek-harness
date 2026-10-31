@@ -311,10 +311,12 @@ export class FaceModelEmitter {
       lines.push('    kind: \'context\',')
       lines.push(`    context: ${quote(invocation.invocation.context)},`)
       lines.push(`    wire: ${quote(invocation.invocation.wire)},`)
-      lines.push(`    codec: ${indent(strictCodec(
-        invocation.invocation.boundary,
-        schemas.boundary(contextBoundaryKey(invocation)),
-      ), 4).trimStart()},`)
+      for (const strict of [false, true]) {
+        lines.push(`    ${strict ? 'strictCodec' : 'codec'}: ${indent(strictCodec(
+          invocation.invocation.boundary,
+          schemas.boundary(contextBoundaryKey(invocation, strict)),
+        ), 4).trimStart()},`)
+      }
       lines.push('  },')
     }
     if (invocation.scope !== undefined) {
@@ -347,10 +349,12 @@ export class FaceModelEmitter {
     lines.push('  ],')
     if (invocation.uplink !== undefined) {
       lines.push('  uplink: {')
-      lines.push(`    codec: ${indent(strictCodec(
-        invocation.uplink.boundary,
-        schemas.boundary(uplinkBoundaryKey(invocation)),
-      ), 4).trimStart()},`)
+      for (const strict of [false, true]) {
+        lines.push(`    ${strict ? 'strictCodec' : 'codec'}: ${indent(strictCodec(
+          invocation.uplink.boundary,
+          schemas.boundary(uplinkBoundaryKey(invocation, strict)),
+        ), 4).trimStart()},`)
+      }
       lines.push('  },')
     }
     if (invocation.cancellation !== undefined) {
@@ -1098,6 +1102,7 @@ function invocationBoundaryRoots(invocations: readonly InvocationModel[]): Bound
   for (const invocation of invocations) {
     if (invocation.invocation.kind === 'context') {
       result.push({ key: contextBoundaryKey(invocation), type: invocation.invocation.boundary.codecType })
+      result.push({ key: contextBoundaryKey(invocation, true), type: invocation.invocation.boundary.codecType, closedObjects: true })
     }
     invocation.parameters.forEach((parameter, index) => {
       result.push({ key: parameterBoundaryKey(invocation, index), type: parameter.boundary.codecType })
@@ -1105,18 +1110,19 @@ function invocationBoundaryRoots(invocations: readonly InvocationModel[]): Bound
     })
     if (invocation.uplink !== undefined) {
       result.push({ key: uplinkBoundaryKey(invocation), type: invocation.uplink.boundary.codecType })
+      result.push({ key: uplinkBoundaryKey(invocation, true), type: invocation.uplink.boundary.codecType, closedObjects: true })
     }
     result.push({ key: resultBoundaryKey(invocation), type: invocation.result.codecType })
   }
   return result
 }
 
-function contextBoundaryKey(invocation: InvocationModel): string {
-  return `${invocation.id}:context`
+function contextBoundaryKey(invocation: InvocationModel, strict = false): string {
+  return `${invocation.id}:context${strict ? ':strict' : ''}`
 }
 
-function uplinkBoundaryKey(invocation: InvocationModel): string {
-  return `${invocation.id}:uplink`
+function uplinkBoundaryKey(invocation: InvocationModel, strict = false): string {
+  return `${invocation.id}:uplink${strict ? ':strict' : ''}`
 }
 
 function parameterBoundaryKey(invocation: InvocationModel, index: number, strict = false): string {

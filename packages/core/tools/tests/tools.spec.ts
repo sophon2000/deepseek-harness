@@ -1,6 +1,7 @@
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { runInNewContext } from 'node:vm'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createUserMessage, ToolCallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
@@ -883,6 +884,260 @@ describe('ToolRuntime', () => {
         agent, toolName: 'echo', callId: 'c1', reason: 'hook wants a human', displayReason: { en: 'Allow it?', zh: '允许吗？' },
       })
       expect(seen[0]?.signal).toBe(controller.signal)
+    })
+
+    it('keeps unknown names observable by policy without requesting approval', async () => {
+      const ctx = await approvalSetup()
+      let policies = 0
+      let approvals = 0
+      let results = 0
+      ctx.on('tools/pre-execute', async () => { policies++; return { kind: 'ask' } })
+      ctx.on('approval/request', async () => { approvals++; return 'allowed-once' })
+      ctx.on('tools/result', () => { results++ })
+      try {
+        const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('missing-ask'),
+          name: 'missing-ask', arguments: {}, agent: fakeAgent() })
+        expect(result.error?.info?.code).toBe('UNKNOWN_TOOL')
+        expect({ policies, approvals, results }).toEqual({ policies: 1, approvals: 0, results: 1 })
+      } finally { await ctx.fiber.dispose() }
+    })
+
+    it.each([{ text: 'valid', approvals: 1, code: undefined }, { text: 42, approvals: 0, code: 'INVALID_ARGS' }])(
+      'validates a definition materialized during policy before asking ($text)', async ({ text, approvals, code }) => {
+        const ctx = await approvalSetup()
+        let asked = 0
+        let policies = 0
+        ctx.on('tools/pre-execute', async () => {
+          policies++
+          ctx.tools.register({ ...echoTool, name: 'policy-dynamic' })
+          return { kind: 'ask' }
+        })
+        ctx.on('approval/request', async () => { asked++; return 'allowed-once' })
+        try {
+          const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('policy-dynamic'),
+            name: 'policy-dynamic', arguments: { text }, agent: fakeAgent() })
+          expect(result.error?.info?.code).toBe(code)
+          expect(result.isError).toBe(code !== undefined)
+          expect(policies).toBe(1)
+          expect(asked).toBe(approvals)
+        } finally { await ctx.fiber.dispose() }
+      },
+    )
+
+    it('does not repeat an unchanged custom validator before asking', async () => {
+      const ctx = await approvalSetup()
+      let validations = 0
+      ctx.tools.register({ ...echoTool, name: 'stable-validator', validateArgs: () => { validations++ } })
+      ctx.on('tools/pre-execute', async () => ({ kind: 'ask' }))
+      ctx.on('approval/request', async () => 'allowed-once')
+      try {
+        const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('stable-validator'),
+          name: 'stable-validator', arguments: {}, agent: fakeAgent() })
+        expect(result.isError).toBe(false)
+        expect(validations).toBe(1)
+      } finally { await ctx.fiber.dispose() }
+    })
+
+    it.each(['definition', 'validator'] as const)('revalidates a replaced %s before asking', async (replacement) => {
+      const ctx = await approvalSetup()
+      let asked = 0
+      const definition = { ...echoTool, name: 'replaced-validator', validateArgs: (_args: unknown) => {} }
+      const remove = ctx.tools.register(definition)
+      ctx.on('tools/pre-execute', async () => {
+        const reject = (_args: unknown): void => { throw new Error('replacement rejects input') }
+        if (replacement === 'definition') {
+          remove()
+          ctx.tools.register({ ...definition, validateArgs: reject })
+        } else definition.validateArgs = reject
+        return { kind: 'ask' }
+      })
+      ctx.on('approval/request', async () => { asked++; return 'allowed-once' })
+      try {
+        const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('replaced-validator'),
+          name: 'replaced-validator', arguments: {}, agent: fakeAgent() })
+        expect(result.error?.info?.code).toBe('INVALID_ARGS')
+        expect(asked).toBe(0)
+      } finally { await ctx.fiber.dispose() }
+    })
+
+    it('does not ask for a known definition removed during policy', async () => {
+      const ctx = await approvalSetup()
+      let asked = 0
+      const remove = ctx.tools.register({ ...echoTool, name: 'removed-before-ask' })
+      ctx.on('tools/pre-execute', async () => { remove(); return { kind: 'ask' } })
+      ctx.on('approval/request', async () => { asked++; return 'allowed-once' })
+      try {
+        const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('removed-before-ask'),
+          name: 'removed-before-ask', arguments: {}, agent: fakeAgent() })
+        expect(result.error?.info?.code).toBe('UNKNOWN_TOOL')
+        expect(asked).toBe(0)
+      } finally { await ctx.fiber.dispose() }
+    })
+
+    it('honors caller cancellation during policy before resolving an unknown ask', async () => {
+      const ctx = await approvalSetup()
+      const controller = new AbortController()
+      let asked = 0
+      ctx.on('tools/pre-execute', async () => { controller.abort(); return { kind: 'ask' } })
+      ctx.on('approval/request', async () => { asked++; return 'allowed-once' })
+      try {
+        const result = await executeToolFixture(ctx, { signal: controller.signal, callId: ToolCallId('cancelled-unknown'),
+          name: 'cancelled-unknown', arguments: {}, agent: fakeAgent() })
+        expect(result.error?.info?.code).toBe(TOOL_ABORTED_BEFORE_DISPATCH)
+        expect(asked).toBe(0)
+      } finally { await ctx.fiber.dispose() }
+    })
+
+    it.each(['deny', 'cancel', 'allow'] as const)('preserves the historical unknown %s path', async (kind) => {
+      const ctx = await approvalSetup()
+      let around = 0
+      let asked = 0
+      ctx.on('tools/pre-execute', async () => kind === 'deny' ? { kind, reason: 'policy denial' } : { kind })
+      ctx.on('tools/execute', (_exec, next) => { around++; return next() })
+      ctx.on('approval/request', async () => { asked++; return 'allowed-once' })
+      try {
+        const result = await executeToolFixture(ctx, { signal: testToolSignal, callId: ToolCallId('unknown-decision'),
+          name: 'unknown-decision', arguments: {}, agent: fakeAgent() })
+        if (kind === 'deny') expect(result.error?.message).toBe('policy denial')
+        else expect(result.error?.info?.code).toBe(kind === 'cancel' ? TOOL_ABORTED_BEFORE_DISPATCH : 'UNKNOWN_TOOL')
+        expect(around).toBe(kind === 'allow' ? 1 : 0)
+        expect(asked).toBe(0)
+      } finally { await ctx.fiber.dispose() }
+    })
+
+    it('rejects invalid defineTool arguments before policy or approval observes the call', async () => {
+      const ctx = await approvalSetup()
+      let policyCalls = 0
+      let approvalCalls = 0
+      ctx.on('approval/request', () => {
+        approvalCalls += 1
+        return Promise.resolve<ApprovalOutcome>('allowed-once')
+      })
+      ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => {
+        policyCalls += 1
+        return { kind: 'ask' }
+      })
+
+      const result = await executeToolFixture(ctx, {
+        signal: testToolSignal,
+        callId: ToolCallId('invalid-before-approval'),
+        name: 'echo',
+        arguments: { text: 42 },
+        agent: fakeAgent(),
+      })
+
+      expect(result).toMatchObject({
+        isError: true,
+        error: { info: { name: 'ToolArgsError', code: 'INVALID_ARGS' } },
+      })
+      expect(policyCalls).toBe(0)
+      expect(approvalCalls).toBe(0)
+    })
+
+    it.each<{ name: string; thrown: unknown; message: string }>([
+      {
+        name: 'ordinary provider error',
+        thrown: new TypeError('provider contract rejected the payload'),
+        message: 'provider contract rejected the payload',
+      },
+      {
+        name: 'canonical argument error',
+        thrown: new ToolArgsError(['missing provider field', 'unsupported provider value']),
+        message: 'missing provider field; unsupported provider value',
+      },
+      {
+        name: 'plain-object violations',
+        thrown: { violations: ['missing provider field', 'unsupported provider value'], message: 'ignored provider message' },
+        message: 'missing provider field; unsupported provider value',
+      },
+      {
+        name: 'foreign-realm violations',
+        thrown: runInNewContext(`Object.assign(new Error('ignored provider message'), {
+          name: 'ToolArgsError', violations: ['foreign required field', 'foreign invalid value'],
+        })`),
+        message: 'foreign required field; foreign invalid value',
+      },
+      {
+        name: 'non-array violations',
+        thrown: { violations: 'not an array', message: 'provider rejected the payload' },
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'mixed-type violations',
+        thrown: { violations: ['partial violation', 42], message: 'provider rejected the payload' },
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'throwing violations accessor',
+        thrown: {
+          get violations() { throw new Error('cannot inspect violations') },
+          message: 'provider rejected the payload',
+        },
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'throwing violation entry',
+        thrown: {
+          violations: Object.defineProperty(['unreadable violation'], '0', {
+            get() { throw new Error('cannot inspect violation entry') },
+          }),
+          message: 'provider rejected the payload',
+        },
+        message: 'provider rejected the payload',
+      },
+      {
+        name: 'unprintable violations object',
+        thrown: {
+          get violations() { throw new Error('cannot inspect violations') },
+          get message() { throw new Error('cannot inspect message') },
+        },
+        message: '<unprintable thrown value>',
+      },
+      { name: 'null throw', thrown: null, message: 'null' },
+      { name: 'string throw', thrown: 'provider rejected the payload', message: 'provider rejected the payload' },
+    ])('normalizes $name before policy or approval observes the call', async ({ thrown, message }) => {
+      const ctx = await approvalSetup()
+      try {
+        let policyCalls = 0
+        let approvalCalls = 0
+        let bodyCalls = 0
+        ctx.tools.register({
+          ...echoTool,
+          name: 'raw-validator',
+          validateArgs() { throw thrown },
+          async execute() { bodyCalls += 1; return 'unreachable' },
+        })
+        ctx.on('approval/request', () => {
+          approvalCalls += 1
+          return Promise.resolve<ApprovalOutcome>('allowed-once')
+        })
+        ctx.on('tools/pre-execute', async (_exec, _next): Promise<PreToolDecision> => {
+          policyCalls += 1
+          return { kind: 'ask' }
+        })
+
+        const result = await executeToolFixture(ctx, {
+          signal: testToolSignal,
+          callId: ToolCallId('raw-invalid-before-approval'),
+          name: 'raw-validator',
+          arguments: { text: 'wrong for the provider' },
+          agent: fakeAgent(),
+        })
+
+        expect(result).toEqual({
+          isError: true,
+          error: {
+            message: `invalid arguments: ${message}`,
+            info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+          },
+          content: [{ type: 'text', text: `Error: invalid arguments: ${message}` }],
+        })
+        expect(policyCalls).toBe(0)
+        expect(approvalCalls).toBe(0)
+        expect(bodyCalls).toBe(0)
+      } finally {
+        await ctx.fiber.dispose()
+      }
     })
 
     it('denies with the user-rejection reason on rejected', async () => {
@@ -2739,6 +2994,23 @@ describe('validateArgs (the runtime-validation Agent Note, part 1)', () => {
 })
 
 describe('defineTool validation (the runtime-validation Agent Note, part 1)', () => {
+  it('retains execute-time validation as defense in depth for direct callers', async () => {
+    const tool = defineContentToolFixture({
+      name: 'reader',
+      description: 'reads a path',
+      parameters: { path: { type: 'string', required: true } },
+      async execute(args) {
+        return [{ type: 'text', text: args.path }]
+      },
+    })
+
+    await expect(tool.execute({}, {} as never)).rejects.toMatchObject({
+      name: 'ToolArgsError',
+      code: 'INVALID_ARGS',
+      violations: ['missing required property "path"'],
+    })
+  })
+
   it('returns an isError result with the violations when the model sends bad args', async () => {
     const ctx = await setup()
     ctx.tools.register(defineContentToolFixture({

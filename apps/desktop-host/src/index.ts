@@ -10,14 +10,18 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-deepseek-account'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { TrustedFilePicker } from '@deepseek-ai/dsh-host-directory-picker'
+import { dispatchTrustedFilePicker } from './trusted-file-picker.ts'
 import * as desktopOffice from './office.ts'
 import { localDragResource } from './file-drag.ts'
+import { isDesktopHostRequest, type DesktopHostEvent } from './protocol.ts'
 
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
 import { installOfficeEngineResolution } from './office-engine.ts'
 import { installOperationDiagnostics } from './operation-diagnostics.ts'
+import { assertDesktopRequiredServices, parseDesktopRequiredServices } from './required-services.ts'
 
 async function main(): Promise<void> {
   const runId = randomUUID() as PluginOperationRunId
@@ -25,6 +29,7 @@ async function main(): Promise<void> {
   const runtimeDir = process.argv[2] as string
   const projectDir = process.argv[3] as string
   installOfficeEngineResolution(runtimeDir)
+  const requiredServices = parseDesktopRequiredServices(process.argv[7])
   const installAnchor = join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')
   const profile = loadProfileDirectory('dsh', projectDir, installAnchor)
   reportSkippedBundles('dsh', profile)
@@ -34,7 +39,7 @@ async function main(): Promise<void> {
     resolvedProfile: { profile, installAnchor },
     patchFiles: [],
     args: ['--no-open', '--host', '127.0.0.1', '--port', '0'],
-    ...(process.argv[5] === undefined ? {} : {
+    ...(process.argv[5] === undefined || process.argv[5] === '' ? {} : {
       packageManager: {
         command: process.execPath,
         args: ['--expose-internals', process.argv[5]],
@@ -49,17 +54,21 @@ async function main(): Promise<void> {
   let stopping: Promise<void> | undefined
   const dragReads = new Map<number, AbortController>()
   const dragTasks = new Set<Promise<void>>()
+  const isStopping = (): boolean => stopping !== undefined
   const control: {
     updateTasks?: ReturnType<typeof installDesktopUpdateTaskControl>
     quitInspection?: ReturnType<typeof installDesktopQuitInspection>
+    trustedFilePicker?: TrustedFilePicker
   } = {}
-  const send = (message: object): Promise<void> => new Promise((resolve, reject) => {
+  const send = (message: DesktopHostEvent): Promise<void> => new Promise((resolve, reject) => {
     if (!process.connected || process.send === undefined) { resolve(); return }
     process.send(message, (error) => { if (error === null) resolve(); else reject(error) })
   })
   const stop = (): Promise<void> => stopping ??= (async () => {
     for (const abort of dragReads.values()) abort.abort()
     await Promise.allSettled(dragTasks)
+    control.trustedFilePicker?.cancel()
+    delete control.trustedFilePicker
     // Startup failure is reported by main; shutdown only owns a tree that booted.
     const running = await application.catch(() => undefined)
     await running?.shutdown.shutdown(0)
@@ -70,7 +79,7 @@ async function main(): Promise<void> {
     if (running !== undefined) process.exit()
   })()
   process.on('message', (message: unknown) => {
-    if (typeof message !== 'object' || message === null || !('type' in message)) return
+    if (!isDesktopHostRequest(message)) return
     if (message.type === 'shutdown') { void stop(); return }
     if (message.type === 'file-drag-cancel') {
       if ('requestId' in message && typeof message.requestId === 'number') dragReads.get(message.requestId)?.abort()
@@ -97,8 +106,12 @@ async function main(): Promise<void> {
       void task.finally(() => { dragTasks.delete(task) })
       return
     }
+    if (message.type === 'trusted-file-picker') {
+      void dispatchTrustedFilePicker(stopping === undefined ? control.trustedFilePicker : undefined, message)
+        .then(send).catch((error: unknown) => { console.error(error) })
+      return
+    }
     if (message.type === 'quit-inspection') {
-      if (!('requestId' in message) || !Number.isSafeInteger(message.requestId)) return
       const requestId = message.requestId
       void (async () => {
         try {
@@ -113,12 +126,10 @@ async function main(): Promise<void> {
       })().catch((error: unknown) => { console.error(error) })
       return
     }
-    if (message.type !== 'update-tasks' || !('requestId' in message) || !Number.isSafeInteger(message.requestId)
-      || !('action' in message) || !['inspect', 'lock', 'unlock'].includes(String(message.action))) return
     void (async () => {
       try {
         if (stopping !== undefined || control.updateTasks === undefined) throw new Error('desktop update: Host is unavailable')
-        const active = await control.updateTasks(message.action as 'inspect' | 'lock' | 'unlock')
+        const active = await control.updateTasks(message.action)
         await send({ type: 'update-tasks', requestId: message.requestId, active })
       } catch (error) {
         await send({ type: 'update-tasks', requestId: message.requestId, active: true,
@@ -127,7 +138,20 @@ async function main(): Promise<void> {
     })().catch((error: unknown) => { console.error(error) })
   })
   process.once('disconnect', () => { void stop() })
-  const { ctx } = await application
+  const running = await application
+  if (stopping !== undefined) return
+  const { ctx } = running
+  await ctx.plugin(TrustedFilePicker)
+  if (isStopping()) { ctx.get('trustedFilePicker')?.cancel(); return }
+  const trustedFilePicker = ctx.get('trustedFilePicker')
+  if (trustedFilePicker === undefined) throw new Error('Desktop trusted file picker failed to register')
+  control.trustedFilePicker = trustedFilePicker
+  try {
+    assertDesktopRequiredServices(ctx, requiredServices)
+  } catch (error) {
+    await running.shutdown.shutdown(1)
+    throw error
+  }
   installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
@@ -140,7 +164,7 @@ async function main(): Promise<void> {
     if (process.connected) process.send?.({ type: 'platform-session', session })
   })
   const url = ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}`)
-  if (process.connected) process.send?.({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections(ctx.connection.browserPeer) }, (error) => { if (error !== null) console.error(error) })
+  if (process.connected) process.send?.({ type: 'ready', url, injections: ctx.webServer.collectIndexInjections(ctx.connection.browserPeer), trustedFilePicker: 1 }, (error) => { if (error !== null) console.error(error) })
 }
 
 if (import.meta.main) {

@@ -116,3 +116,5 @@ These limits define the settings transport's reach and who shares a settings doc
 None.
 
 </details>
+
+Account launchers receive `openSection(id)` for direct settings navigation. The `settings.launcher.account` list carries enabled provider ids, menu dismissal, and section navigation; its runtime owner is the account launcher.

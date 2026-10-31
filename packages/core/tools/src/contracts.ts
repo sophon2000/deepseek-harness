@@ -27,6 +27,13 @@ export interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
+   * Validate frozen model arguments before policy or approval. Invalid values
+   * become the registry runtime's ToolArgsError / INVALID_ARGS identity.
+   * Providers without this callback validate at execution, such as MCP servers.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   */
+  validateArgs?(args: unknown): void
+  /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
    * owned work reaches quiescence. The executor preserves caller cancellation
@@ -386,6 +393,6 @@ export interface ToolRestriction {
  * returning `undefined` leaves it unchanged. Because guards have no allow
  * result, listener ordering cannot turn a denial back into permission.
  * @param execution - the identity-protected call after extensible pre-execute policy completed.
- * @returns a final denial reason, or `undefined` to leave the call allowed.
+ * @returns a final denial reason, or `undefined` to leave the call allowed; asynchronous guards settle serially.
  */
-export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
+export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>

@@ -2,6 +2,7 @@
 
 import { controlPipe } from './control-spawn.ts'
 import { spawn } from 'node:child_process'
+import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { closeSync, openSync } from 'node:fs'
 import { devNull } from 'node:os'
 import type { Readable, Writable } from 'node:stream'
@@ -25,10 +26,12 @@ import {
   WINDOWS_RUNNER_SELECTION,
 } from './runner-launch.ts'
 import type { RunnerInvocation } from './runner-launch.ts'
+import type { WindowsOperationLaunch } from './windows-operations.ts'
 
 /** Test seams for runner launch and dynamic capability checks. */
 export interface WindowsJobInternals {
-  spawn?: typeof spawn
+  operation?: WindowsOperationLaunch
+  spawn?: (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess
   runnerInvocation?: RunnerInvocation
   resolveRunnerInvocation?: () => RunnerInvocation
   runnerAvailable?: (invocation: RunnerInvocation) => boolean
@@ -209,7 +212,9 @@ export function launchWindowsJob(
     runnerSpawned = true
     try {
       if (child.send === undefined) throw new Error('subprocess-local: Windows runner has no IPC channel')
-      child.send({ type: 'start', cwd: spec.cwd, env: targetEnv, ...spec.stdio.control === undefined ? {} : { control: spec.stdio.control } }, (error) => {
+      child.send({ type: 'start', cwd: spec.cwd, env: targetEnv,
+        ...internals.operation === undefined ? {} : { operation: internals.operation },
+        ...spec.stdio.control === undefined ? {} : { control: spec.stdio.control } }, (error) => {
         if (error === null) return
         failInfrastructure(error)
         owner.terminateForHostExit()

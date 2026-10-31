@@ -170,6 +170,10 @@ class DescriptorStore {
     return this.entries.get(endpoint)?.descriptor
   }
 
+  registrationToken(endpoint: string): object | undefined {
+    return this.entries.get(endpoint)?.owner
+  }
+
   hasSeen(endpoint: string): boolean {
     return this.history.has(endpoint)
   }
@@ -532,6 +536,7 @@ export class TypertRegistry extends Service implements TypertRegistryContract {
     const ctx = this.ctx
     return {
       get: endpoint => this.localStore.get(endpoint),
+      registrationToken: endpoint => this.localStore.registrationToken(endpoint),
       hasSeen: endpoint => this.localStore.hasSeen(endpoint),
       list: () => this.localStore.list(),
       subscribe: listener => this.localStore.subscribe(ctx, listener),
@@ -755,6 +760,15 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
       throw new Error(`typert: invocation "${descriptor.id}" JSON parameter "${parameter.name}" declares a lookup key`)
     }
     validateCodec(parameter.codec, `${descriptor.id} parameter ${parameter.name}`)
+    if (parameter.strictCodec !== undefined) {
+      // Runtime descriptors can originate in untyped JavaScript plugins.
+      const strictCodec = parameter.strictCodec as InvocationDescriptor['result']
+      validateCodec(strictCodec, `${descriptor.id} strict parameter ${parameter.name}`)
+      if (strictCodec.mode !== 'strict' || parameter.codec.mode !== 'strict'
+        || strictCodec.typeSymbol !== parameter.codec.typeSymbol) {
+        throw new Error(`typert: invocation "${descriptor.id}" strict parameter "${parameter.name}" must match its ordinary codec type`)
+      }
+    }
   }
   const cancellation = descriptor.cancellation as { readonly parameter: string } | undefined
   if (cancellation !== undefined && cancellation.parameter !== 'signal') {
@@ -764,7 +778,10 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
   if (mode !== undefined && mode !== 'stream') {
     throw new Error(`typert: invocation "${descriptor.id}" mode must be "stream"`)
   }
-  if (descriptor.uplink !== undefined) validateCodec(descriptor.uplink.codec, `${descriptor.id} uplink`)
+  if (descriptor.uplink !== undefined) {
+    validateCodec(descriptor.uplink.codec, `${descriptor.id} uplink`)
+    validateStrictCounterpart(descriptor.uplink.codec, descriptor.uplink.strictCodec, `${descriptor.id} uplink`)
+  }
   if (descriptor.scope !== undefined) {
     if (descriptor.invocation.kind !== 'direct') {
       throw new Error(`typert: invocation "${descriptor.id}" Context receiver cannot declare a direct scope projection`)
@@ -787,6 +804,15 @@ function validateInvocation(descriptor: InvocationDescriptor): void {
       throw new Error(`typert: invocation "${descriptor.id}" repeats wire field "${descriptor.invocation.wire}"`)
     }
     validateCodec(descriptor.invocation.codec, `${descriptor.id} Context`)
+    validateStrictCounterpart(descriptor.invocation.codec, descriptor.invocation.strictCodec, `${descriptor.id} Context`)
+  }
+}
+
+function validateStrictCounterpart(codec: InvocationDescriptor['result'], strictCodec: InvocationDescriptor['result'] | undefined, subject: string): void {
+  if (strictCodec === undefined) return
+  validateCodec(strictCodec, `${subject} strict codec`)
+  if (strictCodec.mode !== 'strict' || codec.mode !== 'strict' || strictCodec.typeSymbol !== codec.typeSymbol) {
+    throw new Error(`typert: ${subject} strict codec must match its ordinary codec type`)
   }
 }
 

@@ -3,6 +3,10 @@ import type { AccountUserId } from '@deepseek-ai/dsh-deepseek-account/types'
 import { ContactConfig } from '../src/contact-config.ts'
 import { contactUrl } from '../src/client/contact-url.ts'
 
+it.each([{}, { contactEnabled: true }, { contactEnabled: false }])('resolves contact availability from %j', (options) => {
+  expect(ContactConfig(options).contactEnabled).toBe(options.contactEnabled ?? true)
+})
+
 it('prefills the available support context and hides every context field', () => {
   const config = ContactConfig({ contactSource: 'app_harness' })
   const url = new URL(contactUrl(config, {

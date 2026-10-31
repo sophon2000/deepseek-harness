@@ -2,49 +2,10 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
-import { z } from 'zod'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
+import { isDesktopHostEvent, type DesktopHostEvent } from '@deepseek-ai/dsh-desktop-host/protocol'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import { parsePluginOperationRecord, type PluginOperationRecord, type PluginOperationRunId } from '@deepseek-ai/dsh-plugin-manager/diagnostic'
-
-interface ReadyEvent {
-  readonly type: 'ready'
-  readonly url: string
-  readonly injections?: readonly unknown[] | undefined
-}
-
-interface FatalEvent {
-  readonly type: 'fatal'
-  readonly message: string
-  /** The Host's complete inspected error: stack, enumerable properties, cause chain. */
-  readonly diagnostic?: string
-}
-
-interface PlatformSessionEvent {
-  readonly type: 'platform-session'
-  readonly session: PlatformSession | null
-}
-
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | {
-  readonly type: 'starting'
-  readonly runId: PluginOperationRunId
-} | { readonly type: 'shutdown-complete' } | {
-  readonly type: 'file-drag-resource'
-  readonly requestId: number
-  readonly resource: { readonly path: string; readonly sha256: string; readonly size: number } | null
-  readonly error?: string
-} | {
-  readonly type: 'update-tasks'
-  readonly requestId: number
-  readonly active: boolean
-  readonly error?: string
-} | {
-  readonly type: 'quit-inspection'
-  readonly requestId: number
-  readonly activeTasks: boolean
-  readonly scheduledTasks: boolean
-  readonly error?: string
-}
 
 /** Correlated answer to one shell control request. */
 type DesktopHostControlResponse = Extract<DesktopHostEvent, { readonly requestId: number }>
@@ -59,56 +20,7 @@ export interface DesktopQuitInspection {
 export const QUIT_INSPECTION_DEADLINE_MS = 2_000
 
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
-const runIdSchema = z.uuid()
 
-function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
-  if (typeof message !== 'object' || message === null || !('type' in message)) return false
-  const candidate = message as Record<string, unknown>
-  switch (candidate.type) {
-    case 'starting':
-      return runIdSchema.safeParse(candidate.runId).success
-    case 'shutdown-complete':
-      return true
-    case 'ready':
-      return typeof candidate.url === 'string'
-    case 'platform-session': {
-      const session = candidate.session
-      if (session === null) return true
-      if (typeof session !== 'object' || !('origin' in session) || !('token' in session)
-        || typeof session.origin !== 'string' || typeof session.token !== 'string' || session.token.length === 0) return false
-      if (!('userId' in session) || (session.userId !== null
-        && (typeof session.userId !== 'string' || session.userId.length === 0))) return false
-      if ('embeddedPageDist' in session && typeof session.embeddedPageDist !== 'string') return false
-      if ('requestHeaders' in session && (typeof session.requestHeaders !== 'object' || session.requestHeaders === null
-        || Array.isArray(session.requestHeaders)
-        || Object.entries(session.requestHeaders).some(([name, value]) => typeof value !== 'string'
-          || name !== name.toLowerCase() || /[\r\n]/.test(value)
-          || ['authorization', 'x-dsh-auth-token', 'host', 'content-length', 'transfer-encoding', 'connection', 'content-type'].includes(name)))) return false
-      try {
-        const url = new URL(session.origin)
-        return url.origin === session.origin && !url.username && !url.password
-          && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
-      } catch { return false }
-    }
-    case 'fatal':
-      return typeof candidate.message === 'string' && (candidate.diagnostic === undefined || typeof candidate.diagnostic === 'string')
-    case 'update-tasks':
-      return Number.isSafeInteger(candidate.requestId) && typeof candidate.active === 'boolean'
-        && (candidate.error === undefined || typeof candidate.error === 'string')
-    case 'file-drag-resource': {
-      const resource = candidate.resource
-      return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
-        && (resource === null || (typeof resource === 'object' && 'path' in resource && typeof resource.path === 'string'
-          && 'sha256' in resource && typeof resource.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(resource.sha256)
-          && 'size' in resource && typeof resource.size === 'number' && Number.isSafeInteger(resource.size) && resource.size >= 0))
-    }
-    case 'quit-inspection':
-      return Number.isSafeInteger(candidate.requestId) && typeof candidate.activeTasks === 'boolean'
-        && typeof candidate.scheduledTasks === 'boolean' && (candidate.error === undefined || typeof candidate.error === 'string')
-    default:
-      return false
-  }
-}
 
 async function exitsWithin(exit: Promise<void>, milliseconds: number): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -187,6 +99,7 @@ export class DesktopHostProcess {
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
    * @param onPluginOperation - Optional diagnostic sink; malformed records are ignored without failing the Host.
+   * @param requiredServices - Product services required before readiness; omission requires none.
    */
   constructor(
     private readonly node: string,
@@ -200,6 +113,7 @@ export class DesktopHostProcess {
 
     private readonly onPlatformSession?: (session: PlatformSession | null) => void,
     private readonly onPluginOperation?: (record: PluginOperationRecord) => void,
+    private readonly requiredServices: readonly string[] = [],
   ) {}
 
   /**
@@ -216,7 +130,8 @@ export class DesktopHostProcess {
       this.runtimeDir,
       this.projectDir,
       this.primaryRuntime ?? join(this.runtimeDir, '..', 'runtime', 'primary-runtime'),
-      ...this.packageManager === undefined ? [] : [this.packageManager.pnpm, this.packageManager.nodeBin],
+      ...this.packageManager === undefined ? ['', ''] : [this.packageManager.pnpm, this.packageManager.nodeBin],
+      JSON.stringify(this.requiredServices),
     ], {
       cwd: this.projectDir,
       env: desktopNodeEnvironment(this.node, undefined, this.environment),
@@ -238,7 +153,8 @@ export class DesktopHostProcess {
         }
         return
       }
-      if (!isDesktopHostEvent(message)) {
+      // This shell does not negotiate the consumer-owned trusted picker flow.
+      if (!isDesktopHostEvent(message) || message.type === 'trusted-file-picker') {
         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
         child.kill('SIGTERM')
         return

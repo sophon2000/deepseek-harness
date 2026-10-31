@@ -2,6 +2,7 @@
  * Install packed tarballs into a throwaway consumer outside the repository and
  * drive the installed executable with plain Node. Its npm cache belongs to that
  * consumer and is removed with it on normal completion or failure.
+ * Windows invokes npm's JavaScript CLI without a batch shell.
  *
  * Every tarball the installed tree needs comes from `--from`, so the only
  * registry traffic is for external dependencies. That matters beyond hermetic
@@ -17,9 +18,9 @@
  * checkout cannot stand in for a missing file here.
  */
 
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import { acceptsNpmPlatform } from '../npm-platform.ts'
@@ -109,12 +110,20 @@ function main(): void {
 
     const environment = consumerEnvironment(consumerRoot)
     console.log(`release verify-packed-install: installing ${String(packed.size)} tarball(s) into ${consumerRoot}`)
-    // Optional dependencies are omitted: the Landlock platform packages behind
-    // them need a musl toolchain and one build per architecture, and a consumer
-    // that cannot install them must still start — which is what optional means
-    // here. Their entry package is a plain dependency of dsh-sandbox-local, so
-    // its tarball is supplied through --from.
-    capture('npm', ['install', '--cache', join(consumerRoot, '.npm-cache'), '--no-audit', '--no-fund', '--package-lock=false', '--omit=optional', '--loglevel=http'],
+    // Keep host-compatible optional prebuilds enabled, as in a normal install.
+    // npm still skips incompatible platforms. Omitting every optional package
+    // accidentally forces external native dependencies such as Koffi to compile.
+    // Windows cannot launch npm.cmd without a shell. A minimal Node runtime may
+    // obtain npm from another Node installation on PATH.
+    const npm = process.platform === 'win32' ? process.execPath : 'npm'
+    const npmArgs: string[] = []
+    if (process.platform === 'win32') {
+      const cli = [dirname(process.execPath), ...(process.env.PATH ?? '').split(delimiter)]
+        .filter(Boolean).map(directory => join(directory, 'node_modules/npm/bin/npm-cli.js')).find(existsSync)
+      if (cli === undefined) throw new Error('Packed install requires npm beside Node or on PATH')
+      npmArgs.push(cli)
+    }
+    capture(npm, [...npmArgs, 'install', '--cache', join(consumerRoot, '.npm-cache'), '--no-audit', '--no-fund', '--package-lock=false', '--loglevel=http'],
       { cwd: consumerRoot, env: environment })
 
     const installedEntry = join(consumerRoot, 'node_modules', entry.packageName)

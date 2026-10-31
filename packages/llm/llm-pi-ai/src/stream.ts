@@ -72,13 +72,18 @@ function classifyPiAiError(message: string): string {
  * @param message - the assistant message carried by the `done` or `error` event.
  * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
  * @returns the mapped harness reason. Recognized error text, `stop` usage above
- *   `contextWindow`, and zero-output `length` usage that fills the window map
- *   to `CONTEXT_WINDOW_EXCEEDED`; a `stop` with no content blocks maps to an
- *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
- *   to non-retryable `PI_AI_ERROR` failures.
+ *   `contextWindow` except for completed non-empty Codex responses, and zero-output
+ *   `length` usage that fills the window map to `CONTEXT_WINDOW_EXCEEDED`; a
+ *   non-overflow `stop` with no content blocks maps to `EMPTY_RESPONSE`, while
+ *   terminal `pending` and `deferred` states map to non-retryable `PI_AI_ERROR`.
  */
 export function mapStopReason(message: AssistantMessage, contextWindow?: number): FinishReason {
-  const piAiOverflow = isContextOverflow(message, contextWindow)
+  // Codex may complete beyond the catalog's default window. Its completed
+  // content remains successful; explicit errors and truncation still classify below.
+  const completedCodexResponse = message.api === 'openai-codex-responses'
+    && message.stopReason === 'stop'
+    && message.content.length > 0
+  const piAiOverflow = !completedCodexResponse && isContextOverflow(message, contextWindow)
   const harnessOverflow = message.stopReason === 'error'
     && message.errorMessage !== undefined
     && isContextWindowExceededError(message.errorMessage)

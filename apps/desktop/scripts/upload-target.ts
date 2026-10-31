@@ -1,11 +1,10 @@
 /** Upload Desktop artifacts to COS and refresh production fixed downloads through EdgeOne. */
 
-import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import { createDesktopCos } from './desktop-cos.ts'
 import { requiredEnvironmentValue, resolveDesktopAutoUpdateEnvironment, resolveDesktopUploadConfig } from './desktop-auto-update-environment.mjs'
-import { desktopTargetPlatform } from './desktop-build-paths.mjs'
+import { desktopTargetPlatform, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createDesktopUploadPlan, type DesktopUploadPlan } from './desktop-upload-plan.ts'
 import { desktopReleaseTag, tagDesktopRelease } from './desktop-release-tag.ts'
@@ -105,7 +104,6 @@ export async function uploadDesktopTarget(args: string[]): Promise<void> {
   } catch (error) {
     throw new DesktopUploadUsageError('DSH_DESKTOP_AUTO_UPDATE_ENV must be "test" or "production".')
   }
-  const recordsRoot = resolve(import.meta.dirname, '../.desktop-build/upload-records')
   if (values['purge-only']) {
     await purgeDesktopInstaller(purgeConfig(environment, name))
     return
@@ -117,7 +115,7 @@ export async function uploadDesktopTarget(args: string[]): Promise<void> {
     secretKey: requiredEnvironmentValue(environment, plan.secretKeyEnvName),
   })
   process.stdout.write(`desktop upload: ${plan.target} ${plan.version} -> ${plan.publicUrl}\n`)
-  await uploadDesktopRelease(plan, cos, recordsRoot)
+  await uploadDesktopRelease(plan, cos, desktopTargetBuildPaths(name, environment).uploadRecords)
   if (purge !== undefined) {
     process.stdout.write('desktop upload: installer uploaded; submitting cache purge.\n')
     await purgeDesktopInstaller(purge)

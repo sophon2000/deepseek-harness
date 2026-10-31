@@ -17,6 +17,7 @@ import {
 } from './ffi.ts'
 import type { CurrentTokenProcessBindings, NativePtr, Win32ProcessBindings } from './ffi.ts'
 import { requireKoffi } from './koffi.ts'
+import { withAtomicJobList, type Win32OperationBindings } from './operation-native.ts'
 
 /**
  * Quote one argument according to CommandLineToArgvW parsing.
@@ -418,6 +419,7 @@ function spawnJobProcess(
   resolveStdio: () => ProcessStandardHandles,
   createName: 'CreateProcessAsUserW' | 'CreateProcessW',
   create: (startupInfo: NativePtr, processInfo: NativePtr) => number,
+  operation?: { api: Win32OperationBindings; job: NativePtr },
 ): SpawnedJobProcess {
   const job = createKillOnCloseJob(api)
   const enabled: NativePtr[] = []
@@ -463,8 +465,14 @@ function spawnJobProcess(
       },
     })
     processInfo = allocProcessInfo()
-    created = create(startupInfo, processInfo)
-    if (created === 0) createFailureCode = api.getLastError()
+    const createAndCapture = (startup: NativePtr): number => {
+      const result = create(startup, processInfo as NativePtr)
+      if (result === 0) createFailureCode = api.getLastError()
+      return result
+    }
+    created = operation === undefined
+      ? createAndCapture(startupInfo)
+      : withAtomicJobList(operation.api, startupInfo, [operation.job, job], createAndCapture)
   } catch (error) {
     freeNative(processInfo)
     api.closeHandle(job)
@@ -500,7 +508,7 @@ function spawnJobProcess(
     closeBestEffort(api, info.hProcess)
     throw new Error(`${createName} succeeded but returned null process/thread handles (pid ${info.dwProcessId})`)
   }
-  if (api.assignProcessToJobObject(job, info.hProcess) === 0) {
+  if (operation === undefined && api.assignProcessToJobObject(job, info.hProcess) === 0) {
     const win32Code = api.getLastError()
     api.terminateProcess(info.hProcess, 1)
     closeBestEffort(api, info.hThread)
@@ -570,6 +578,25 @@ export function spawnCurrentTokenJobProcess(
       startupInfo,
       processInfo,
     ))
+}
+
+/**
+ * Create directly in both operation and per-child Jobs, then resume; no assignment window exists.
+ * @param api - extended operation bindings.
+ * @param options - ordinary target inputs and stdio carriers.
+ * @param operationJob - authenticated, already-open operation Job under the durable admission lock.
+ * @returns runner-owned per-child Job and process handles; the operation Job remains caller-owned.
+ */
+export function spawnCurrentTokenOperationProcess(
+  api: Win32OperationBindings,
+  options: CurrentTokenProcessSpawnOptions,
+  operationJob: NativePtr,
+): SpawnedJobProcess {
+  const environment = encodeWindowsEnvironment(options.env)
+  return spawnJobProcess(api, options, () => targetCarrierHandles(api, options.stdio), 'CreateProcessW', (startup, info) =>
+    api.createProcessW(options.applicationName, buildCommandLine(options.command, options.args), null, null, 1,
+      abi.CREATE_SUSPENDED | abi.CREATE_UNICODE_ENVIRONMENT | abi.EXTENDED_STARTUPINFO_PRESENT, environment, options.cwd, startup, info),
+  { api, job: operationJob })
 }
 
 /**

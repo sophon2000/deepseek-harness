@@ -60,6 +60,7 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     readonly acceptsUndefined?: true
     readonly description?: string
     readonly codec: TypertCodec
+    readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   }
 
   export interface InvocationDescriptor {
@@ -71,10 +72,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     readonly mode?: 'stream'
     readonly invocation:
       | { readonly kind: 'direct' }
-      | { readonly kind: 'context'; readonly context: string; readonly wire: string; readonly codec: TypertCodec }
+      | { readonly kind: 'context'; readonly context: string; readonly wire: string; readonly codec: TypertCodec; readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }> }
     readonly scope?: { readonly context: string; readonly wire: string }
     readonly parameters: readonly InvocationParameterDescriptor[]
-    readonly uplink?: { readonly codec: TypertCodec }
+    readonly uplink?: { readonly codec: TypertCodec; readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }> }
     readonly cancellation?: { readonly parameter: 'signal' }
     readonly result: TypertCodec
     readonly description?: string

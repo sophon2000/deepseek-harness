@@ -23,6 +23,7 @@ import {
   type RuntimeInterception,
 } from '../src/profile-resolution/resolver.ts'
 import {
+  composeEntries,
   createRuntimeResolution,
   loadProfile,
   type Profile,
@@ -949,6 +950,75 @@ describe('runtime resolution', { concurrent: false }, () => {
     expect(() => resolveFrom(
       '@deepseek-ai/dsh-core', pathToFileURL(join(f.profile.dir, 'entry.mjs')).href,
     )).toThrow(/Cannot find/u)
+  })
+
+  it('resolves a selected bundle itself when its patch explicitly inserts that plugin', async () => {
+    const f = fixture()
+    const bundleDir = join(f.root, 'bundle')
+    const name = 'self-plugin-bundle'
+    pkg(bundleDir, name, 4)
+    const layer: Profile['layers'][number] = {
+      packageName: name,
+      packageDir: bundleDir,
+      patchPaths: [join(bundleDir, 'cordis.patch.yml')],
+      patches: [{ insert: [{ id: 'self-plugin', name }] }],
+    }
+    f.profile.layers.push(layer)
+    const entries = composeEntries(f.profile.layers.map(selected => selected.patches))
+    expect(entries).toEqual([{ id: 'self-plugin', name }])
+    const resolution = await resolutionOf(f)
+    expect(resolution.entries.find(entry => entry.name === name)).toMatchObject({
+      packageDir: bundleDir, scope: 'profile',
+    })
+    registrations.push(installRuntimeInterception(resolution))
+    const require = createRequire(join(f.profile.dir, 'entry.cjs'))
+    expect(require(name)).toBe(createRequire(join(bundleDir, 'entry.cjs'))(name))
+    expect(require(name)).toEqual({ marker: 4 })
+    expect(await importFrom(name, pathToFileURL(join(f.profile.dir, 'entry.mjs')).href))
+      .toBe(await importFrom(name, pathToFileURL(join(bundleDir, 'entry.mjs')).href))
+    expect(() => { createRequire(join(f.root, 'profiles', 'other', 'entry.cjs'))(name) })
+      .toThrow(/Cannot find module/u)
+    await expect(importFrom(name, pathToFileURL(join(f.root, 'profiles', 'other', 'entry.mjs')).href))
+      .rejects.toThrow(/Cannot find/u)
+
+    layer.patches = []
+    expect(composeEntries(f.profile.layers.map(selected => selected.patches))).toEqual([])
+  })
+
+  it('does not expose an unselected bundle package from the installation directory', async () => {
+    const f = fixture()
+    const name = 'unselected-bundle'
+    pkg(join(dirname(f.installAnchor), 'node_modules', name), name, 4)
+    const resolution = await resolutionOf(f)
+    expect(resolution.entries.some(entry => entry.name === name)).toBe(false)
+    registrations.push(installRuntimeInterception(resolution))
+    expect(() => { createRequire(join(f.profile.dir, 'entry.cjs'))(name) })
+      .toThrow(/Cannot find module/u)
+    await expect(importFrom(name, pathToFileURL(join(f.profile.dir, 'entry.mjs')).href))
+      .rejects.toThrow(/Cannot find/u)
+  })
+
+  it('keeps the installation instance when a selected bundle has the same package name', async () => {
+    const name = 'self-plugin-bundle'
+    const f = fixture(name)
+    const bundleDir = join(f.root, 'bundle')
+    pkg(bundleDir, name, 4)
+    f.profile.layers.push({
+      packageName: name,
+      packageDir: bundleDir,
+      patchPaths: [join(bundleDir, 'cordis.patch.yml')],
+      patches: [{ insert: [{ id: 'self-plugin', name }] }],
+    })
+    const resolution = await resolutionOf(f)
+    expect(resolution.entries.filter(entry => entry.name === name)).toMatchObject([
+      { packageDir: f.installed, scope: 'installation' },
+    ])
+    registrations.push(installRuntimeInterception(resolution))
+    const require = createRequire(join(f.profile.dir, 'entry.cjs'))
+    expect(require(name)).toBe(createRequire(f.installAnchor)(name))
+    expect(require(name)).toEqual({ marker: 1 })
+    expect(await importFrom(name, pathToFileURL(join(f.profile.dir, 'entry.mjs')).href))
+      .toBe(await importFrom(name, pathToFileURL(f.installAnchor).href))
   })
 
   it('limits bundle-only interception to ordinary lookup in the active profile', async () => {

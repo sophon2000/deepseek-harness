@@ -72,6 +72,9 @@ describe('profile package metadata service', () => {
     await ctx.plugin(PluginPackages, {
       resolution: await createRuntimeResolution({ installAnchor, home: root, profile: loadProfileDirectory('dsh', profileDir, installAnchor) }),
     })
+    expect(ctx.pluginPackages.resolution?.entries.find(entry => entry.name === 'extra'))
+      .toMatchObject({ packageDir: bundleDir, scope: 'profile' })
+    expect(ctx.pluginPackages.resolution?.localPackageNames).not.toContain('extra')
     expect(ctx.pluginPackages.packageOf('metadata-lib', parentURL)).toBeUndefined()
 
     pkg(privateDir, '1.0.0')
@@ -79,6 +82,7 @@ describe('profile package metadata service', () => {
     writeFileSync(join(profileDir, 'package.json'), JSON.stringify({ ...manifest, dependencies: { extra: '1.0.0' } }))
     await ctx.pluginPackages.refresh()
 
+    expect(ctx.pluginPackages.resolution?.localPackageNames).toContain('extra')
     expect(ctx.pluginPackages.packageOf('metadata-lib', parentURL)).toMatchObject({ dir: privateDir, version: '1.0.0' })
     expect(createRequire(join(profileDir, 'caller.cjs')).resolve('metadata-lib')).toBe(join(privateDir, 'index.cjs'))
   })

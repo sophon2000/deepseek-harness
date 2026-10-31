@@ -51,6 +51,8 @@ import { createProcessInspector } from './process-inspector.ts'
 import type { ProcessInspector } from './process-inspector.ts'
 import { LocalTerminalHandle } from './terminal.ts'
 import { prepareShellActivity } from './shell-activity.ts'
+import { WindowsOperationProvider } from './windows-operations.ts'
+import type { SubprocessOperationProvider, SubprocessOperationProviderOptions } from '@deepseek-ai/dsh-subprocess'
 
 const requireNodePty = createLazyRequire<typeof NodePty>('node-pty', import.meta.url)
 
@@ -62,6 +64,22 @@ const requireNodePty = createLazyRequire<typeof NodePty>('node-pty', import.meta
  * JavaScript-observable host exit also performs synchronous final termination.
  */
 export class LocalSubprocessRuntime extends SubprocessRuntime {
+  private readonly operationProviders = new Set<SubprocessOperationProvider>()
+  private operationAdmissionClosed = false
+
+  override operationProvider(options: SubprocessOperationProviderOptions): SubprocessOperationProvider {
+    if (this.operationAdmissionClosed) throw new Error('Local subprocess operation admission is closed')
+    if (process.platform !== 'win32') return super.operationProvider(options)
+    const provider = new WindowsOperationProvider(options, (spec, operation) => {
+      validateSubprocessSpec(spec)
+      const env = targetEnvironment(spec)
+      const internals: SpawnInternals = { ...this.internals, onSpillFailure: this.reportSpillFailure }
+      const binding = prepareManagedProcessBinding(internals)
+      return this.trackHandle(bindManagedProcess(spec, launchWindowsJob(spec, env, { operation }), binding))
+    })
+    this.operationProviders.add(provider)
+    return provider
+  }
   /** Live handles retained for normal disposal and synchronous host-exit finalization. */
   private live = new Set<LocalSubprocessHandle>()
   /** Live terminals retained through normal quiescence or host-exit finalization. */
@@ -120,6 +138,9 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
   }
 
   private async disposeManagedProcesses(): Promise<void> {
+    this.operationAdmissionClosed = true
+    const operationOutcomes = await Promise.allSettled([...this.operationProviders].map(provider => provider.dispose()))
+    this.operationProviders.clear()
     // Request termination, then await MANAGED-RANGE exit — not just the
     // direct command's settlement — so even a surviving descendant cannot
     // outlive the fiber. Keep both sets authoritative while these waits are
@@ -144,6 +165,9 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
     })))
     this.controlChannels.clear()
     const failures: unknown[] = []
+    for (const outcome of operationOutcomes) {
+      if (outcome.status === 'rejected') failures.push(outcome.reason)
+    }
     for (const outcome of outcomes) {
       if (outcome.status === 'rejected') failures.push(outcome.reason)
     }
@@ -211,6 +235,10 @@ export class LocalSubprocessRuntime extends SubprocessRuntime {
       handle = bindManagedProcess(spec, launch, binding)
       if (linuxScope !== undefined) this.watchLinuxScopeStart(handle.done, linuxScope.generation)
     }
+    return this.trackHandle(handle)
+  }
+
+  private trackHandle(handle: LocalSubprocessHandle): LocalSubprocessHandle {
     this.live.add(handle)
     const control = handle.control
     if (control !== undefined) {

@@ -8,6 +8,7 @@
     "src"
   ],
   "references": [
+    { "path": "../../packages/sdk/desktop-runtime-contract" },
     {
       "path": "../../packages/boot/app-boot"
     },
@@ -43,6 +44,9 @@
     },
     {
       "path": "../../packages/client/ui-file-actions"
+    },
+    {
+      "path": "../desktop-host"
     }
   ],
   "exclude": [

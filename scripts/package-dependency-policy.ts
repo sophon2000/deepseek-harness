@@ -17,6 +17,7 @@ const HOST_DEPENDENCY_PACKAGES: readonly string[] = [
 
 /** Required Cordis services whose Host imports are type-only. */
 const REQUIRED_SERVICE_PEERS = {
+  '@deepseek-ai/dsh-api-workspace-files': ['@deepseek-ai/dsh-session'],
   '@deepseek-ai/dsh-api-terminal-controller': ['@deepseek-ai/dsh-subprocess'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
@@ -32,6 +33,15 @@ const CONFIGURATION_ONLY_DEV_DEPENDENCIES = {
   '@deepseek-ai/dsh-client-ui-subagent': ['@deepseek-ai/dsh-client-ui-input-trigger'],
   '@deepseek-ai/dsh-client-ui-theme': ['@deepseek-ai/dsh-api-remotes'],
   '@deepseek-ai/dsh-client-ui-tool': ['@deepseek-ai/dsh-api-remotes'],
+} as const satisfies Readonly<Record<string, readonly string[]>>
+
+/** Type-only imports that must resolve in the published declaration graph. */
+const PUBLISHED_DECLARATION_DEPENDENCIES = {
+  '@deepseek-ai/dsh-api-gateway': ['@deepseek-ai/dsh-brand'],
+  '@deepseek-ai/dsh-client-connection': ['@deepseek-ai/dsh-brand', '@deepseek-ai/dsh-typert-protocol'],
+  '@deepseek-ai/dsh-typert-registry': ['@deepseek-ai/dsh-typert-protocol'],
+  '@deepseek-ai/dsh-llm': ['@deepseek-ai/dsh-attachment'],
+  '@deepseek-ai/dsh-session': ['@deepseek-ai/dsh-typert-protocol'],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
 /** Workspace packages whose complete runtime surface is safe across duplicate installations. */
@@ -101,6 +111,7 @@ export interface PackageDependencyPolicy {
   readonly hostPackages: readonly string[]
   readonly requiredServicePeers?: Readonly<Record<string, readonly string[]>>
   readonly configurationOnlyDevDependencies: Readonly<Record<string, readonly string[]>>
+  readonly publishedDeclarationDependencies?: Readonly<Record<string, readonly string[]>>
   readonly duplicateSafePackages?: readonly string[]
   readonly safeHostDependencyExports: HostDependencyExports
   readonly peerRequiredHostExports: HostDependencyExports
@@ -113,6 +124,7 @@ export const PACKAGE_DEPENDENCY_POLICY: PackageDependencyPolicy = {
   hostPackages: HOST_DEPENDENCY_PACKAGES,
   requiredServicePeers: REQUIRED_SERVICE_PEERS,
   configurationOnlyDevDependencies: CONFIGURATION_ONLY_DEV_DEPENDENCIES,
+  publishedDeclarationDependencies: PUBLISHED_DECLARATION_DEPENDENCIES,
   duplicateSafePackages: DUPLICATE_SAFE_PACKAGES,
   safeHostDependencyExports: SAFE_HOST_DEPENDENCY_EXPORTS,
   peerRequiredHostExports: PEER_REQUIRED_HOST_EXPORTS,

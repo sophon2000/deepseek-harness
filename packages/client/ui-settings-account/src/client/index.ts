@@ -200,7 +200,9 @@ export function apply(ctx: Context): void {
     subscribeModelSignInRequired: listener => ctx.remote.$on('deepseek-account/model-sign-in-required', listener),
     ...nativePlatform === undefined ? {} : { openPlatformPage: platformPageOpener(refreshAccount) },
     refreshAccount,
+    contactEnabled: config.contactEnabled,
     contactUs() {
+      if (!config.contactEnabled) return
       // Sample the account, build and environment before awaiting native information, so
       // a profile the read outlasts cannot replace the UID this click reported.
       const profile = snapshot.details?.profile
@@ -331,7 +333,9 @@ export function apply(ctx: Context): void {
     }, AccountPlatformHost))
   }
   ctx.remoteAccess.whenAccess('account/watch', () => ctx.slots.inject('settings.launcher', () => ctx.slots.register({
-    name: 'settings.launcher', locale: 'settings.account', inject: () => operations,
+    name: 'settings.launcher', locale: 'settings.account',
+    children: { 'settings.launcher.account': { kind: 'list', scope: 'root' } },
+    inject: () => ({ ...operations, accountMenuProviders: config.accountMenuProviders }),
   }, AccountMenu)))
   ctx.remoteAccess.whenAccess('account/watch', () => ctx.slots.inject('settings.section', () => {
     let unregister: (() => void) | undefined

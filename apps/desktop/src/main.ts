@@ -56,6 +56,7 @@ import { readDesktopLoginShellEnvironment, resolveDesktopLoginShellConfig } from
 import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig, type DesktopPolicyState } from './mandatory-update-policy.ts'
 import { desktopClientMetadata, desktopClientVersion } from './client-metadata.ts'
 import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
+import { MANDATORY_IPC } from './mandatory-update-ipc.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
 import { readDesktopSettings } from './settings.ts'
 import { readDesktopLocaleCache, writeDesktopLocaleCache } from './locale-cache.ts'
@@ -209,7 +210,7 @@ function runtimeResources(): RuntimeResources {
     ?? (development ? join(app.getAppPath(), 'node_modules', 'pnpm', 'bin', 'pnpm.mjs')
       : join(process.resourcesPath, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'))
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
-    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
+    ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(process.resourcesPath, 'dsh'))
   return { node, nodeBin, pnpm, dsh }
 }
 
@@ -373,6 +374,9 @@ async function main(): Promise<void> {
   const resources = runtimeResources()
   const paths = resolveDesktopPaths()
   const development = !app.isPackaged
+  if (!development && readDesktopRuntime(resources.dsh).product !== undefined) {
+    throw new Error('DSH Desktop cannot launch a product runtime; use the product-owned desktop application.')
+  }
   const primaryRuntime = development
     ? developmentPrimaryRuntime()
     : join(process.resourcesPath, 'runtime', 'primary-runtime')
@@ -391,6 +395,8 @@ async function main(): Promise<void> {
   let hostEnvironment: NodeJS.ProcessEnv = process.env
   const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
   let quitting = false
+  let closingMainForQuit = false
+  let discardMainOnQuit = false
   let startup: Promise<void> | undefined
   let workspaceRecovery: Promise<void> | undefined
   let mainWindow: BrowserWindow | undefined
@@ -420,7 +426,7 @@ async function main(): Promise<void> {
   let shellInstallerOwnsQuit = false
   let requireCleanStop = false
   let updateStoppedHost = false
-  let updateStopFailure: DesktopHostUncleanExitError | undefined
+  let updateStopFailure: Error | undefined
   let updateState: DesktopUpdateState = { phase: 'idle' }
   const systemLanguages = app.getPreferredSystemLanguages()
   let locale = windowsLanguage === undefined
@@ -712,12 +718,15 @@ async function main(): Promise<void> {
         // The embedded Platform document holds credentials issued by the Host that is about to stop.
         await platformView.closeAndWait()
         await disposeFileDrag().catch((error: unknown) => { console.error(error) })
+        // A normal quit can stop this attempt while admission and Platform cleanup are awaited.
+        // Select graceful teardown only while this is still the live backend; no await separates the check and stop.
+        if (backend.host !== host) throw new DesktopUpdatePreparationError('tasks-unavailable', locale.messages.updateTasksUnavailable)
         requireCleanStop = true
         updateStopFailure = undefined
         await Promise.all([backend.stop(), stopOperationReports()])
         updateStoppedHost = true
         // The backend's async cleanup callback can assign this after the reset above.
-        const stopFailure = updateStopFailure as DesktopHostUncleanExitError | undefined
+        const stopFailure = updateStopFailure as Error | undefined
         if (stopFailure !== undefined) throw new DesktopUpdatePreparationError('stop-failed', locale.messages.updateStopFailed, stopFailure.message)
         await operationJournal?.drain(500)
         updateJournal?.action('install-confirmed')
@@ -1176,7 +1185,7 @@ async function main(): Promise<void> {
     window.on('focus', automaticCheck)
     // Closing hides: the page and the Host keep running, and the next show resumes the same document.
     window.on('close', (event) => {
-      if (quitting || shellInstallerOwnsQuit || sessionEnding) return
+      if (quitting || closingMainForQuit || shellInstallerOwnsQuit || sessionEnding) return
       event.preventDefault()
       if (updateDialog.isOpen) { updateDialog.focus(); return }
       const hide = (): void => {
@@ -1196,6 +1205,22 @@ async function main(): Promise<void> {
       window.on('show', () => { sessionEnding = false })
     }
     window.on('closed', () => { if (mainWindow === window) mainWindow = undefined })
+    window.webContents.on('will-prevent-unload', (event) => {
+      if (quitting || shellInstallerOwnsQuit || sessionEnding) { event.preventDefault(); return }
+      if (!closingMainForQuit || mainWindow !== window) return
+      if (discardMainOnQuit) { event.preventDefault(); return }
+      // Keep the Host alive while the page protects drafts or an unknown command.
+      // The first close remains cancelled; only an explicit decision retries it.
+      window.show()
+      window.focus()
+      void dialog.showMessageBox(window, { type: 'warning', title: locale.messages.quitTitle,
+        message: locale.messages.quitUnsavedChanges, buttons: [locale.messages.quit, locale.messages.cancel],
+        defaultId: 1, cancelId: 1, noLink: true }).then((result) => {
+        if (window.isDestroyed() || quitting || shellInstallerOwnsQuit) return
+        if (result.response === 0) { discardMainOnQuit = true; window.close(); return }
+        cancelMainQuit(window)
+      }).catch((error: unknown) => { console.error(error); cancelMainQuit(window) })
+    })
     window.webContents.on('console-message', (details) => {
       if (details.level !== 'error') return
       rendererConsole.push(`${details.sourceId}:${String(details.lineNumber)} ${details.message}`)
@@ -1368,6 +1393,20 @@ async function main(): Promise<void> {
     ].map(cleanup => cleanup.catch((error: unknown) => { console.error(error) })))
       .then(() => { app.quit() })
   }
+  const cancelMainQuit = (window: BrowserWindow): void => {
+    closingMainForQuit = false
+    discardMainOnQuit = false
+    window.off('closed', finishQuit)
+    if (!window.isDestroyed()) { window.show(); window.focus() }
+  }
+  const closeMainForQuit = (): void => {
+    const window = mainWindow
+    if (!enteredWorkspace || window === undefined || window.isDestroyed()) { finishQuit(); return }
+    closingMainForQuit = true
+    window.once('closed', finishQuit)
+    try { window.close() }
+    catch (error) { console.error(error); cancelMainQuit(window) }
+  }
   app.on('before-quit', (event) => {
     if (shellInstallerOwnsQuit) {
       shuttingDown = true
@@ -1383,10 +1422,11 @@ async function main(): Promise<void> {
     }
     if (quitting) return
     event.preventDefault()
+    if (closingMainForQuit) return
     if (skipQuitConfirmation || sessionEnding) { finishQuit(); return }
     void quitConfirmation.confirm().then((approved) => {
       if (quitting || shellInstallerOwnsQuit) return
-      if (approved) { finishQuit(); return }
+      if (approved) { closeMainForQuit(); return }
       // A quit that started from closing the welcome window destroyed it; a cancelled quit needs it back.
       if (!enteredWorkspace && !recovery.active) void showWelcome().catch((error: unknown) => { reportFatal(error, 'main') })
     }).catch((error: unknown) => { console.error(error); if (!quitting && !shellInstallerOwnsQuit) finishQuit() })
@@ -1433,6 +1473,15 @@ async function main(): Promise<void> {
     void mandatoryPolicy.check('launch').then((state) => {
       if (app.isPackaged && state.error === 'authentication-required' && !isQuitting()) queuePolicyAuthentication()
     }).catch((error: unknown) => { console.error(error) })
+  } else {
+    // Development may explicitly omit policy; absence is a status response,
+    // while configured policy and its action validation retain their owner.
+    ipcMain.handle(MANDATORY_IPC.status, (event) => {
+      assertDesktopSender(event, ['app'])
+      if (mainWindow === undefined || event.sender !== mainWindow.webContents
+        || event.senderFrame !== mainWindow.webContents.mainFrame) throw new Error('desktop policy: rejected sender')
+      return undefined
+    })
   }
   automaticCheck()
   await reconcileBackend().catch(() => undefined)

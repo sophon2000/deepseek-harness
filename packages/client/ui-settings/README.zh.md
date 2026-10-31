@@ -116,3 +116,5 @@ kind: "package-reference"
 无。
 
 </details>
+
+账号启动器通过 `openSection(id)` 跳转到指定设置页。`settings.launcher.account` 列表传递启用的提供方标识、关闭菜单及设置导航操作，运行时由账号启动器声明。

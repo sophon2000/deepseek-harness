@@ -32,6 +32,7 @@ interface SentenceContract {
 const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/fs/fs-patch': 'The pure library only parses caller-supplied patch text and applies hunks to text; consumers own tools, execution, capture, and model output.',
   'packages/util/file-drag': 'The package resolves export names and declares native file operations; it does not construct model input.',
+  'packages/sdk/desktop-runtime-contract': 'Distributor resource validation and profile composition register no model-facing content; composed plugins own their effects.',
   'packages/core/scope': 'The package is a model-agnostic registration and lifecycle primitive; model-facing consumers own any context selection.',
   'packages/experimental/liveshare-protocol': 'The package only defines wire frames and identity values that its consumers exchange; it registers nothing model-facing.',
   'packages/util/brand': 'The package only constructs plain string values and registers nothing model-facing.',

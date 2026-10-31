@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-host-directory-picker",
   "description": "Abstract workspace-directory picking seam (ctx.directoryPicker) for the DeepSeek Harness web GUI host",
-  "version": "0.2.2-alpha.2",
+  "version": "0.2.2-alpha.2.vh.1.local.20261031.1",
   "publishConfig": {
     "access": "public"
   },
@@ -36,5 +36,8 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-brand": "workspace:*"
   }
 }
