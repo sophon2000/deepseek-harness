@@ -1,5 +1,6 @@
 /** Upload Desktop artifacts to COS and refresh production fixed downloads through EdgeOne. */
 
+import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import type { DesktopPackageTargetName } from './package-target.ts'
 import { createDesktopCos } from './desktop-cos.ts'
@@ -84,7 +85,9 @@ export async function uploadDesktopTarget(args: string[]): Promise<void> {
   }
   let fileEnvironment: NodeJS.ProcessEnv
   try {
-    fileEnvironment = loadDesktopPackageEnvironment(desktopTargetPlatform(name).platform)
+    const platform = desktopTargetPlatform(name).platform
+    if (platform !== 'darwin' && platform !== 'win32') throw new DesktopUploadUsageError('desktop upload: target does not support updates')
+    fileEnvironment = loadDesktopPackageEnvironment(platform)
   } catch (error) {
     throw new DesktopUploadUsageError('Cannot load target dotenv; check the target dotenv file and release settings.')
   }

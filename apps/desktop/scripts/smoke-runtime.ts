@@ -49,7 +49,7 @@ export async function smokeDesktopRuntime(
     host = new DesktopHostProcess(node, root, profile, undefined, { ...hostEnvironment, ...productEnvironment },
       undefined, join(resourcesRuntime, 'primary-runtime'),
       { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') },
-      undefined, runtime.product?.requiredServices)
+      undefined, undefined, runtime.product?.requiredServices)
     createPluginProfile(profile, runtime.product?.profileBundles)
     const pluginName = 'desktop-runtime-smoke-plugin'
     const plugin = join(home, pluginName)

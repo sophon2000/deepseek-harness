@@ -242,6 +242,13 @@ describe('product identifiers', () => {
     }
   })
 
+  it('rewrites YAML plugin names while retaining nested product configuration names', () => {
+    const file = 'packages/bundle/web-app/cordis.patch.yml'
+    const text = "- id: host\n  name: cordis\n  config:\n    name: cordis\n    nested:\n      name: 'cordis'\n- id: client\n  name: 'cordis/subpath'\n"
+    const scoped = "- id: host\n  name: @deepseek-ai/cordis\n  config:\n    name: cordis\n    nested:\n      name: 'cordis'\n- id: client\n  name: '@deepseek-ai/cordis/subpath'\n"
+    expectRoundTrip(file, text, scoped, 2)
+  })
+
   it.each(['scripts/rescope-vendor.spec.ts', 'scripts/gen-third-party-notices.spec.ts'])('keeps both package spellings in the fixture owner %s', (file) => {
     const text = "import 'cordis'\nimport '@deepseek-ai/cordis'\nconst fixture = \"import 'cosmokit'\"\n"
     expect(rescopeText(text, file)).toEqual({ text, lines: 0 })

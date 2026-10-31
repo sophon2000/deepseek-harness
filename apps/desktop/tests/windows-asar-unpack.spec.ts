@@ -138,7 +138,7 @@ it('includes the diagnostic worker in the archive selected by the shipping file 
   await writeFile(worker, 'export {}')
   await writeFile(excluded, 'export {}')
   const config = unsignedWindowsConfig('com.example.diagnostics', join(root, 'dsh'))
-  const filesConfig = config.files.map(entry => typeof entry === 'string' ? entry : { ...entry, filter: [...entry.filter] })
+  const filesConfig = [...config.files]
   const matchers = getFileMatchers({ files: filesConfig }, 'files', destination, {
     defaultSrc: appDir, globalOutDir: root, customBuildOptions: {}, macroExpander: value => value,
   })!

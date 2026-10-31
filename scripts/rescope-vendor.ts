@@ -517,12 +517,12 @@ function skipped(file: string, pattern: Pattern): boolean {
   return GENERIC_SKIPS.some(skip => skip.file === file && skip.upstream.includes(pattern.upstream))
 }
 
-function rewriteLine(line: string, file: string, all: readonly Pattern[], yaml = false): string {
+function rewriteLine(line: string, file: string, all: readonly Pattern[], yamlPluginName = false): string {
   let out = line
   for (const pattern of all) {
     const preserve = skipped(file, pattern)
     if (!preserve) out = out.replace(pattern.token, (_match, quote: string, subpath: string) => `${quote}${pattern.to}${subpath}${quote}`)
-    if (!preserve || yaml) {
+    if (!preserve || yamlPluginName) {
       out = out.replace(pattern.yamlName, (_match, prefix: string, quote: string, subpath: string, suffix: string) => `${prefix}${quote}${pattern.to}${subpath}${quote}${suffix}`)
     }
   }
@@ -573,7 +573,8 @@ function rewriteModules(text: string, file: string, all: readonly Pattern[], sou
 /**
  * Rewrite eligible source, fences and docs prose. Audited names in source and
  * TypeScript/JavaScript fences change only in module syntax; YAML names remain
- * eligible too. Other names retain the token rule. Prose outside docs is kept.
+ * eligible at sequence-item mapping level; nested configuration names stay product data.
+ * Other names retain the token rule. Prose outside docs is kept.
  */
 function rewrite(text: string, file: string, all: readonly Pattern[]): { text: string; lines: number } {
   const markdown = file.endsWith('.md')
@@ -583,6 +584,7 @@ function rewrite(text: string, file: string, all: readonly Pattern[]): { text: s
   if (!markdown && /\.(ts|tsx|js|mjs|cjs|tpl)$/.test(file)) source = rewriteModules(text, file, all)
   let fenceStart: number | undefined
   let language = ''
+  const yamlRows: number[] = []
   const out = source.split('\n')
   const finishFence = (end: number): void => {
     if (fenceStart === undefined || fenceStart === end || !/^(?:[cm]?[jt]sx?|typescript|javascript)?$/.test(language)) return
@@ -594,6 +596,7 @@ function rewrite(text: string, file: string, all: readonly Pattern[]): { text: s
     if (markdown) {
       const fence = /^\s*```(\S*)/.exec(line)
       if (fence) {
+        yamlRows.length = 0
         if (fenceStart === undefined) {
           fenceStart = index + 1
           language = fence[1] ?? ''
@@ -605,7 +608,20 @@ function rewrite(text: string, file: string, all: readonly Pattern[]): { text: s
       }
       if (fenceStart === undefined && !prose) continue
     }
-    out[index] = rewriteLine(line, file, all, /\.ya?ml$/.test(file) || (fenceStart !== undefined && (language === 'yaml' || language === 'yml')))
+    const yaml = /\.ya?ml$/.test(file) || (fenceStart !== undefined && (language === 'yaml' || language === 'yml'))
+    let yamlPluginName = false
+    const content = line.trimStart()
+    if (yaml && content !== '' && !content.startsWith('#')) {
+      const indent = line.length - content.length
+      const item = /^-\s+\S/.test(content)
+      for (let row = yamlRows.at(-1); row !== undefined && (row > indent || (item && row === indent)); row = yamlRows.at(-1)) {
+        yamlRows.pop()
+      }
+      if (item) yamlRows.push(indent + 2)
+      yamlPluginName = /^-\s+name:/.test(content)
+        || (yamlRows.at(-1) === indent && /^name:/.test(content))
+    }
+    out[index] = rewriteLine(line, file, all, yamlPluginName)
   }
   if (fenceStart !== undefined) finishFence(out.length)
   return { text: out.join('\n'), lines: out.filter((line, index) => line !== original[index]).length }
