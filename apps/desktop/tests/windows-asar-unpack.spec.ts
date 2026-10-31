@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -12,7 +12,7 @@ import { prepareWindowsAsarUnpack, verifyWindowsAsarUnpack } from '../scripts/wi
 import { createElectronBuilderConfig } from '../scripts/electron-builder-config.mjs'
 import { verifyRuntimeArchive } from '../scripts/verify-runtime-archive.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
-import { inventoryDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
+import { inventoryDesktopRuntime, writeDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 
 vi.mock('../scripts/windows-sign.mjs', async importOriginal => ({
   ...await importOriginal<typeof import('../scripts/windows-sign.mjs')>(),
@@ -25,7 +25,7 @@ vi.mock('../scripts/windows-runtime-signature.mjs', async importOriginal => ({
   signWindowsCode: async () => {},
 }))
 // Vite's root-relative IDs also resolve mocked build outputs on a clean checkout.
-vi.mock('/apps/desktop/lib/types/runtime-tree.js', () => ({ verifyDesktopRuntime: async () => {} }))
+vi.mock('/apps/desktop/lib/types/runtime-tree.js', async () => import('../src/runtime-tree.ts'))
 vi.mock('/apps/desktop/lib/types/mandatory-update-policy.js', async () => import('../src/mandatory-update-policy.ts'))
 vi.mock('node:crypto', async importOriginal => ({
   ...await importOriginal<typeof import('node:crypto')>(),
@@ -123,6 +123,33 @@ async function packageFixture(input: Awaited<ReturnType<typeof fixture>>) {
   await new AsarPackager({ info: { getWorkspaceRoot: async () => input.root } }, {
     defaultDestination: destination, resourcePath: input.resources, options: {}, unpackPattern: matchers[0]!.createFilter(),
   }).pack([{ src: mapping.from, destination: join(destination, 'dsh'), files, metadata }])
+}
+
+async function sealExternalRuntime(input: Awaited<ReturnType<typeof fixture>>): Promise<void> {
+  for (const name of ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host']) {
+    const directory = join(input.source, 'node_modules', name)
+    await mkdir(join(directory, 'lib'), { recursive: true })
+    await writeFile(join(directory, 'package.json'), JSON.stringify({ name, version: '1.0.0' }))
+    for (const entry of ['index.js', 'cli.js']) await writeFile(join(directory, 'lib', entry), 'export {}')
+  }
+  writeDesktopRuntime(input.source, {
+    schemaVersion: 1, version: '1.0.0', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
+    nodeVersion: process.versions.node, pnpmVersion: '11.7.0',
+  }, ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host'], { platform: 'win32', arch: 'x64' })
+}
+
+async function packageExternalRuntime(
+  input: Awaited<ReturnType<typeof fixture>>, config: ReturnType<typeof createElectronBuilderConfig>,
+): Promise<void> {
+  const mappings = config.extraResources.filter(entry => typeof entry !== 'string' && entry.to === 'dsh')
+  expect(mappings).toEqual([{ from: input.source, to: 'dsh' }])
+  expect(config.extraResources).toContainEqual({ from: join(input.source, 'node_modules'), to: 'dsh/node_modules' })
+  expect(config.files.every(entry => typeof entry === 'string')).toBe(true)
+  await cp(input.source, join(input.resources, 'dsh'), { recursive: true })
+  const destination = join(input.resources, 'app')
+  await new AsarPackager({ info: { getWorkspaceRoot: async () => input.root } }, {
+    defaultDestination: destination, resourcePath: input.resources, options: {}, unpackPattern: () => false,
+  }).pack([{ src: input.appDir, destination, files: [], metadata: new Map() }])
 }
 
 it('includes the diagnostic worker in the archive selected by the shipping file rules', async () => {
@@ -226,20 +253,22 @@ it.each([true, false])('validates the real builder hook for unsigned=%s', async 
     DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: JSON.stringify({ allowedAuthOrigins: ['https://login.example.com'] }),
     DSH_DESKTOP_TARGET_PLATFORM: 'win32', DSH_DESKTOP_TARGET_ARCH: 'x64', DSH_DESKTOP_UNSIGNED: unsigned ? '1' : '0',
     DSH_DESKTOP_WINDOWS_CER_FILE: certificate, DOWNLOAD_TEST_ORIGIN: 'https://updates.example.com', DOWNLOAD_TEST_RELEASE_ID: '0123456789abcdef0123456789abcdef',
-  }, 'win32', 'x64', input.source)
+  }, 'win32', 'x64', input.source, '1.0.0')
   // Qualification replaces files after creating the base configuration; builder owns a separate config object.
   input.config.asarUnpack = [...config.asarUnpack]
+  await sealExternalRuntime(input)
   await config.beforePack(input.context)
-  await packageFixture(input)
+  await packageExternalRuntime(input, config)
   await config.afterPack(input.context)
   if (!unsigned) await config.afterSign(input.context)
-  const file = join(input.resources, 'app.asar.unpacked', 'dsh', 'node_modules', 'foo', 'custom.binary')
+  const file = join(input.resources, 'dsh', 'node_modules', 'foo', 'custom.binary')
+  const original = await readFile(file)
   await writeFile(file, 'changed after packaging')
-  if (unsigned) await expect(config.afterPack(input.context)).rejects.toThrow('PE bytes changed')
-  else {
-    await config.afterPack(input.context)
-    await expect(config.afterSign(input.context)).rejects.toThrow('PE bytes changed')
-  }
+  await expect(config.afterPack(input.context)).rejects.toThrow('integrity verification failed')
+  if (!unsigned) await expect(config.afterSign(input.context)).rejects.toThrow('integrity verification failed')
+  await writeFile(file, original)
+  await rm(join(input.resources, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js'))
+  await expect(config.afterPack(input.context)).rejects.toThrow('missing child-process entrypoint')
 })
 
 it.each([false, true])('unpacks platform ripgrep executables with external source=%s', async (external) => {
@@ -277,16 +306,22 @@ it.each([false, true])('keeps the complete Office engine outside ASAR with exter
   await writeFile(wasm, '{}')
   const config = unsignedWindowsConfig('com.example.office', input.source)
   input.config.asarUnpack = [...config.asarUnpack]
+  await sealExternalRuntime(input)
   await config.beforePack(input.context)
-  await packageFixture(input)
+  await packageExternalRuntime(input, config)
   const archive = await readAsar(join(input.resources, 'app.asar'))
-  expect(archive.getFile(join('dsh', 'node_modules', '@deepseek-ai', 'libreoffice-kit-wasm', 'package.json')).unpacked).not.toBe(true)
+  expect(() => archive.getFile(join('dsh', 'node_modules', '@deepseek-ai', 'libreoffice-kit-wasm', 'package.json'))).toThrow()
+  expect(await readFile(join(input.resources, 'dsh', 'node_modules', '@deepseek-ai', 'libreoffice-kit-wasm', 'package.json'), 'utf8')).toBe('{}')
   for (const name of ['@deepseek-ai/libreoffice-kit', 'office-codec']) {
-    expect(archive.getFile(join('dsh', 'node_modules', name, 'cli.js')).unpacked).toBe(true)
+    expect(() => archive.getFile(join('dsh', 'node_modules', name, 'cli.js'))).toThrow()
+    expect(await readFile(join(input.resources, 'dsh', 'node_modules', name, 'cli.js'), 'utf8')).toBe('export {}')
+  }
+  for (const entry of ['index.js', 'cli.js']) {
+    expect(await readFile(join(input.resources, 'dsh', 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', entry), 'utf8')).toBe('export {}')
   }
   for (const file of files) {
-    expect(archive.getFile(join('dsh', engine, file), false).unpacked).toBe(true)
-    expect(await readFile(join(input.resources, 'app.asar.unpacked', 'dsh', engine, file), 'utf8')).toBe('{}')
+    expect(() => archive.getFile(join('dsh', engine, file), false)).toThrow()
+    expect(await readFile(join(input.resources, 'dsh', engine, file), 'utf8')).toBe('{}')
   }
 })
 

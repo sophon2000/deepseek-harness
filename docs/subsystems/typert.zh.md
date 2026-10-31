@@ -86,6 +86,8 @@ interface InvocationParameterDescriptor {
   readonly lookup?: string
   /** Boundary codec for the wire representation. */
   readonly codec: TypertCodec
+  /** Closed generated request codec used by Host dispatch; ordinary and result codecs retain their declared behavior. */
+  readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   /** Missing wire fields decode to `undefined` only for an explicitly declared `T | undefined`. */
   readonly acceptsUndefined?: true
 }
@@ -114,6 +116,8 @@ interface InvocationDescriptor {
       readonly context: string
       readonly wire: string
       readonly codec: TypertCodec
+      /** Generated closed-object identity codec preferred by Host admission. */
+      readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
     }
   /** Optional consuming-Context projection for one direct lookup parameter. */
   readonly scope?: {
@@ -133,6 +137,8 @@ interface InvocationDescriptor {
   readonly uplink?: {
     /** Codec validating every uplink item before `uplink()` delivers it. */
     readonly codec: TypertCodec
+    /** Generated closed-object codec preferred before Host uplink delivery. */
+    readonly strictCodec?: Extract<TypertCodec, { readonly mode: 'strict' }>
   }
   /** Transport cancellation injected after business parameters instead of entering wire args. */
   readonly cancellation?: {
@@ -437,15 +443,20 @@ type TypertGatewayErrorCode =
 ```ts type-equiv
 /** Host dispatcher consumed by Connection adapters. */
 interface TypertGateway {
+  /** Whether this Gateway requires current typed definitions for business admission and dispatch. */
+  readonly requiresTypedDefinitions: boolean
   /** Carrier adapter shared by WebSocket and in-process transports. */
   readonly wireStream: TypertGatewayWireStream
+
   /**
    * Check for an active owner Client event stream, the only kind that can answer forwarded waterfalls.
    * @returns whether an owner stream is open and has not been cancelled.
    */
   hasLiveClient(): boolean
+
   /** @returns detached metadata for all unsettled forwarded events in arrival order. */
   getPendingRemoteEvents(): readonly PendingRemoteEventInfo[]
+
   /**
    * Register the application-selected forwarded-event source.
    * @param source - stream factory installed by the Remote assembly.
@@ -456,6 +467,7 @@ interface TypertGateway {
     source: TypertRemoteEventSource,
     host: RemoteEventHostInfo,
   ): () => Promise<void>
+
   /**
    * Invoke one live Remote method without assuming a carrier or response envelope.
    * @param request - decoded endpoint and named wire arguments.
@@ -463,6 +475,7 @@ interface TypertGateway {
    * @throws {@link TypertGatewayError} for dispatch, provider, or boundary failures; lookup-policy and business errors retain identity.
    */
   invoke(request: InvokeRemoteRequest): Promise<unknown>
+
   /**
    * Open one live stream Remote method without assuming a physical carrier.
    * @param request - decoded endpoint, named wire arguments, and the Client uplink when the carrier has one.

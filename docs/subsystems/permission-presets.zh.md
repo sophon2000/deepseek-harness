@@ -104,6 +104,16 @@ Owns the deployment's configured permission presets, the fixed Auto integration 
 registerAuto(admit: () => void): () => Promise<void>
 
 /**
+ * Read current permission facts for an authorization that spans an await.
+ * The same object is retained across unrelated events. Every permission or
+ * seed event replaces it, including a change away and back to equal values.
+ * Callers must not mutate this read-only view; activation must be complete.
+ * @param session - Session whose authorization state is read.
+ * @returns the current state identity and its persisted permission facts.
+ */
+authorizationState(session: Session): Readonly<PermissionAuthorizationState>
+
+/**
  * Resolve the preset matching the effective knob values. A still-matching
  * last selection wins shared-bundle ties, and a still-selected Auto also
  * matches the `never` approval policy; otherwise the first configured

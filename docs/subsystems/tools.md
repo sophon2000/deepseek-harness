@@ -28,6 +28,13 @@ interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
+   * Validate frozen model arguments before policy or approval. Invalid values
+   * become the registry runtime's ToolArgsError / INVALID_ARGS identity.
+   * Providers without this callback validate at execution, such as MCP servers.
+   * @param args - losslessly snapshotted, frozen model arguments.
+   */
+  validateArgs?(args: unknown): void
+  /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
    * owned work reaches quiescence. The executor preserves caller cancellation
@@ -464,9 +471,9 @@ A `ToolGuard` is scope-aware final pre-dispatch policy. Its return type delibera
  * returning `undefined` leaves it unchanged. Because guards have no allow
  * result, listener ordering cannot turn a denial back into permission.
  * @param execution - the identity-protected call after extensible pre-execute policy completed.
- * @returns a final denial reason, or `undefined` to leave the call allowed.
+ * @returns a final denial reason, or `undefined` to leave the call allowed; asynchronous guards settle serially.
  */
-type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined
+type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>
 ```
 
 ```ts type-equiv
@@ -733,9 +740,10 @@ guard(guard: ToolGuard): () => void
 /**
  * Check global and inherited guards after pre-execute policy and approval resolve.
  * @param exec - invocation whose guards are checked before dispatch.
- * @returns the first denial reason, or undefined when no guard denies.
+ * @param callerCancelled - original caller cancellation; omitted checks the execution signal.
+ * @returns the first denial reason, or undefined when no guard denies; awaits each live guard before dispatch.
  */
-checkGuards(exec: ToolExecution): string | undefined
+async checkGuards(exec: ToolExecution, callerCancelled: () => boolean = () => exec.signal.aborted): Promise<string | undefined>
 ```
 
 Types: [ScopeKey](scope.md)

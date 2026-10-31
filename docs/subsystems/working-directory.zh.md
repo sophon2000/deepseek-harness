@@ -47,6 +47,16 @@ get(session: Session): string
 ensure(agent: Agent, signal?: AbortSignal): Promise<string>
 
 /**
+ * Pin the first validated directory for one tool execution without changing its arguments.
+ * Guards and the body must pass the same execution object, not a copy. Later
+ * Session directory changes apply to later executions. Every lookup still
+ * checks cancellation and service/Agent lifetime; pending checks drain as in {@link ensure}.
+ * @param execution - real execution object shared by terminal guards and the body.
+ * @returns the execution's directory, or undefined for a call without an Agent.
+ */
+ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined>
+
+/**
  * Change one Session's directory without changing existing processes or permissions.
  * @param agent - live or unpublished Agent owning the Session.
  * @param path - absolute path or a path relative to its current directory.

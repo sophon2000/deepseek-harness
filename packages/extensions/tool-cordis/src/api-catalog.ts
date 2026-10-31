@@ -2177,6 +2177,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the async effect disposer that removes Auto.',
       },
       {
+        signature: 'authorizationState(session: Session): Readonly<PermissionAuthorizationState>',
+        description: 'Read current permission facts for an authorization that spans an await. The same object is retained across unrelated events. Every permission or seed event replaces it, including a change away and back to equal values. Callers must not mutate this read-only view; activation must be complete.',
+        parameters: [{ name: 'session', description: 'Session whose authorization state is read.' }],
+        returns: 'the current state identity and its persisted permission facts.',
+      },
+      {
         signature: 'current(session: Session): string',
         description: 'Resolve the preset matching the effective knob values. A still-matching last selection wins shared-bundle ties, and a still-selected Auto also matches the `never` approval policy; otherwise the first configured match wins. Returns CUSTOM_PRESET when no available preset matches.',
         parameters: [{ name: 'session', description: 'the session whose knob state is read.' }],
@@ -3762,6 +3768,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis\' standard duplicate-service behavior).\n\nImplementations must honor these semantics:\n\n- Executable paths belong to one execution world shared with the mounted filesystem provider.\n- spawn returns a live handle synchronously. Target identity remains provider-private; `done` resolves with the spawned command\'s exit facts and may reject for spawn or provider failures.\n- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another\'s output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.\n- SubprocessHandle.terminate (and the spec\'s abort signal) starts the provider\'s documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its signalling and observability limits.\n- Disposal of the service terminates all still-running managed processes and awaits their exit.\n- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.',
     methods: [
       {
+        signature: 'operationProvider(_options: SubprocessOperationProviderOptions): SubprocessOperationProvider',
+        description: 'Select opt-in durable operation ownership without launching processes.',
+        parameters: [{ name: '_options', description: 'trusted storage configuration, unused by an unsupported provider.' }],
+        returns: 'an unsupported provider unless this execution world implements recovery.',
+      },
+      {
         signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
         description: 'Resolve one configured executable in this provider\'s execution world. Absolute paths are verified; bare names use the provider\'s scrubbed PATH plus explicit environment overrides. Relative paths containing separators are rejected: the resolution base is undefined, so providers fail loud instead of guessing.',
         parameters: [{ name: 'command', description: 'absolute executable path or bare PATH name.' }, { name: 'env', description: 'explicit environment entries used for lookup.' }, { name: 'signal', description: 'aborts remote or local lookup.' }],
@@ -4123,10 +4135,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the effect disposer that removes this guard.',
       },
       {
-        signature: 'checkGuards(exec: ToolExecution): string | undefined',
+        signature: 'async checkGuards(exec: ToolExecution, callerCancelled: () => boolean = () => exec.signal.aborted): Promise<string | undefined>',
         description: 'Check global and inherited guards after pre-execute policy and approval resolve.',
-        parameters: [{ name: 'exec', description: 'invocation whose guards are checked before dispatch.' }],
-        returns: 'the first denial reason, or undefined when no guard denies.',
+        parameters: [{ name: 'exec', description: 'invocation whose guards are checked before dispatch.' }, { name: 'callerCancelled', description: 'original caller cancellation; omitted checks the execution signal.' }],
+        returns: 'the first denial reason, or undefined when no guard denies; awaits each live guard before dispatch.',
       },
     ],
   },
@@ -4152,6 +4164,41 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Translate one resolved specification; the selected provider receives its text.',
         parameters: [{ name: 'spec', description: 'complete routing and language choices from `resolve()`.' }, { name: 'signal', description: 'optional caller cancellation, combined with service disposal.' }],
         returns: 'translated plain text, durably retained before return when a Session is supplied. An uncached supplied Session must be active; otherwise rejects with `TRANSLATION_SESSION_INACTIVE` before dispatch. Rejects provider/storage/limit failures and preserves cancellation reasons.',
+      },
+    ],
+  },
+  {
+    key: 'trustedFilePicker',
+    summary: 'Desktop-only registry and single-dialog reservation owned by the Host process.',
+    description: 'Desktop-only registry and single-dialog reservation owned by the Host process.',
+    methods: [
+      {
+        signature: 'register(provider: TrustedFilePickerProvider): () => void',
+        description: 'Register the trusted consumer from the Desktop composition, never from wire input.',
+        parameters: [{ name: 'provider', description: 'Sole ledger owner; duplicate registration throws.' }],
+        returns: 'Disposer that revokes the live selection before removing its owner.',
+      },
+      {
+        signature: 'async validate(challenge: TrustedFilePickerChallenge): Promise<TrustedFilePickerSpec | null>',
+        description: 'Reserve a dialog after validating a trusted parent challenge.',
+        parameters: [{ name: 'challenge', description: 'Challenge delivered exclusively by parent IPC.' }],
+        returns: 'A reserved dialog description, or null.',
+      },
+      {
+        signature: 'async complete(challenge: TrustedFilePickerChallenge, selectedPath: string | null): Promise<TrustedFilePickerStatus>',
+        description: 'Complete the reserved dialog with the trusted main-process result.',
+        parameters: [{ name: 'challenge', description: 'Reserved challenge.' }, { name: 'selectedPath', description: 'Main-owned dialog result only.' }],
+        returns: 'Admission status; replay and stale claims are rejected.',
+      },
+      {
+        signature: 'revoke(challenge: TrustedFilePickerChallenge): void',
+        description: 'Revoke a reservation or an unconsumed selection after acknowledgement loss.',
+        parameters: [{ name: 'challenge', description: 'Pending or selected-unconsumed challenge to revoke.' }],
+      },
+      {
+        signature: 'cancel(): void',
+        description: 'End parent transport lifetime before shutdown or disconnection.',
+        parameters: [],
       },
     ],
   },
@@ -4454,6 +4501,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'agent', description: 'live or unpublished Agent owning the Session.' }, { name: 'signal', description: 'cancellation for filesystem inspection.' }],
         returns: 'the existing directory; recovery is committed before fulfillment. A notice failure is warned without reverting the committed state.',
         throws: ['when the original project is also unavailable.'],
+      },
+      {
+        signature: 'ensureForExecution(execution: WorkingDirectoryExecution): Promise<string | undefined>',
+        description: 'Pin the first validated directory for one tool execution without changing its arguments. Guards and the body must pass the same execution object, not a copy. Later Session directory changes apply to later executions. Every lookup still checks cancellation and service/Agent lifetime; pending checks drain as in ensure.',
+        parameters: [{ name: 'execution', description: 'real execution object shared by terminal guards and the body.' }],
+        returns: 'the execution\'s directory, or undefined for a call without an Agent.',
       },
       {
         signature: 'set(agent: Agent, path: string, signal?: AbortSignal): Promise<string>',
@@ -6729,11 +6782,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'InvocationDescriptor',
-    declaration: 'export interface InvocationDescriptor {\n    readonly id: string;\n    readonly service: string;\n    readonly namespace: string;\n    readonly method: string;\n    readonly implementation?: string;\n    readonly mode?: \'stream\';\n    readonly invocation: {\n        readonly kind: \'direct\';\n    } | {\n        readonly kind: \'context\';\n        readonly context: string;\n        readonly wire: string;\n        readonly codec: TypertCodec;\n    };\n    readonly scope?: {\n        readonly context: string;\n        readonly wire: string;\n    };\n    readonly parameters: readonly InvocationParameterDescriptor[];\n    readonly uplink?: {\n        readonly codec: TypertCodec;\n    };\n    readonly cancellation?: {\n        readonly parameter: \'signal\';\n    };\n    readonly result: TypertCodec;\n    readonly description?: string;\n    readonly sourceLocation?: InvocationSourceLocation;\n}',
+    declaration: 'export interface InvocationDescriptor {\n    readonly id: string;\n    readonly service: string;\n    readonly namespace: string;\n    readonly method: string;\n    readonly implementation?: string;\n    readonly mode?: \'stream\';\n    readonly invocation: {\n        readonly kind: \'direct\';\n    } | {\n        readonly kind: \'context\';\n        readonly context: string;\n        readonly wire: string;\n        readonly codec: TypertCodec;\n        readonly strictCodec?: Extract<TypertCodec, {\n            readonly mode: \'strict\';\n        }>;\n    };\n    readonly scope?: {\n        readonly context: string;\n        readonly wire: string;\n    };\n    readonly parameters: readonly InvocationParameterDescriptor[];\n    readonly uplink?: {\n        readonly codec: TypertCodec;\n        readonly strictCodec?: Extract<TypertCodec, {\n            readonly mode: \'strict\';\n        }>;\n    };\n    readonly cancellation?: {\n        readonly parameter: \'signal\';\n    };\n    readonly result: TypertCodec;\n    readonly description?: string;\n    readonly sourceLocation?: InvocationSourceLocation;\n}',
   },
   {
     name: 'InvocationParameterDescriptor',
-    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly description?: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypertCodec;\n    readonly acceptsUndefined?: true;\n}',
+    declaration: 'export interface InvocationParameterDescriptor {\n    readonly name: string;\n    readonly description?: string;\n    readonly wire: string;\n    readonly source: \'json\' | \'lookup\';\n    readonly lookup?: string;\n    readonly codec: TypertCodec;\n    readonly strictCodec?: Extract<TypertCodec, {\n        readonly mode: \'strict\';\n    }>;\n    readonly acceptsUndefined?: true;\n}',
   },
   {
     name: 'InvocationSourceLocation',
@@ -6870,6 +6923,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'JsonValue',
     declaration: 'export type JsonValue = null | boolean | number | string | JsonValue[] | {\n    [key: string]: JsonValue;\n};',
+  },
+  {
+    name: 'KnobState',
+    declaration: 'export interface KnobState {\n    preset: string | null;\n    sandbox: SandboxMode | null;\n    approval: ApprovalPolicy | null;\n}',
   },
   {
     name: 'KvFacet',
@@ -7426,6 +7483,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'PendingRemoteEventInfo',
     declaration: 'export interface PendingRemoteEventInfo {\n    readonly event: string;\n    readonly agentId: RemoteEventAgentId;\n}',
+  },
+  {
+    name: 'PermissionAuthorizationState',
+    declaration: 'export interface PermissionAuthorizationState extends Readonly<KnobState> {\n    readonly seeded: boolean;\n}',
   },
   {
     name: 'PermissionCatalog',
@@ -9244,6 +9305,34 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubprocessHandle {\n    readonly stdin: Writable | undefined;\n    readonly stdout: Readable | undefined;\n    readonly stderr: Readable | undefined;\n    readonly control: Duplex | undefined;\n    readonly collected: SubprocessCollectedOutputs;\n    readonly done: Promise<SubprocessOutcome>;\n    terminate(): void;\n    waitForExit(signal?: AbortSignal): Promise<boolean>;\n}',
   },
   {
+    name: 'SubprocessOperationDescriptor',
+    declaration: 'export interface SubprocessOperationDescriptor {\n    readonly providerKind: string;\n    readonly providerVersion: number;\n    readonly locator: SubprocessOperationLocator;\n    readonly ownerKey: SubprocessOperationOwnerKey;\n}',
+  },
+  {
+    name: 'SubprocessOperationLocator',
+    declaration: 'export type SubprocessOperationLocator = Branded<\'SubprocessOperationLocator\'>;',
+  },
+  {
+    name: 'SubprocessOperationOwnerKey',
+    declaration: 'export type SubprocessOperationOwnerKey = Branded<\'SubprocessOperationOwnerKey\'>;',
+  },
+  {
+    name: 'SubprocessOperationProvider',
+    declaration: 'export interface SubprocessOperationProvider {\n    create(ownerKey: SubprocessOperationOwnerKey): Promise<{\n        readonly kind: \'created\';\n        readonly scope: SubprocessOperationScope;\n    } | Extract<SubprocessOperationRecovery, {\n        kind: \'unsupported\';\n    }>>;\n    recover(descriptor: SubprocessOperationDescriptor | undefined, expectedOwnerKey: SubprocessOperationOwnerKey, signal?: AbortSignal): Promise<SubprocessOperationRecovery>;\n    verify(proof: SubprocessQuiescenceProof, descriptor: SubprocessOperationDescriptor, expectedOwnerKey: SubprocessOperationOwnerKey): boolean;\n    dispose(): Promise<void>;\n}',
+  },
+  {
+    name: 'SubprocessOperationProviderOptions',
+    declaration: 'export interface SubprocessOperationProviderOptions {\n    readonly stateDirectory: string;\n}',
+  },
+  {
+    name: 'SubprocessOperationRecovery',
+    declaration: 'export type SubprocessOperationRecovery = {\n    readonly kind: \'sealed-quiescent\';\n    readonly proof: SubprocessQuiescenceProof;\n} | {\n    readonly kind: \'active\';\n    readonly sealed: boolean;\n    readonly reason: \'busy\' | \'aborted\' | \'draining\';\n} | {\n    readonly kind: \'unverifiable\';\n    readonly reason: SubprocessRecoveryFailure;\n    readonly detail: string;\n} | {\n    readonly kind: \'unsupported\';\n    readonly providerKind: string;\n    readonly providerVersion: number;\n};',
+  },
+  {
+    name: 'SubprocessOperationScope',
+    declaration: 'export interface SubprocessOperationScope {\n    readonly descriptor: SubprocessOperationDescriptor;\n    spawn(spec: SubprocessSpawnSpec): SubprocessHandle;\n    seal(signal?: AbortSignal): Promise<SubprocessOperationRecovery>;\n}',
+  },
+  {
     name: 'SubprocessOutcome',
     declaration: 'export interface SubprocessOutcome {\n    exitCode: number | null;\n    signal: NodeJS.Signals | null;\n}',
   },
@@ -9258,6 +9347,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SubprocessOutputReader',
     declaration: 'export interface SubprocessOutputReader {\n    readFrom(fromByte: number): SubprocessOutputRead;\n}',
+  },
+  {
+    name: 'SubprocessQuiescenceProof',
+    declaration: 'export interface SubprocessQuiescenceProof {\n    readonly [proofBrand]: true;\n}',
+  },
+  {
+    name: 'SubprocessRecoveryFailure',
+    declaration: 'export type SubprocessRecoveryFailure = \'legacy-no-scope\' | \'identity-mismatch\' | \'boot-mismatch\' | \'store-failure\' | \'native-failure\';',
   },
   {
     name: 'SubprocessSpawnSpec',
@@ -9545,7 +9642,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    validateArgs?(args: unknown): void;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
@@ -9589,7 +9686,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolGuard',
-    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined;',
+    declaration: 'export type ToolGuard = (execution: Readonly<ToolExecution>) => string | undefined | PromiseLike<string | undefined>;',
   },
   {
     name: 'ToolHistory',
@@ -9657,7 +9754,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolsService',
-    declaration: 'export class ToolsService extends Service {\n    static inject;\n    static Config;\n    constructor(ctx: Context);\n    register(definition: ToolDefinition, options: ToolRegistrationOptions = {}): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    get(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition | undefined;\n    executable(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition | undefined;\n    async resolve(context: ToolActivationContext): Promise<ResolvedToolSet>;\n    definitions(scope?: ScopeKey, toolSet?: ResolvedToolSet): readonly ToolDefinition[];\n    schemas(scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolSchema[];\n    setExecutor(executor: ToolExecutor): () => void;\n    async execute(input: ToolBatchInput): Promise<ToolBatchResult>;\n    guard(guard: ToolGuard): () => void;\n    checkGuards(exec: ToolExecution): string | undefined;\n}',
+    declaration: 'export class ToolsService extends Service {\n    static inject;\n    static Config;\n    constructor(ctx: Context);\n    register(definition: ToolDefinition, options: ToolRegistrationOptions = {}): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    get(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition | undefined;\n    executable(name: string, scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolDefinition | undefined;\n    async resolve(context: ToolActivationContext): Promise<ResolvedToolSet>;\n    definitions(scope?: ScopeKey, toolSet?: ResolvedToolSet): readonly ToolDefinition[];\n    schemas(scope?: ScopeKey, toolSet?: ResolvedToolSet): ToolSchema[];\n    setExecutor(executor: ToolExecutor): () => void;\n    async execute(input: ToolBatchInput): Promise<ToolBatchResult>;\n    guard(guard: ToolGuard): () => void;\n    async checkGuards(exec: ToolExecution, callerCancelled: () => boolean = () => exec.signal.aborted): Promise<string | undefined>;\n}',
   },
   {
     name: 'ToolUpdate',
@@ -9686,6 +9783,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TranslationSpec',
     declaration: 'export type TranslationSpec = AnonymousTranslationSpec | PaidTranslationSpec;',
+  },
+  {
+    name: 'TrustedFilePickerChallenge',
+    declaration: 'export type TrustedFilePickerChallenge = Branded<\'TrustedFilePickerChallenge\'>;',
+  },
+  {
+    name: 'TrustedFilePickerProvider',
+    declaration: 'export interface TrustedFilePickerProvider {\n    validate(challenge: TrustedFilePickerChallenge, signal: AbortSignal): Promise<TrustedFilePickerSpec | null>;\n    complete(challenge: TrustedFilePickerChallenge, selectedPath: string | null, signal: AbortSignal): Promise<TrustedFilePickerStatus>;\n    revoke(challenge: TrustedFilePickerChallenge): void;\n}',
+  },
+  {
+    name: 'TrustedFilePickerSpec',
+    declaration: 'export interface TrustedFilePickerSpec {\n    readonly purpose: \'save-zip\' | \'open-zip\' | \'select-directory\';\n    readonly expiresAt: number;\n}',
+  },
+  {
+    name: 'TrustedFilePickerStatus',
+    declaration: 'export type TrustedFilePickerStatus = \'selected\' | \'cancelled\' | \'rejected\';',
   },
   {
     name: 'TurnBoundaryProjection',
@@ -10078,6 +10191,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'WorkingDirectoryExecution',
+    declaration: 'export interface WorkingDirectoryExecution {\n    readonly agent?: Agent;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'Workspace',
