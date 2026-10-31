@@ -86,18 +86,27 @@ it.each([
   { schemaVersion: 2 },
   { platform: 'other' },
   { arch: 'other' },
-  { release: { schemaVersion: 2 } },
-  { release: { hostProtocolVersion: 999 } },
-  { release: { nodeVersion: 'invalid' } },
-  { release: { pnpmVersion: 'invalid' } },
 ])('checks release compatibility only during build verification: %j', async (patch) => {
   const dsh = join(fixture(), 'dsh')
   const path = join(dsh, DESKTOP_RUNTIME_FILE)
   const original = readDesktopRuntime(dsh)
-  const descriptor = { ...original, ...patch, release: { ...original.release, ...patch.release } }
+  const descriptor = { ...original, ...patch }
   writeFileSync(path, JSON.stringify(descriptor))
   expect(readDesktopRuntime(dsh)).toEqual(descriptor)
   await expect(verifyDesktopRuntime(dsh, '1.0.0')).rejects.toThrow(/invalid|incompatible/u)
+})
+it.each([
+  { schemaVersion: 2 },
+  { hostProtocolVersion: 999 },
+  { nodeVersion: 'invalid' },
+  { pnpmVersion: 'invalid' },
+])('rejects invalid release metadata during startup and build verification: %j', async (patch) => {
+  const dsh = join(fixture(), 'dsh')
+  const path = join(dsh, DESKTOP_RUNTIME_FILE)
+  const original = readDesktopRuntime(dsh)
+  writeFileSync(path, JSON.stringify({ ...original, release: { ...original.release, ...patch } }))
+  expect(() => readDesktopRuntime(dsh)).toThrow(/invalid desktop release metadata/u)
+  await expect(verifyDesktopRuntime(dsh, '1.0.0')).rejects.toThrow(/invalid desktop release metadata/u)
 })
 it.each(['missing', 'invalid-json', 'mismatched'])('checks %s shared manifests only during build verification', async (operation) => {
   const dsh = join(fixture(), 'dsh')
