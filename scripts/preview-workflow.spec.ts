@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { runInNewContext } from 'node:vm'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 
@@ -10,10 +11,17 @@ const workflow = yaml.load(readFileSync(resolve(import.meta.dirname, '../.github
   env: Record<string, string>
   jobs: Record<'preview', {
     'runs-on': string
+    if?: string
     steps: Array<{ name?: string; uses?: string; run?: string; if?: string; 'continue-on-error'?: boolean; with?: Record<string, unknown>; env?: Record<string, string> }>
   }>
 }
 const preview = workflow.jobs.preview
+const operationalRepository = 'deepseek-harness/deepseek-harness'
+const deploymentStepNames = ['Upload to Cloudflare Pages', 'Verify the protected deployment serves the image', 'Comment the preview URL']
+const deploymentGuard = "github.repository == 'deepseek-harness/deepseek-harness' && "
+  + "github.event.repository.full_name == 'deepseek-harness/deepseek-harness' && "
+  + 'github.event.pull_request.head.repo.full_name == github.repository && '
+  + "github.event.pull_request.user.login != 'dependabot[bot]'"
 
 describe('PR preview workflow', () => {
   it('keeps every PR author on the selected runner', () => {
@@ -26,6 +34,45 @@ describe('PR preview workflow', () => {
     expect(workflow.on).toEqual({ pull_request: { types: ['opened', 'synchronize', 'reopened'] } })
     expect(workflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'write' })
     expect(preview.steps.find(step => step.uses === 'actions/checkout@v7.0.1')?.with).toEqual({ 'persist-credentials': false })
+  })
+
+  it('builds every PR and guards only remote operations before reporting publication failures', () => {
+    expect(preview.if).toBeUndefined()
+    expect(preview.steps.filter(step => step.if !== undefined).map(step => step.name))
+      .toEqual([...deploymentStepNames, 'Report preview publication failures'])
+    for (const step of preview.steps) {
+      if (step.name && deploymentStepNames.includes(step.name)) {
+        expect(step.if, step.name).toBe(deploymentGuard)
+      }
+    }
+  })
+
+  it.each(deploymentStepNames)('%s requires the configured repository, a same-repository head, and a non-Dependabot author', (name) => {
+    const step = preview.steps.find(step => step.name === name)!
+    if (typeof step.if !== 'string') throw new TypeError(`${name} must define a deployment condition`)
+    for (const [repository, eventRepository, headRepository, login, expected] of [
+      [operationalRepository, operationalRepository, operationalRepository, 'maintainer', true],
+      ['sophon2000/deepseek-harness', 'sophon2000/deepseek-harness', 'sophon2000/deepseek-harness', 'maintainer', false],
+      ['deepseek-ai/deepseek-harness', 'deepseek-ai/deepseek-harness', 'deepseek-ai/deepseek-harness', 'maintainer', false],
+      ['another-owner/deepseek-harness', 'another-owner/deepseek-harness', 'another-owner/deepseek-harness', 'maintainer', false],
+      [operationalRepository, 'sophon2000/deepseek-harness', operationalRepository, 'maintainer', false],
+      ['sophon2000/deepseek-harness', operationalRepository, 'sophon2000/deepseek-harness', 'maintainer', false],
+      [operationalRepository, operationalRepository, 'sophon2000/deepseek-harness', 'maintainer', false],
+      [operationalRepository, operationalRepository, operationalRepository, 'dependabot[bot]', false],
+      [operationalRepository, '', operationalRepository, 'maintainer', false],
+      ['', operationalRepository, operationalRepository, 'maintainer', false],
+      [operationalRepository, operationalRepository, '', 'maintainer', false],
+    ] as const) {
+      expect(runInNewContext(step.if, {
+        github: {
+          repository,
+          event: {
+            repository: { full_name: eventRepository },
+            pull_request: { head: { repo: { full_name: headRepository } }, user: { login } },
+          },
+        },
+      }, { timeout: 1000 }), `${repository} event=${eventRepository} head=${headRepository} author=${login}`).toBe(expected)
+    }
   })
 
   it('fails the check only for build failures and warns about publication', () => {

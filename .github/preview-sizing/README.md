@@ -28,6 +28,8 @@ A build-only benchmark does not deploy, access Cloudflare credentials, or post p
 
 Runner selection does not alter pull-request events, per-PR cancellation, immutable installation, restore-only dependency caching, full workspace build, preview packing, sourcemap removal, or the preview page copied to the deployment root. Cloudflare uploads only the built site to the PR branch alias. The protected-image check requires HTTP 200, no transport content encoding, and gzip magic bytes; the URL comment remains idempotent. Dependabot and other PR authors remain on GitHub-hosted machines.
 
+Every pull request builds. Upload, deployment verification, and URL comments run only when both repository identities name `deepseek-harness/deepseek-harness`, the head belongs to that repository, and the author is not Dependabot. Publication failures warn without failing a successful build.
+
 <a id="dev-note"></a>
 
 ## Dev Note

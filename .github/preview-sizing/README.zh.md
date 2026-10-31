@@ -28,6 +28,8 @@
 
 运行器选择不改变 PR 事件、按 PR 取消、不可变安装、只恢复的依赖缓存、完整工作区构建、预览打包、sourcemap 删除，以及复制到部署根目录的预览页面。Cloudflare 仅将构建站点上传至 PR 分支别名。受保护镜像检查要求 HTTP 200、无传输内容编码及 gzip 魔数字节；URL 评论保持幂等。Dependabot 与其他 PR 作者仍使用 GitHub 托管机器。
 
+每个 PR 都执行构建。上传、部署验证和 URL 评论仅在两个仓库标识均为 `deepseek-harness/deepseek-harness`、head 属于该仓库且作者不是 Dependabot 时运行。发布失败仅告警，不使成功的构建失败。
+
 <a id="dev-note"></a>
 
 ## 开发备注
