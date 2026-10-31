@@ -142,17 +142,34 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 describe('current directory resolution', () => {
-  it('uses the directory service and keeps non-agent provider defaults', async () => {
+  it('shares the exact execution with directory guards and keeps non-agent provider defaults', async () => {
     const ctx = new Context()
-    const ensure = vi.fn(async () => '/current/project')
-    ctx.provide('workingDirectory', { ensure })
+    const ensureForExecution = vi.fn(async (execution: { agent?: object }) => execution.agent === undefined ? undefined : '/current/project')
+    ctx.provide('workingDirectory', { ensureForExecution })
     const agent = { session: { header: { cwd: '/original/project' } } }
     const exec = { agent, signal: testToolSignal }
     expect(await sessionResolveOptions(ctx, exec as never)).toEqual({ cwd: '/current/project', signal: testToolSignal })
-    expect(ensure).toHaveBeenCalledWith(agent, testToolSignal)
+    expect(ensureForExecution).toHaveBeenCalledWith(exec)
+    expect(ensureForExecution.mock.calls[0]?.[0]).toBe(exec)
     expect(await sessionResolveOptions(ctx, { signal: testToolSignal } as never)).toEqual({ signal: testToolSignal })
-    expect(ensure).toHaveBeenCalledTimes(1)
+    expect(ensureForExecution).toHaveBeenCalledTimes(2)
     await ctx.fiber.dispose()
+  })
+
+  it('propagates a pinned directory failure without resolving another directory', async () => {
+    const ctx = new Context()
+    const failure = new Error('pinned directory is unavailable')
+    const ensureForExecution = vi.fn(async (_execution: { signal: AbortSignal }) => { throw failure })
+    const ensure = vi.fn(async () => '/replacement/project')
+    ctx.provide('workingDirectory', { ensureForExecution, ensure })
+    const exec = { agent: { session: {} }, signal: testToolSignal }
+    try {
+      await expect(sessionResolveOptions(ctx, exec as never)).rejects.toBe(failure)
+      expect(ensureForExecution.mock.calls[0]?.[0]).toBe(exec)
+      expect(ensure).not.toHaveBeenCalled()
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 })
 

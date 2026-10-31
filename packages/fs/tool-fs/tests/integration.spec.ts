@@ -10,7 +10,7 @@ import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mountAgentLoopTestDependencies, provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -567,6 +567,78 @@ describe('signal, concurrency, and the fs/observed contract', () => {
 
 
 describe('current working directory', () => {
+  it.each((['read', 'write', 'edit'] as const).flatMap(name =>
+    (['change', 'recover'] as const).map(transition => ({ name, transition }))))('keeps $name at the guard directory through wrapper $transition without rewriting arguments', async ({ name, transition }) => {
+    dir = await realpath(await mkdtemp(join(tmpdir(), 'dsh-tool-fs-guard-cwd-')))
+    const project = join(dir, 'project')
+    const temporary = join(project, 'temporary')
+    const outside = transition === 'recover' ? dir : join(dir, 'outside')
+    await mkdir(temporary, { recursive: true })
+    if (outside !== dir) await mkdir(outside)
+    await writeFile(join(project, 'note.txt'), 'authorized project bytes')
+    await writeFile(join(outside, 'note.txt'), 'outside bytes')
+    ctx = new Context()
+    try {
+      await ctx.plugin(LocalFileSystem, { cwd: project })
+      await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+      await ctx.plugin(AgentLoop, { agents: [] })
+      fiber = await ctx.plugin(ToolFs)
+      const handle = await ctx.agents.create({
+        sessionId: SessionId('guard-directory-files'), meta: { cwd: project },
+        agentOptions: { provider: 'mock', model: 'mock' },
+      })
+      const agent = handle.agent
+      if (transition === 'recover') await ctx.workingDirectory.set(agent, temporary)
+      const authorized = ctx.workingDirectory.get(agent.session)
+      const filePath = transition === 'recover' ? '../note.txt' : 'note.txt'
+      const args = name === 'read' ? { file_path: filePath }
+        : name === 'write' ? { file_path: filePath, content: 'authorized replacement' }
+          : { file_path: filePath, old_string: transition === 'recover' ? 'outside bytes' : 'authorized project bytes', new_string: 'authorized replacement' }
+      let guardExecution: object | undefined
+      let bodyExecution: object | undefined
+      agent.ctx.tools.guard(async (exec) => {
+        guardExecution = exec
+        const cwd = await ctx.workingDirectory.ensureForExecution(exec)
+        return cwd === authorized ? undefined : 'outside project'
+      })
+      agent.ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'allow' }), { prepend: true })
+      ctx.on('tools/execute', async (exec, next) => {
+        bodyExecution = exec
+        expect(exec.arguments).toEqual(args)
+        expect(Object.isFrozen(exec.arguments)).toBe(true)
+        if (transition === 'recover') {
+          await rm(temporary, { recursive: true })
+          expect(await ctx.workingDirectory.ensure(agent)).toBe(project)
+        } else await ctx.workingDirectory.set(agent, outside)
+        return next()
+      })
+      const result = await executeModelToolFixture(ctx, {
+        signal: testToolSignal, callId: ToolCallId(`${name}-guard-current`), name, arguments: args, agent,
+      })
+      expect(bodyExecution).toBe(guardExecution)
+      if (transition === 'recover') {
+        expect(result).toMatchObject({ isError: true, error: { info: { code: 'FS_NOT_FOUND' } } })
+        expect(text(result)).not.toContain('authorized project bytes')
+      } else {
+        expect(result.isError).toBe(false)
+        expect(result.meta).toMatchObject({ path: join(authorized, 'note.txt') })
+        if (name === 'read') expect(text(result)).toContain('authorized project bytes')
+      }
+      expect(text(result)).not.toContain('outside bytes')
+      expect(await readFile(join(project, 'note.txt'), 'utf8'))
+        .toBe(transition === 'recover' || name === 'read' ? 'authorized project bytes' : 'authorized replacement')
+      expect(await readFile(join(outside, 'note.txt'), 'utf8')).toBe('outside bytes')
+      expect(ctx.workingDirectory.get(agent.session)).not.toBe(authorized)
+      const denied = await executeModelToolFixture(ctx, {
+        signal: testToolSignal, callId: ToolCallId(`${name}-next-current`), name, arguments: args, agent,
+      })
+      expect(denied.isError).toBe(true)
+      expect(text(denied)).toBe('Error: outside project')
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('routes subsequent files to the new directory while keeping the original permission root', async () => {
     dir = await mkdtemp(join(tmpdir(), 'dsh-tool-fs-current-'))
     const next = join(dir, 'next')
